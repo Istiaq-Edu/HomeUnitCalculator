@@ -38,6 +38,17 @@ class CustomLineEdit(QLineEdit):
         # Apply custom style sheet
         self.setStyleSheet(get_line_edit_style())
 
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Down, Qt.Key_Right):
+            if self.next_widget:
+                self.next_widget.setFocus()
+                return
+        elif event.key() in (Qt.Key_Up, Qt.Key_Left):
+            if self.previous_widget:
+                self.previous_widget.setFocus()
+                return
+        super().keyPressEvent(event)
+
     def focusInEvent(self, event):
         # Call the parent class focus in event
         super().focusInEvent(event)
@@ -53,23 +64,6 @@ class CustomLineEdit(QLineEdit):
         if parent:
             parent.ensureWidgetVisible(self)
 
-    def keyPressEvent(self, event):
-        # Handle navigation keys
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Down, Qt.Key_Right):
-            # Move focus forward
-            self.moveFocus(forward=True)
-        elif event.key() in (Qt.Key_Up, Qt.Key_Left):
-            # Move focus backward
-            self.moveFocus(forward=False)
-        elif event.key() == Qt.Key_Tab:
-            # Handle Tab key normally
-            super().keyPressEvent(event)
-        else:
-            # Handle other keys normally
-            super().keyPressEvent(event)
-        
-        # Ensure the widget is visible after any key press
-        self.ensureWidgetVisible()
 
     def moveFocus(self, forward=True):
         current = self.focusWidget()
@@ -744,22 +738,25 @@ class MeterCalculationApp(QMainWindow):
         )
 
         def create_cell(content, bgcolor=colors.lightsteelblue, textcolor=colors.black, style=normal_style, height=0.2*inch):
+            # Convert string content to Paragraph object if necessary
             if isinstance(content, str):
                 content = Paragraph(content, style)
+            
+            # Create and return a Table object with specified properties
             return Table(
-                [[content]],
-                colWidths=[7.5*inch],
-                rowHeights=[height],
+                [[content]],  # Content wrapped in a nested list for single-cell table
+                colWidths=[7.5*inch],  # Set column width to 7.5 inches
+                rowHeights=[height],  # Set row height to the specified height (default 0.2 inches)
                 style=TableStyle([
-                    ('BACKGROUND', (0,0), (-1,-1), bgcolor),
-                    ('BOX', (0,0), (-1,-1), 1, colors.darkblue),
-                    ('TEXTCOLOR', (0,0), (-1,-1), textcolor),
-                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                    ('LEFTPADDING', (0,0), (-1,-1), 6),
-                    ('RIGHTPADDING', (0,0), (-1,-1), 6),
-                    ('TOPPADDING', (0,0), (-1,-1), 2),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                    ('BACKGROUND', (0,0), (-1,-1), bgcolor),  # Set background color
+                    ('BOX', (0,0), (-1,-1), 1, colors.darkblue),  # Add a box around the cell
+                    ('TEXTCOLOR', (0,0), (-1,-1), textcolor),  # Set text color
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),  # Vertically align content to middle
+                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),  # Horizontally align content to left
+                    ('LEFTPADDING', (0,0), (-1,-1), 6),  # Set left padding
+                    ('RIGHTPADDING', (0,0), (-1,-1), 6),  # Set right padding
+                    ('TOPPADDING', (0,0), (-1,-1), 2),  # Set top padding
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),  # Set bottom padding
                 ])
             )
 
@@ -861,52 +858,62 @@ class MeterCalculationApp(QMainWindow):
         doc.build(elements)
 
     def setup_navigation(self):
-        # Interleave meter and difference entries
-        all_entries = []
-        for meter_entry, diff_entry in zip(self.meter_entries, self.diff_entries):
-            all_entries.extend([meter_entry, diff_entry])
-        
-        # Add room entries
-        all_entries.extend([entry for room in self.room_entries for entry in room])
+        # Setup navigation for main calculation tab
+        for i in range(3):  # Assuming 3 pairs of meter and diff entries
+            meter_entry = self.meter_entries[i]
+            diff_entry = self.diff_entries[i]
+            
+            # Set navigation from meter to diff
+            meter_entry.next_widget = diff_entry
+            diff_entry.previous_widget = meter_entry
+            
+            # Set navigation from diff to next meter (or back to first meter if it's the last pair)
+            if i < 2:
+                diff_entry.next_widget = self.meter_entries[i+1]
+                self.meter_entries[i+1].previous_widget = diff_entry
+            else:
+                diff_entry.next_widget = self.meter_entries[0]
+                self.meter_entries[0].previous_widget = diff_entry
 
-        # Link each entry to the next and previous entries in the list
-        for i, entry in enumerate(all_entries):
-            entry.previous_widget = all_entries[i - 1] if i > 0 else None
-            entry.next_widget = all_entries[i + 1] if i < len(all_entries) - 1 else None
-
-        # Ensure tab order is set correctly
-        for i in range(len(all_entries) - 1):
-            QWidget.setTabOrder(all_entries[i], all_entries[i + 1])
+        # Setup navigation for room calculation tab
+        num_rooms = len(self.room_entries)
+        for i, (present_entry, previous_entry) in enumerate(self.room_entries):
+            # Set navigation within the room
+            present_entry.next_widget = previous_entry
+            previous_entry.previous_widget = present_entry
+            
+            # Set navigation to the next room (or back to the first room if it's the last room)
+            next_room_index = (i + 1) % num_rooms
+            previous_entry.next_widget = self.room_entries[next_room_index][0]  # Present entry of next room
+            present_entry.previous_widget = self.room_entries[i - 1][1]  # Previous entry of previous room
 
         # Set focus to the first entry when the tab is opened
-        if all_entries:
-            self.tab_widget.currentChanged.connect(lambda index: all_entries[0].setFocus() if index == 0 else None)
-
-        # Add error handling for empty lists
-        if not self.meter_entries or not self.diff_entries or not self.room_entries:
-            print("Warning: One or more entry lists are empty.")
-            # Consider raising an exception or handling this case more robustly
-
-        # Improve performance for large lists
-        if len(all_entries) > 1000:
-            print("Warning: Large number of entries may impact performance.")
-            # Consider implementing pagination or lazy loading for better performance
+        self.tab_widget.currentChanged.connect(self.set_focus_on_tab_change)
 
         # Add accessibility features
-        for entry in all_entries:
-            entry.setAccessibleName(f"Entry {all_entries.index(entry) + 1}")
-            entry.setAccessibleDescription("Input field for meter or difference value")
+        self.add_accessibility_features(self.meter_entries + self.diff_entries)
+        for room_entries in self.room_entries:
+            self.add_accessibility_features(room_entries)
 
         # Add keyboard shortcut for quick navigation
         self.shortcut = QShortcut(QKeySequence("Ctrl+N"), self)
-        self.shortcut.activated.connect(lambda: self.focus_next_entry(all_entries))
+        self.shortcut.activated.connect(self.focus_next_entry)
 
-    def focus_next_entry(self, entries):
+    def set_focus_on_tab_change(self, index):
+        if index == 0 and self.meter_entries:  # Main calculation tab
+            self.meter_entries[0].setFocus()
+        elif index == 1 and self.room_entries:  # Room calculation tab
+            self.room_entries[0][0].setFocus()
+
+    def add_accessibility_features(self, entries):
+        for i, entry in enumerate(entries):
+            entry.setAccessibleName(f"Entry {i + 1}")
+            entry.setAccessibleDescription("Input field for meter or difference value")
+
+    def focus_next_entry(self):
         current = QApplication.focusWidget()
-        if current in entries:
-            index = entries.index(current)
-            next_index = (index + 1) % len(entries)
-            entries[next_index].setFocus()
+        if isinstance(current, CustomLineEdit) and current.next_widget:
+            current.next_widget.setFocus()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
