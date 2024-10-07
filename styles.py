@@ -172,7 +172,7 @@ def get_month_info_style():
             border-bottom-right-radius: 4px;
         }
         QComboBox::down-arrow {
-            image: url(down_arrow.png);
+            image: url(icons/down_arrow.png);
             width: 20px;
             height: 20px;
         }
@@ -204,10 +204,10 @@ def get_month_info_style():
             height: 12px;
         }
         QSpinBox::up-arrow {
-            image: url(up_arrow.png);
+            image: url(icons/up_arrow.png);
         }
         QSpinBox::down-arrow {
-            image: url(down_arrow.png);
+            image: url(icons/down_arrow.png);
         }
     """
 

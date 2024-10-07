@@ -169,7 +169,7 @@ class MeterCalculationApp(QMainWindow):
         self.setWindowTitle("Meter Calculation Application")
         self.setGeometry(400, 100, 1000, 800)
         
-        self.setWindowIcon(QIcon("icon.png"))
+        self.setWindowIcon(QIcon("icons/icon.png"))
         self.setStyleSheet(get_stylesheet())
 
         self.init_ui()
@@ -195,7 +195,7 @@ class MeterCalculationApp(QMainWindow):
 
         # Add Save to PDF button
         save_pdf_button = QPushButton("Save to PDF")
-        save_pdf_button.setIcon(QIcon("save_icon.png"))
+        save_pdf_button.setIcon(QIcon("icons/save_icon.png"))
         save_pdf_button.clicked.connect(self.save_to_pdf)
         main_layout.addWidget(save_pdf_button)
 
@@ -261,7 +261,7 @@ class MeterCalculationApp(QMainWindow):
 
         # Add Calculate button
         calculate_button = QPushButton("Calculate")
-        calculate_button.setIcon(QIcon("calculate_icon.png"))
+        calculate_button.setIcon(QIcon("icons/calculate_icon.png"))
         calculate_button.clicked.connect(self.calculate_main)
         calculate_button.setStyleSheet(get_button_style())
         calculate_button.setFixedHeight(50)
@@ -406,7 +406,7 @@ class MeterCalculationApp(QMainWindow):
 
         # Add Calculate Room Bills button
         calculate_rooms_button = QPushButton("Calculate Room Bills")
-        calculate_rooms_button.setIcon(QIcon("calculate_icon.png"))
+        calculate_rooms_button.setIcon(QIcon("icons/calculate_icon.png"))
         calculate_rooms_button.clicked.connect(self.calculate_rooms)
         calculate_rooms_button.setStyleSheet(get_button_style())
         layout.addWidget(calculate_rooms_button)
