@@ -1,9 +1,8 @@
 name: Build EXE
 
 on:
-  push:
-    branches:
-      - main  # or specify your development branch
+  workflow_dispatch: # This allows manual triggering of the workflow
+
 
 jobs:
   build:
@@ -26,7 +25,7 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller --onefile --windowed --add-data "icons:icons" HomeUnitCalculator.py  # Create the .exe
+        pyinstaller --onefile --windowed --add-data "icons:icons" --icon=icons/icon.png HomeUnitCalculator.py  # Create the .exe
 
     - name: Upload EXE
       uses: actions/upload-artifact@v4
