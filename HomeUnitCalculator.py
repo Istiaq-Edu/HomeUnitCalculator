@@ -1,10 +1,11 @@
 import sys
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint
+from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
 from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QGridLayout, QGroupBox, QFormLayout, QFileDialog,
-    QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QFrame, QShortcut
+    QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QFrame, QShortcut,
+    QAbstractSpinBox
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -20,6 +21,16 @@ from styles import (
     get_line_edit_style, get_button_style, get_results_group_style,
     get_room_group_style, get_month_info_style, get_table_style, get_label_style
 )
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 # Custom QLineEdit class for improved input handling and navigation
 class CustomLineEdit(QLineEdit):
@@ -169,7 +180,7 @@ class MeterCalculationApp(QMainWindow):
         self.setWindowTitle("Meter Calculation Application")
         self.setGeometry(400, 100, 1000, 800)
         
-        self.setWindowIcon(QIcon("icons/icon.png"))
+        self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
         self.setStyleSheet(get_stylesheet())
 
         self.init_ui()
@@ -195,7 +206,7 @@ class MeterCalculationApp(QMainWindow):
 
         # Add Save to PDF button
         save_pdf_button = QPushButton("Save to PDF")
-        save_pdf_button.setIcon(QIcon("icons/save_icon.png"))
+        save_pdf_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
         save_pdf_button.clicked.connect(self.save_to_pdf)
         main_layout.addWidget(save_pdf_button)
 
@@ -261,7 +272,7 @@ class MeterCalculationApp(QMainWindow):
 
         # Add Calculate button
         calculate_button = QPushButton("Calculate")
-        calculate_button.setIcon(QIcon("icons/calculate_icon.png"))
+        calculate_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
         calculate_button.clicked.connect(self.calculate_main)
         calculate_button.setStyleSheet(get_button_style())
         calculate_button.setFixedHeight(50)
@@ -406,7 +417,7 @@ class MeterCalculationApp(QMainWindow):
 
         # Add Calculate Room Bills button
         calculate_rooms_button = QPushButton("Calculate Room Bills")
-        calculate_rooms_button.setIcon(QIcon("icons/calculate_icon.png"))
+        calculate_rooms_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
         calculate_rooms_button.clicked.connect(self.calculate_rooms)
         calculate_rooms_button.setStyleSheet(get_button_style())
         layout.addWidget(calculate_rooms_button)
