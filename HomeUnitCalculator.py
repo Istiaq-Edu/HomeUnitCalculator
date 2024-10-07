@@ -21,16 +21,7 @@ from styles import (
     get_line_edit_style, get_button_style, get_results_group_style,
     get_room_group_style, get_month_info_style, get_table_style, get_label_style
 )
-
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-
-    return os.path.join(base_path, relative_path)
+from utils import resource_path
 
 # Custom QLineEdit class for improved input handling and navigation
 class CustomLineEdit(QLineEdit):

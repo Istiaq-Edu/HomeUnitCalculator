@@ -1,3 +1,5 @@
+from utils import resource_path
+
 def get_stylesheet():
     return """
         QMainWindow, QWidget {
@@ -143,12 +145,14 @@ def get_group_box_style():
     """
 
 def get_month_info_style():
-    return """
-        QComboBox QAbstractItemView::item:hover {
+    down_arrow_path = resource_path('icons/down_arrow.png').replace('\\', '/')
+    up_arrow_path = resource_path('icons/up_arrow.png').replace('\\', '/')
+    return f"""
+        QComboBox QAbstractItemView::item:hover {{
             background-color: #E6F7F2;
             color: #059669;
-        }
-        QComboBox, QSpinBox {
+        }}
+        QComboBox, QSpinBox {{
             border: 1px solid #059669;
             border-radius: 4px;
             padding: 5px 25px 5px 5px;
@@ -156,59 +160,59 @@ def get_month_info_style():
             font-size: 13px;
             min-width: 150px;
             color: #065F46;
-        }
-        QComboBox:focus, QSpinBox:focus {
+        }}
+        QComboBox:focus, QSpinBox:focus {{
             border: 2px solid #059669;
-        }
-        QComboBox:hover, QSpinBox:hover {
+        }}
+        QComboBox:hover, QSpinBox:hover {{
             background-color: #F0FDF9;
-        }
-        QComboBox::drop-down {
+        }}
+        QComboBox::drop-down {{
             subcontrol-origin: padding;
             subcontrol-position: top right;
             width: 20px;
             border-left: 1px solid #059669;
             border-top-right-radius: 4px;
             border-bottom-right-radius: 4px;
-        }
-        QComboBox::down-arrow {
-            image: url(icons/down_arrow.png);
+        }}
+        QComboBox::down-arrow {{
+            image: url("{down_arrow_path}");
             width: 20px;
             height: 20px;
-        }
-        QComboBox QAbstractItemView {
+        }}
+        QComboBox QAbstractItemView {{
             border: 1px solid #059669;
             background-color: white;
             selection-background-color: #10B981;
-        }
-        QComboBox QAbstractItemView::item {
+        }}
+        QComboBox QAbstractItemView::item {{
             padding: 5px;
             color: #065F46;
-        }
-        QComboBox QAbstractItemView::item:selected {
+        }}
+        QComboBox QAbstractItemView::item:selected {{
             background-color: #059669;
             color: white;
-        }
-        QLabel {
+        }}
+        QLabel {{
             border: none;
             background-color: transparent;
             padding: 0;
             color: #065F46;
-        }
-        QSpinBox::up-button, QSpinBox::down-button {
+        }}
+        QSpinBox::up-button, QSpinBox::down-button {{
             width: 16px;
             border-left: 1px solid #059669;
-        }
-        QSpinBox::up-arrow, QSpinBox::down-arrow {
+        }}
+        QSpinBox::up-arrow, QSpinBox::down-arrow {{
             width: 12px;
             height: 12px;
-        }
-        QSpinBox::up-arrow {
-            image: url(icons/up_arrow.png);
-        }
-        QSpinBox::down-arrow {
-            image: url(icons/down_arrow.png);
-        }
+        }}
+        QSpinBox::up-arrow {{
+            image: url("{up_arrow_path}");
+        }}
+        QSpinBox::down-arrow {{
+            image: url("{down_arrow_path}");
+        }}
     """
 
 def get_line_edit_style():
