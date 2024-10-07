@@ -1,0 +1,35 @@
+name: Build EXE
+
+on:
+  push:
+    branches:
+      - main  # or specify your development branch
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'  # Adjust to your project's Python version
+
+    - name: Install dependencies
+      run: |
+        pip install pyinstaller
+        pip install pyqt5
+        pip install reportlab
+
+    - name: Build EXE
+      run: |
+        pyinstaller --onefile --windowed HomeUnitCalculator.py  # Create the .exe
+
+    - name: Upload EXE
+      uses: actions/upload-artifact@v3
+      with:
+        name: HomeUnitCalculator-exe
+        path: dist/HomeUnitCalculator.exe  # Upload the .exe file as an artifact
