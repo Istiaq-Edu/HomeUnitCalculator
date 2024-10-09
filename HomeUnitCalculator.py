@@ -1,11 +1,11 @@
 import sys
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
-from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence
+from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QGridLayout, QGroupBox, QFormLayout, QFileDialog,
     QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QFrame, QShortcut,
-    QAbstractSpinBox
+    QAbstractSpinBox, QStyleOptionSpinBox, QStyle
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -19,7 +19,8 @@ from datetime import datetime
 from styles import (
     get_stylesheet, get_header_style, get_group_box_style,
     get_line_edit_style, get_button_style, get_results_group_style,
-    get_room_group_style, get_month_info_style, get_table_style, get_label_style
+    get_room_group_style, get_month_info_style, get_table_style, get_label_style, get_custom_spinbox_style,
+    get_room_selection_style
 )
 from utils import resource_path
 
@@ -192,6 +193,45 @@ class AutoScrollArea(QScrollArea):
             # Ensure the target point is visible in the scroll area
             self.ensureVisible(target_local.x(), target_local.y(), 
             self.viewport().width() // 2, self.viewport().height() // 2)
+
+class CustomSpinBox(QSpinBox):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.setStyleSheet(get_custom_spinbox_style())
+
+    def stepBy(self, steps):
+        super().stepBy(steps)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        option = QStyleOptionSpinBox()
+        self.initStyleOption(option)
+        
+        # Draw the base widget
+        self.style().drawComplexControl(QStyle.CC_SpinBox, option, painter, self)
+        
+        # Draw custom up/down arrows
+        rect = self.rect()
+        icon_size = 14
+        padding = 2
+        
+        up_arrow = QIcon(resource_path("icons/up_arrow.png")).pixmap(icon_size, icon_size)
+        down_arrow = QIcon(resource_path("icons/down_arrow.png")).pixmap(icon_size, icon_size)
+        
+        painter.drawPixmap(rect.right() - icon_size - padding, rect.top() + padding, up_arrow)
+        painter.drawPixmap(rect.right() - icon_size - padding, rect.bottom() - icon_size - padding, down_arrow)
+
+    def mousePressEvent(self, event):
+        rect = self.rect()
+        if event.x() > rect.right() - 20:
+            if event.y() < rect.height() / 2:
+                self.stepUp()
+            else:
+                self.stepDown()
+        else:
+            super().mousePressEvent(event)
 
 # Main application class
 class MeterCalculationApp(QMainWindow):
@@ -418,30 +458,47 @@ class MeterCalculationApp(QMainWindow):
         layout = QVBoxLayout()  # Create a vertical layout for the tab
         rooms_tab.setLayout(layout)  # Set the layout for the rooms tab
 
+        # Create a group box for room selection
+        room_selection_group = QGroupBox("Room Selection")
+        room_selection_group.setStyleSheet(get_room_selection_style())
+        room_selection_layout = QHBoxLayout()
+        room_selection_group.setLayout(room_selection_layout)
+
         # Add Number of Rooms selection
-        num_rooms_layout = QHBoxLayout()  # Create a horizontal layout for room number selection
+        # num_rooms_layout = QHBoxLayout()  # Create a horizontal layout for room number selection
         num_rooms_label = QLabel("Number of Rooms:")  # Create a label for room number selection
-        self.num_rooms_spinbox = QSpinBox()  # Create a spinbox for selecting number of rooms
+        self.num_rooms_spinbox = CustomSpinBox()  # Create a spinbox for selecting number of rooms
         self.num_rooms_spinbox.setRange(1, 20)  # Set the range of rooms from 1 to 20
         self.num_rooms_spinbox.setValue(11)  # Set the default value to 11 rooms
         self.num_rooms_spinbox.valueChanged.connect(self.update_room_inputs)  # Connect value change to update function
-        self.num_rooms_spinbox.setStyleSheet(get_line_edit_style())  # Apply style to the spinbox
-        num_rooms_layout.addWidget(num_rooms_label)  # Add the label to the layout
-        num_rooms_layout.addWidget(self.num_rooms_spinbox)  # Add the spinbox to the layout
-        layout.addLayout(num_rooms_layout)  # Add the room number selection layout to the main layout
+        self.num_rooms_spinbox.setFixedWidth(100)  # Increase the width of the spinbox
+        room_selection_layout.addWidget(num_rooms_label)
+        room_selection_layout.addWidget(self.num_rooms_spinbox)
+        room_selection_layout.addStretch(1)  # Add stretch to push widgets to the left
+
+        # Create a wrapper widget for the scroll area
+        scroll_wrapper = QWidget()
+        scroll_wrapper_layout = QVBoxLayout(scroll_wrapper)
+        scroll_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Add room selection group to the wrapper
+        scroll_wrapper_layout.addWidget(room_selection_group)
 
         # Add scrollable area for room inputs
-        self.rooms_scroll_area = AutoScrollArea()  # Create a custom scrollable area
-        self.rooms_scroll_area.setWidgetResizable(True)  # Allow the scroll area to resize its widget
-        self.rooms_scroll_widget = QWidget()  # Create a widget to hold the room inputs
-        self.rooms_scroll_layout = QGridLayout(self.rooms_scroll_widget)  # Create a grid layout for room inputs
-        self.rooms_scroll_area.setWidget(self.rooms_scroll_widget)  # Set the widget for the scroll area
-        layout.addWidget(self.rooms_scroll_area)  # Add the scroll area to the main layout
+        self.rooms_scroll_area = AutoScrollArea()
+        self.rooms_scroll_area.setWidgetResizable(True)
+        self.rooms_scroll_widget = QWidget()
+        self.rooms_scroll_layout = QGridLayout(self.rooms_scroll_widget)
+        self.rooms_scroll_area.setWidget(self.rooms_scroll_widget)
+        scroll_wrapper_layout.addWidget(self.rooms_scroll_area)
 
-        self.room_entries = []  # Initialize an empty list to store room input entries
-        self.room_results = []  # Initialize an empty list to store room calculation results
+        # Add the wrapper to the main layout
+        layout.addWidget(scroll_wrapper)
 
-        self.update_room_inputs()  # Call the method to update room inputs
+        self.room_entries = []
+        self.room_results = []
+
+        self.update_room_inputs()
 
         # Add Calculate Room Bills button
         calculate_rooms_button = QPushButton("Calculate Room Bills")  # Create a button for calculating room bills

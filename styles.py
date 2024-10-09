@@ -136,6 +136,43 @@ def get_stylesheet():
             border-left-color: #A7F3D0;  /* Left border color */
             border-left-style: solid;  /* Solid left border */
         }
+        
+        /* Modernized scrollbar styles */
+        QScrollBar:vertical {
+            border: none;
+            background: #F0FDF9;
+            width: 10px;
+            margin: 0px 0px 0px 0px;
+        }
+        QScrollBar::handle:vertical {
+            background: #A7F3D0;
+            min-height: 20px;
+            border-radius: 5px;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0px;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: none;
+        }
+        
+        QScrollBar:horizontal {
+            border: none;
+            background: #F0FDF9;
+            height: 10px;
+            margin: 0px 0px 0px 0px;
+        }
+        QScrollBar::handle:horizontal {
+            background: #A7F3D0;
+            min-width: 20px;
+            border-radius: 5px;
+        }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            width: 0px;
+        }
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+            background: none;
+        }
     """
 
 def get_header_style():
@@ -422,6 +459,67 @@ def get_table_style():
 def get_label_style():
     # Define and return a string containing CSS-like styling for QLabel widgets
     return """
+        QLabel {
+            color: #065F46;  /* Set text color to dark green */
+            font-size: 13px;  /* Set font size to 13 pixels */
+            font-weight: bold;  /* Make text bold */
+            background-color: transparent;  /* Make background transparent */
+            border: none;  /* Remove any border */
+            padding: 0;  /* Remove padding */
+            margin: 2px 0;  /* Add small vertical margin for spacing */
+        }
+        QLabel:disabled {
+            color: #65A30D;  /* Set a lighter color for disabled state */
+        }
+    """
+
+def get_custom_spinbox_style():
+    return """
+        QSpinBox {
+            border: 1px solid #A7F3D0;
+            border-radius: 4px;
+            padding: 5px 25px 5px 5px;
+            background-color: white;
+            font-size: 13px;
+            min-width: 720px;
+            min-height: 10px;  /* Set minimum height */
+            color: #065F46;
+        }
+        QSpinBox:focus {
+            border: 2px solid #059669;
+        }
+        QSpinBox:hover {
+            background-color: #F0FDF9;
+        }
+        QSpinBox::up-button, QSpinBox::down-button {
+            border-left: 20px solid #A7F3D0;  /* Increased border width and changed color */
+            width: 25px;  /* Increased button width */
+            background-color: #E6FFF6;  /* Light background color for buttons */
+        }
+    """
+
+def get_room_selection_style():
+    return """
+        QGroupBox {
+            background-color: #F0FDF9;
+            border: 1px solid #A7F3D0;
+            border-radius: 4px;
+            margin-top: 9px;
+            margin-bottom: 5px;
+            margin-left: 15%;
+            margin-right: 22%;
+            font-weight: bold;
+            padding: 5px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;  /* Position the title at the top left */
+            left: 20px;  /* Move title 20px to the right */
+            top: -3px;  /* Move title 8px up */
+            padding: 0 5px;  /* Add some horizontal padding */
+            background-color: #F0FDF9;  /* Match the background color */
+            color: #065F46;
+        }
         QLabel {
             color: #065F46;  /* Set text color to dark green */
             font-size: 13px;  /* Set font size to 13 pixels */
