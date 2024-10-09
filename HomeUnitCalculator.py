@@ -285,6 +285,9 @@ class MeterCalculationApp(QMainWindow):
         main_layout.setSpacing(20)  # Set spacing between layout items to 20 pixels
         main_layout.setContentsMargins(20, 20, 20, 20)  # Set margins for the layout
 
+         # Create a horizontal layout for the top section
+        top_layout = QHBoxLayout()  
+
         # Add Date Selection group
         filter_group = QGroupBox("Date Selection")  # Create a group box for date selection
         filter_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
@@ -317,14 +320,14 @@ class MeterCalculationApp(QMainWindow):
         filter_layout.addWidget(self.year_spinbox)  # Add year spin box to the filter layout
         filter_layout.addStretch(1)  # Add stretchable space at the end
 
-        main_layout.addWidget(filter_group)  # Add the filter group to the main layout
+        top_layout.addWidget(filter_group)  # Add the filter group to the main layout
 
-        # Add separator line
-        separator = QFrame()  # Create a frame to act as a separator
-        separator.setFrameShape(QFrame.HLine)  # Set the frame shape to horizontal line
-        separator.setFrameShadow(QFrame.Sunken)  # Set the frame shadow to sunken
-        separator.setStyleSheet("background-color: #A7F3D0;")  # Set the color of the separator
-        main_layout.addWidget(separator)  # Add the separator to the main layout
+        # Additional Amount group
+        amount_group = self.create_additional_amount_group()
+        top_layout.addWidget(amount_group)  # Add the additional amount group to the top layout
+
+        # Add the top layout to the main layout
+        main_layout.addLayout(top_layout)
 
         # Add Meter and Difference Readings
         readings_layout = QHBoxLayout()  # Create a horizontal layout for readings
@@ -354,6 +357,33 @@ class MeterCalculationApp(QMainWindow):
         main_layout.addStretch(1)  # Add stretchable space at the bottom
 
         return main_tab  # Return the created main tab
+    
+
+    def create_additional_amount_group(self):
+        amount_group = QGroupBox("Additional Amount")
+        amount_group.setStyleSheet(get_group_box_style())
+        amount_layout = QHBoxLayout()
+        amount_group.setLayout(amount_layout)
+
+        amount_label = QLabel("Additional Amount:")
+        amount_label.setStyleSheet(get_label_style())
+        self.additional_amount_input = CustomLineEdit()
+        self.additional_amount_input.setPlaceholderText("Enter additional amount")
+        self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
+        self.additional_amount_input.setStyleSheet(get_line_edit_style())
+
+        amount_layout.addWidget(amount_label)
+        amount_layout.addWidget(self.additional_amount_input)
+        amount_layout.addStretch(1)
+
+        return amount_group
+
+    def get_additional_amount(self):
+        try:
+            return int(self.additional_amount_input.text()) if self.additional_amount_input.text() else 0
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a valid numeric value for the additional amount.")
+            return 0
 
     def create_month_info_section(self):
         # Create the month and year selection section
@@ -572,6 +602,12 @@ class MeterCalculationApp(QMainWindow):
             total_unit = sum(int(entry.text()) for entry in self.meter_entries if entry.text())
             # Sum up the total difference from diff entries, converting each to int if not empty
             total_diff = sum(int(entry.text()) for entry in self.diff_entries if entry.text())
+
+            # Add the additional amount to the total unit
+            additional_amount = self.get_additional_amount()
+            total_unit += additional_amount
+
+
             # Check if total_diff is zero to avoid division by zero
             if total_diff == 0:
                 raise ZeroDivisionError
