@@ -242,7 +242,7 @@ class MeterCalculationApp(QMainWindow):
         # Set the window title
         self.setWindowTitle("Meter Calculation Application")
         # Set the window size and position (x, y, width, height)
-        self.setGeometry(400, 100, 1000, 800)
+        self.setGeometry(300, 100, 1300, 800)
         
         # Set the window icon using the resource_path function to locate the icon file
         self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
@@ -371,10 +371,25 @@ class MeterCalculationApp(QMainWindow):
         self.additional_amount_input.setPlaceholderText("Enter additional amount")
         self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
         self.additional_amount_input.setStyleSheet(get_line_edit_style())
+        
+        # Add a QLabel to display the currency
+        currency_label = QLabel("TK")
+        currency_label.setStyleSheet(get_label_style())
+
+        # Create a QHBoxLayout for the input and currency label
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(self.additional_amount_input, 1)  # Add stretch factor
+        input_layout.addWidget(currency_label)
+        input_layout.setSpacing(5)  # Set spacing between input and currency label
 
         amount_layout.addWidget(amount_label)
-        amount_layout.addWidget(self.additional_amount_input)
-        amount_layout.addStretch(1)
+        amount_layout.addLayout(input_layout, 1)  # Add stretch factor
+        
+        # Remove the stretch at the end to allow proper resizing
+        # amount_layout.addStretch(1)
+
+        # Add a tooltip to explain the purpose of this field
+        amount_group.setToolTip("Enter any additional amount to be added to the total bill")
 
         return amount_group
 
@@ -457,12 +472,18 @@ class MeterCalculationApp(QMainWindow):
         self.total_diff_label = QLabel("N/A")  # Create a label to display total difference value
         per_unit_cost_title = QLabel("Per Unit Cost")  # Create a label for per unit cost title
         self.per_unit_cost_label = QLabel("N/A")  # Create a label to display per unit cost value
+        added_amount_title = QLabel("Added Amount")
+        self.added_amount_label = QLabel("N/A")
+        in_total_title = QLabel("In Total")
+        self.in_total_label = QLabel("N/A")
 
         # Create vertical layouts for each result
         for title, value in [
             (total_unit_title, self.total_unit_label),
             (total_diff_title, self.total_diff_label),
-            (per_unit_cost_title, self.per_unit_cost_label)
+            (per_unit_cost_title, self.per_unit_cost_label),
+            (added_amount_title, self.added_amount_label),
+            (in_total_title, self.in_total_label)
         ]:
             item_layout = QVBoxLayout()  # Create a vertical layout for each result pair
             item_layout.addWidget(title)  # Add the title label to the layout
@@ -476,7 +497,9 @@ class MeterCalculationApp(QMainWindow):
         # Apply styles to all labels
         for label in [total_unit_title, self.total_unit_label, 
                     total_diff_title, self.total_diff_label, 
-                    per_unit_cost_title, self.per_unit_cost_label]:
+                    per_unit_cost_title, self.per_unit_cost_label,
+                    added_amount_title, self.added_amount_label,
+                    in_total_title, self.in_total_label]:
             label.setStyleSheet("border: none; background-color: transparent; padding: 0;")  # Set style for each label
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center-align the text in each label
 
@@ -603,9 +626,11 @@ class MeterCalculationApp(QMainWindow):
             # Sum up the total difference from diff entries, converting each to int if not empty
             total_diff = sum(int(entry.text()) for entry in self.diff_entries if entry.text())
 
-            # Add the additional amount to the total unit
+            # Get the additional amount
             additional_amount = self.get_additional_amount()
-            total_unit += additional_amount
+
+            # Calculate the in total amount
+            in_total = total_unit + additional_amount
 
 
             # Check if total_diff is zero to avoid division by zero
@@ -620,6 +645,10 @@ class MeterCalculationApp(QMainWindow):
             self.total_diff_label.setText(f"{total_diff}")
             # Set the per unit cost label text with the calculated value, formatted to 2 decimal places
             self.per_unit_cost_label.setText(f"{per_unit_cost:.2f} TK")
+            # Set the added amount label text
+            self.added_amount_label.setText(f"{additional_amount} TK")
+            # Set the in total label text
+            self.in_total_label.setText(f"{in_total} TK")
 
             # Don't save here, as room calculations haven't been performed yet
 
@@ -686,7 +715,7 @@ class MeterCalculationApp(QMainWindow):
                     writer.writerow([
                         "Month", "Meter-1", "Meter-2", "Meter-3", 
                         "Diff-1", "Diff-2", "Diff-3", "Total Unit", 
-                        "Total Diff", "Per Unit Cost", "Room", 
+                        "Total Diff", "Per Unit Cost", "Added Amount", "In Total", "Room", 
                         "Present Unit", "Previous Unit", "Real Unit", "Unit Bill"
                     ])
 
@@ -698,6 +727,8 @@ class MeterCalculationApp(QMainWindow):
                     self.total_unit_label.text().replace("TK", "").strip(),  # Add total unit cost
                     self.total_diff_label.text().strip(),  # Add total difference
                     self.per_unit_cost_label.text().replace("TK", "").strip(),  # Add per unit cost
+                    self.added_amount_label.text().replace("TK", "").strip(),  # Add added amount
+                    self.in_total_label.text().replace("TK", "").strip(),  # Add in total amount
                     "", "", "", "", ""  # Empty fields for room-specific data
                 ]
                 writer.writerow(main_data)  # Write the main data row
@@ -707,7 +738,7 @@ class MeterCalculationApp(QMainWindow):
                     real_unit_label, unit_bill_label = self.room_results[i]  # Get corresponding room results
                     room_data = [
                         month_name,  # Add month and year
-                        *[""] * 9,  # Empty fields for main calculation data
+                        *[""] * 11,  # Empty fields for main calculation data
                         f"Room {i+1}",  # Add room number
                         present_entry.text(),  # Add present unit reading
                         previous_entry.text(),  # Add previous unit reading
@@ -767,11 +798,11 @@ class MeterCalculationApp(QMainWindow):
         main_calc_group.setLayout(main_calc_layout)  # Set the layout for the main calculation group
 
         self.main_history_table = QTableWidget()  # Create a table widget for main calculation history
-        self.main_history_table.setColumnCount(10)  # Set the number of columns to 10
+        self.main_history_table.setColumnCount(12)  # Set the number of columns to 10
         self.main_history_table.setHorizontalHeaderLabels([  # Set the horizontal header labels
             "Month", "Meter-1", "Meter-2", "Meter-3", 
             "Diff-1", "Diff-2", "Diff-3", "Total Unit", 
-            "Total Diff", "Per Unit Cost"
+            "Total Diff", "Per Unit Cost", "Added Amount", "In Total"
         ])
         self.main_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # Make columns stretch to fit
         self.main_history_table.setAlternatingRowColors(True)  # Set alternating row colors
@@ -819,14 +850,19 @@ class MeterCalculationApp(QMainWindow):
             selected_year = self.history_year_spinbox.value()  # Get the selected year from the spin box
             selected_year_str = str(selected_year) if selected_year != self.history_year_spinbox.minimum() else ""  # Convert year to string, or empty if minimum
 
-            with open(filename, mode='r') as file:  # Open the CSV file in read mode
+            with open(filename, mode='r', newline='') as file:  # Open the CSV file in read mode
                 reader = csv.reader(file)  # Create a CSV reader object
-                header = next(reader)  # Skip the header row
+                header = next(reader, None)  # Skip the header row
+                if not header:  # Check if the header is None
+                    raise ValueError("No header found in CSV file")  # Raise an error if no header is found
+                
                 history = list(reader)  # Read all rows into a list
 
             filtered_history = []  # Initialize an empty list for filtered history
             for row in history:  # Iterate through each row in the history
-                month_year = row[0].split()  # Split the first column into month and year
+                if not row:  # Check if the row is empty
+                    continue  # Skip empty rows
+                month_year = row[0].split() if row[0] else []  # Split the first column into month and year
                 if len(month_year) == 2:  # Check if the split resulted in two parts
                     month, year = month_year  # Unpack month and year
                     if (selected_month == "All" or month == selected_month) and \
@@ -837,7 +873,7 @@ class MeterCalculationApp(QMainWindow):
             main_history = []  # Initialize list for main calculation history
             room_history = []  # Initialize list for room calculation history
             for row in filtered_history:  # Iterate through filtered history
-                if row[10]:  # Check if there's a room number (11th column)
+                if len (row)> 12 and row[12].strip():  # Check if there's a room number (11th column)
                     room_history.append(row)  # Add to room history if room number exists
                 else:
                     main_history.append(row)  # Add to main history if no room number
@@ -845,19 +881,20 @@ class MeterCalculationApp(QMainWindow):
             # Load main calculation info
             self.main_history_table.setRowCount(len(main_history))  # Set the number of rows in main history table
             for row_index, row in enumerate(main_history):  # Iterate through main history rows
-                for column_index, item in enumerate(row[:10]):  # Iterate through first 10 columns
-                    self.main_history_table.setItem(row_index, column_index, QTableWidgetItem(item))  # Set table item
+                for column_index, item in enumerate(row[:12]):  # Iterate through first 10 columns
+                    self.main_history_table.setItem(row_index, column_index, QTableWidgetItem(str(item)))  # Set table item
 
             # Load room calculation info
             self.room_history_table.setRowCount(len(room_history))  # Set the number of rows in room history table
             for row_index, row in enumerate(room_history):  # Iterate through room history rows
-                room_data = [row[0]] + row[10:]  # Combine month with room-specific data
+                room_data = [row[0]] + row[12:18]  # Combine month with room-specific data
                 for column_index, item in enumerate(room_data):  # Iterate through room data
-                    self.room_history_table.setItem(row_index, column_index, QTableWidgetItem(item))  # Set table item
+                    self.room_history_table.setItem(row_index, column_index, QTableWidgetItem(str(item)))  # Set table item
 
             QMessageBox.information(self, "History Loaded", f"Loaded {len(main_history)} main records and {len(room_history)} room records from history.")  # Show success message
         except Exception as e:  # Catch any exceptions that occur
             QMessageBox.critical(self, "Error", f"Failed to load history: {str(e)}")  # Show error message
+            print(f"Detailed error: {str(e)}")  # Print detailed error message
 
     def save_to_pdf(self):
         # Open a file dialog to save the PDF
@@ -946,18 +983,20 @@ class MeterCalculationApp(QMainWindow):
             [Paragraph("Meter-1 Unit:", normal_style), Paragraph(f"{self.meter_entries[0].text() or 'N/A'}", normal_style)],
             [Paragraph("Meter-2 Unit:", normal_style), Paragraph(f"{self.meter_entries[1].text() or 'N/A'}", normal_style)],
             [Paragraph("Meter-3 Unit:", normal_style), Paragraph(f"{self.meter_entries[2].text() or 'N/A'}", normal_style)],
+            [Paragraph("Total Difference:", normal_style), Paragraph(f"{self.total_diff_label.text() or 'N/A'}", normal_style)],
         ]
 
         meter_info_right = [  # Create a list for the right side of the main meter info
-            [Paragraph("Total Diff:", normal_style), Paragraph(f"{self.total_diff_label.text() or 'N/A'}", normal_style)],
             [Paragraph("Per Unit Cost:", normal_style), Paragraph(f"{self.per_unit_cost_label.text() or 'N/A'}", normal_style)],
             [Paragraph("Total Unit Cost:", normal_style), Paragraph(f"{self.total_unit_label.text() or 'N/A'}", normal_style)],
+            [Paragraph("Added Amount:", normal_style), Paragraph(f"{self.added_amount_label.text() or 'N/A'}", normal_style)],
+            [Paragraph("In Total Amount:", normal_style), Paragraph(f"{self.in_total_label.text() or 'N/A'}", normal_style)],
         ]
 
         main_meter_table = Table(  # Create a table for the main meter info
-            [meter_info_left[i] + meter_info_right[i] for i in range(3)],  # Combine left and right info
+            [meter_info_left[i] + meter_info_right[i] for i in range(4)],  # Combine left and right info
             colWidths=[2.5*inch, 1.25*inch, 2.5*inch, 1.25*inch],  # Set column widths
-            rowHeights=[0.2*inch] * 3  # Set row heights
+            rowHeights=[0.2*inch] * 4  # Set row heights
         )
 
         main_meter_table.setStyle(TableStyle([  # Set the style for the main meter table

@@ -481,7 +481,7 @@ def get_custom_spinbox_style():
             padding: 5px 25px 5px 5px;
             background-color: white;
             font-size: 13px;
-            min-width: 720px;
+            min-width: 1030px;
             min-height: 10px;  /* Set minimum height */
             color: #065F46;
         }
