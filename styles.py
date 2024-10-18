@@ -481,7 +481,6 @@ def get_custom_spinbox_style():
             padding: 5px 25px 5px 5px;
             background-color: white;
             font-size: 13px;
-            min-width: 1030px;
             min-height: 10px;  /* Set minimum height */
             color: #065F46;
         }
@@ -506,8 +505,6 @@ def get_room_selection_style():
             border-radius: 4px;
             margin-top: 9px;
             margin-bottom: 5px;
-            margin-left: 15%;
-            margin-right: 22%;
             font-weight: bold;
             padding: 5px;
         }

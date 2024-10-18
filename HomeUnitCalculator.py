@@ -514,28 +514,26 @@ class MeterCalculationApp(QMainWindow):
         # Create a group box for room selection
         room_selection_group = QGroupBox("Room Selection")
         room_selection_group.setStyleSheet(get_room_selection_style())
-        room_selection_layout = QHBoxLayout()
+        room_selection_layout = QFormLayout()
         room_selection_group.setLayout(room_selection_layout)
 
         # Add Number of Rooms selection
-        # num_rooms_layout = QHBoxLayout()  # Create a horizontal layout for room number selection
-        num_rooms_label = QLabel("Number of Rooms:")  # Create a label for room number selection
-        self.num_rooms_spinbox = CustomSpinBox()  # Create a spinbox for selecting number of rooms
-        self.num_rooms_spinbox.setRange(1, 20)  # Set the range of rooms from 1 to 20
-        self.num_rooms_spinbox.setValue(11)  # Set the default value to 11 rooms
-        self.num_rooms_spinbox.valueChanged.connect(self.update_room_inputs)  # Connect value change to update function
-        self.num_rooms_spinbox.setFixedWidth(100)  # Increase the width of the spinbox
-        room_selection_layout.addWidget(num_rooms_label)
-        room_selection_layout.addWidget(self.num_rooms_spinbox)
-        room_selection_layout.addStretch(1)  # Add stretch to push widgets to the left
+        num_rooms_label = QLabel("Number of Rooms:")
+        self.num_rooms_spinbox = CustomSpinBox()
+        self.num_rooms_spinbox.setRange(1, 20)
+        self.num_rooms_spinbox.setValue(11)
+        self.num_rooms_spinbox.valueChanged.connect(self.update_room_inputs)
+        
+        # Add the label and spinbox to the form layout
+        room_selection_layout.addRow(num_rooms_label, self.num_rooms_spinbox)
+
+        # Add room selection group to the main layout
+        layout.addWidget(room_selection_group)
 
         # Create a wrapper widget for the scroll area
         scroll_wrapper = QWidget()
         scroll_wrapper_layout = QVBoxLayout(scroll_wrapper)
         scroll_wrapper_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Add room selection group to the wrapper
-        scroll_wrapper_layout.addWidget(room_selection_group)
 
         # Add scrollable area for room inputs
         self.rooms_scroll_area = AutoScrollArea()
