@@ -749,6 +749,44 @@ class MeterCalculationApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save data: {str(e)}")  # Show error message if saving fails
 
+
+    def create_load_info_group(self):
+        # Create Load Information box
+        load_info_group = QGroupBox("Load Information")
+        load_info_group.setStyleSheet(get_group_box_style())
+        load_info_layout = QHBoxLayout()
+        load_info_group.setLayout(load_info_layout)
+
+        load_month_label = QLabel("Month:")
+        load_month_label.setStyleSheet(get_label_style())
+        self.load_month_combo = QComboBox()
+        self.load_month_combo.addItems([
+            "January", "February", "March", "April", "May", "June", 
+            "July", "August", "September", "October", "November", "December"
+        ])
+        self.load_month_combo.setStyleSheet(get_month_info_style())
+
+        load_year_label = QLabel("Year:")
+        load_year_label.setStyleSheet(get_label_style())
+        self.load_year_spinbox = QSpinBox()
+        self.load_year_spinbox.setRange(2000, 2100)
+        self.load_year_spinbox.setValue(datetime.now().year)
+        self.load_year_spinbox.setStyleSheet(get_month_info_style())
+
+        load_button = QPushButton("Load")
+        load_button.setStyleSheet(get_button_style())
+        load_button.clicked.connect(self.load_info_to_inputs)
+
+        load_info_layout.addWidget(load_month_label)
+        load_info_layout.addWidget(self.load_month_combo)
+        load_info_layout.addSpacing(20)
+        load_info_layout.addWidget(load_year_label)
+        load_info_layout.addWidget(self.load_year_spinbox)
+        load_info_layout.addSpacing(20)
+        load_info_layout.addWidget(load_button)
+
+        return load_info_group
+
     def create_history_tab(self):
         # Create the History tab
         history_tab = QWidget()  # Create a new QWidget for the history tab
@@ -756,6 +794,9 @@ class MeterCalculationApp(QMainWindow):
         layout.setSpacing(20)  # Set the spacing between widgets to 20 pixels
         layout.setContentsMargins(20, 20, 20, 20)  # Set the margins of the layout
         history_tab.setLayout(layout)  # Set the layout for the history tab
+
+        # Create a horizontal layout for filter options and load info
+        top_layout = QHBoxLayout()
 
         # Add month and year selection for filtering
         filter_group = QGroupBox("Filter Options")  # Create a group box for filter options
@@ -787,7 +828,13 @@ class MeterCalculationApp(QMainWindow):
         filter_layout.addWidget(self.history_year_spinbox)  # Add year spin box to the filter layout
         filter_layout.addStretch(1)  # Add stretchable space to push everything to the left
         
-        layout.addWidget(filter_group)  # Add the filter group to the main layout
+        top_layout.addWidget(filter_group)
+
+        # Add Load Information box
+        load_info_group = self.create_load_info_group()
+        top_layout.addWidget(load_info_group)
+
+        layout.addLayout(top_layout)  # Add the top layout to the main layout
 
         # Add Main Calculation Info Section
         main_calc_group = QGroupBox("Main Calculation Info")  # Create a group box for main calculation info
@@ -835,6 +882,94 @@ class MeterCalculationApp(QMainWindow):
         layout.addWidget(load_history_button)  # Add the load history button to the main layout
 
         return history_tab  # Return the created history tab
+    
+    def load_info_to_inputs(self):
+        selected_month = self.load_month_combo.currentText()
+        selected_year = self.load_year_spinbox.value()
+        selected_month_year = f"{selected_month} {selected_year}"
+
+        filename = "meter_calculation_history.csv"
+        if not os.path.isfile(filename):
+            QMessageBox.information(self, "No History", "No history available")
+            return
+
+        try:
+            with open(filename, mode='r', newline='') as file:
+                reader = csv.reader(file)
+                header = next(reader, None)
+                if not header:
+                    raise ValueError("No header found in CSV file")
+                
+                main_data = None
+                room_data = {}
+
+                for row in reader:
+                    if row[0] == selected_month_year:
+                        if not main_data:
+                            main_data = row
+                            print(f"Main data: {main_data}")  # Debug print
+                        elif len(row) > 12 and row[12].startswith("Room"):
+                            room_number = int(row[12].split()[1])
+                            room_data[room_number] = row[12:]
+                            print(f"Room {room_number} data: {room_data[room_number]}")  # Debug print
+                    elif main_data:
+                        break
+
+                if main_data:
+                    # Load main calculation data
+                    for i in range(min(3, len(main_data) - 1)):
+                        if i + 1 < len(main_data):
+                            self.meter_entries[i].setText(main_data[i+1])
+                        if i + 4 < len(main_data):
+                            self.diff_entries[i].setText(main_data[i+4])
+                    
+                    if len(main_data) > 7:
+                        self.total_unit_label.setText(main_data[7])
+                    if len(main_data) > 8:
+                        self.total_diff_label.setText(main_data[8])
+                    if len(main_data) > 9:
+                        self.per_unit_cost_label.setText(main_data[9])
+                    if len(main_data) > 10:
+                        self.added_amount_label.setText(main_data[10])
+                    if len(main_data) > 11:
+                        self.in_total_label.setText(main_data[11])
+
+                    # Clear all room entries first
+                    for i, room_entry in enumerate(self.room_entries):
+                        room_entry[0].clear()  # Clear Present Unit
+                        room_entry[1].clear()  # Clear Previous Unit
+                        self.room_results[i][0].setText("")  # Clear Real Unit
+                        self.room_results[i][1].setText("")  # Clear Unit Bill
+
+                    # Now load the available room data
+                    for i, room_entry in enumerate(self.room_entries):
+                        room_number = i + 1
+                        print(f"Processing Room {room_number}")  # Debug print
+                        if room_number in room_data:
+                            room = room_data[room_number]
+                            print(f"Room {room_number} data: {room}")  # Debug print
+                            if len(room) > 1:
+                                room_entry[0].setText(room[1])  # Present Unit
+                                print(f"Set Present Unit for Room {room_number}: {room[1]}")  # Debug print
+                            if len(room) > 2:
+                                room_entry[1].setText(room[2])  # Previous Unit
+                                print(f"Set Previous Unit for Room {room_number}: {room[2]}")  # Debug print
+                            if len(room) > 3:
+                                self.room_results[i][0].setText(room[3])  # Real Unit
+                                print(f"Set Real Unit for Room {room_number}: {room[3]}")  # Debug print
+                            if len(room) > 4:
+                                self.room_results[i][1].setText(room[4])  # Unit Bill
+                                print(f"Set Unit Bill for Room {room_number}: {room[4]}")  # Debug print
+                        else:
+                            print(f"No data found for Room {room_number}")  # Debug print
+
+                    QMessageBox.information(self, "Data Loaded", f"Data for {selected_month_year} has been loaded.")
+                else:
+                    QMessageBox.information(self, "No Data", f"No data found for {selected_month_year}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load data: {str(e)}")
+            print(f"Detailed error: {str(e)}")
 
     def load_history(self):
         # Load and display historical data
