@@ -1,0 +1,5 @@
+PyQt5
+reportlab
+supabase
+python-dotenv
+postgrest

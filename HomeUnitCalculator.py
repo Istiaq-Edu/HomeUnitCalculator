@@ -1,11 +1,13 @@
 import sys
+from datetime import datetime as dt_class # Changed import for clarity
+import functools # Added import 
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
 from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QGridLayout, QGroupBox, QFormLayout, QFileDialog,
     QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QFrame, QShortcut,
-    QAbstractSpinBox, QStyleOptionSpinBox, QStyle
+    QAbstractSpinBox, QStyleOptionSpinBox, QStyle, QDesktopWidget, QSizePolicy, QDialog, QAbstractItemView # Added QDialog and QAbstractItemView
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -15,12 +17,18 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 import csv
 import os
+import traceback # Added for detailed error logging
+from supabase import create_client, Client # Added for Supabase
+from postgrest.exceptions import APIError # Added for specific Supabase error handling
+from dotenv import load_dotenv # Added to load .env file
+
+load_dotenv() # Load environment variables from .env file
 from datetime import datetime
 from styles import (
     get_stylesheet, get_header_style, get_group_box_style,
     get_line_edit_style, get_button_style, get_results_group_style,
     get_room_group_style, get_month_info_style, get_table_style, get_label_style, get_custom_spinbox_style,
-    get_room_selection_style
+    get_room_selection_style, get_result_title_style, get_result_value_style # Added new style imports
 )
 from utils import resource_path
 
@@ -35,32 +43,48 @@ class CustomLineEdit(QLineEdit):
         self.setPlaceholderText("Enter a number")
         # Set tooltip for the input field
         self.setToolTip("Input only integer values")
+        # Set size policy to expanding horizontally
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         # Initialize next and previous widget references
-        self.next_widget = None
-        self.previous_widget = None
+        self.next_widget_on_enter = None # For Enter/Return key
+        self.up_widget = None
+        self.down_widget = None
+        # self.left_widget and self.right_widget are removed as per new plan
         # Apply custom style sheet
         self.setStyleSheet(get_line_edit_style())
 
     def keyPressEvent(self, event):
-        # Handle key press events for the custom line edit
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Down, Qt.Key_Right):
-            # If the pressed key is Enter, Return, Down arrow, or Right arrow
-            if self.next_widget:
-                # If there's a next widget defined
-                self.next_widget.setFocus()  # Set focus to the next widget
-                return  # Exit the method
-        elif event.key() in (Qt.Key_Up, Qt.Key_Left):
-            # If the pressed key is Up arrow or Left arrow
-            if self.previous_widget:
-                # If there's a previous widget defined
-                self.previous_widget.setFocus()  # Set focus to the previous widget
-                return  # Exit the method
-        super().keyPressEvent(event)  # Call the parent class's keyPressEvent method for other keys
+        key = event.key()
+
+        if key == Qt.Key_Left or key == Qt.Key_Right:
+            super().keyPressEvent(event) # Default QLineEdit behavior for Left/Right arrows
+            return
+
+        target_widget = None
+        if key == Qt.Key_Up:
+            target_widget = self.up_widget
+        elif key == Qt.Key_Down:
+            target_widget = self.down_widget
+        elif key in (Qt.Key_Return, Qt.Key_Enter):
+            target_widget = self.next_widget_on_enter
+        
+        if target_widget:
+            target_widget.setFocus()
+            event.accept()
+            return
+        elif key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_Return, Qt.Key_Enter):
+            # If Up, Down, Enter, Return was pressed but no target_widget is defined,
+            # accept the event to prevent default Qt focus changes.
+            event.accept()
+            return
+        
+        # For any other keys not handled above (e.g. character input, Tab, etc.)
+        super().keyPressEvent(event)
 
     def focusInEvent(self, event):
-        # Handle focus in events for the custom line edit
-        super().focusInEvent(event)  # Call the parent class's focusInEvent method
-        self.ensureWidgetVisible()  # Ensure this widget is visible when it receives focus
+        # print(f"CustomLineEdit FocusIn: {self.objectName()} (text: '{self.text()}')") # Removed debug print
+        super().focusInEvent(event)
+        self.ensureWidgetVisible()
 
     def ensureWidgetVisible(self):
         # Ensure that this widget is visible within its parent QScrollArea
@@ -233,6 +257,379 @@ class CustomSpinBox(QSpinBox):
         else:
             super().mousePressEvent(event)
 
+class CustomNavButton(QPushButton):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.next_widget_on_enter = None # Renamed from custom_next_widget
+
+    def keyPressEvent(self, event):
+        key = event.key()
+
+        if key in (Qt.Key_Return, Qt.Key_Enter):
+            # Allow the button's primary action (click) to occur first.
+            super().keyPressEvent(event) # This should trigger the click.
+            
+            # After the click action, if a next_widget_on_enter is defined, navigate to it.
+            if self.next_widget_on_enter:
+                self.next_widget_on_enter.setFocus()
+            # event.accept() # Focus change should be sufficient.
+            return # Explicitly return after handling Enter/Return
+        elif key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right):
+            # For arrow keys, accept the event to prevent default Qt spatial navigation
+            # if we don't want the button to lose focus to other UI elements.
+            # This makes arrow keys do nothing on the button for custom navigation.
+            event.accept()
+            return
+
+        # For other keys (like Tab), let the default QPushButton behavior occur.
+        super().keyPressEvent(event)
+
+# Dialog for Editing Records
+class EditRecordDialog(QDialog):
+    def __init__(self, record_id, main_data, room_data_list, parent=None):
+        super().__init__(parent)
+        self.record_id = record_id # Store the ID of the record being edited
+        self.supabase = parent.supabase # Get supabase client from parent
+        self.room_edit_widgets = [] # To store references to room input widgets
+        
+        self.setWindowTitle("Edit Calculation Record")
+        self.setMinimumWidth(600) 
+        self.setMinimumHeight(500) # Give more vertical space
+        self.setStyleSheet(get_stylesheet()) 
+
+        # Layouts
+        main_layout = QVBoxLayout(self)
+        button_layout = QHBoxLayout()
+
+        # Display Month/Year (non-editable)
+        self.month_year_label = QLabel(f"Record for: {main_data.get('month', '')} {main_data.get('year', '')}")
+        main_layout.addWidget(self.month_year_label)
+
+        # --- Main Calculation Fields ---
+        main_group = QGroupBox("Main Calculation Data")
+        main_group_layout = QFormLayout(main_group)
+        main_group_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow) # Allow fields to expand
+        
+        self.meter1_edit = CustomLineEdit(); self.meter1_edit.setObjectName("dialog_meter1_edit")
+        self.meter2_edit = CustomLineEdit(); self.meter2_edit.setObjectName("dialog_meter2_edit")
+        self.meter3_edit = CustomLineEdit(); self.meter3_edit.setObjectName("dialog_meter3_edit")
+        self.diff1_edit = CustomLineEdit(); self.diff1_edit.setObjectName("dialog_diff1_edit")
+        self.diff2_edit = CustomLineEdit(); self.diff2_edit.setObjectName("dialog_diff2_edit")
+        self.diff3_edit = CustomLineEdit(); self.diff3_edit.setObjectName("dialog_diff3_edit")
+        self.additional_amount_edit = CustomLineEdit(); self.additional_amount_edit.setObjectName("dialog_additional_amount_edit")
+        self.additional_amount_edit.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$'))) # Allow decimals
+
+        main_group_layout.addRow("Meter 1 Reading:", self.meter1_edit) # Use DB names for labels
+        main_group_layout.addRow("Meter 2 Reading:", self.meter2_edit)
+        main_group_layout.addRow("Meter 3 Reading:", self.meter3_edit)
+        main_group_layout.addRow("Difference 1:", self.diff1_edit)
+        main_group_layout.addRow("Difference 2:", self.diff2_edit)
+        main_group_layout.addRow("Difference 3:", self.diff3_edit)
+        main_group_layout.addRow("Additional Amount:", self.additional_amount_edit)
+        
+        main_layout.addWidget(main_group)
+
+        # --- Room Calculation Fields ---
+        self.rooms_group = QGroupBox("Room Data") 
+        rooms_main_layout = QVBoxLayout(self.rooms_group) # Main layout for the group
+
+        # Scroll Area for room inputs
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_content_widget = QWidget()
+        self.rooms_edit_layout = QVBoxLayout(scroll_content_widget) # Layout inside scroll area
+        scroll_area.setWidget(scroll_content_widget)
+        rooms_main_layout.addWidget(scroll_area) # Add scroll area to group box
+
+        # Dynamically create room edit sections
+        for i, room_data in enumerate(room_data_list):
+            room_name = room_data.get('room_name', 'Unknown Room')
+            room_edit_group = QGroupBox(room_name)
+            room_edit_group.setStyleSheet(get_room_group_style()) # Reuse style
+            room_edit_form_layout = QFormLayout(room_edit_group)
+            room_edit_form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+
+            present_edit = CustomLineEdit()
+            present_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_present")
+            previous_edit = CustomLineEdit()
+            previous_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_previous")
+            
+            # Store original room ID if needed for updates (assuming 'id' exists in room_data)
+            room_id = room_data.get('id') 
+
+            room_edit_form_layout.addRow("Present Reading:", present_edit)
+            room_edit_form_layout.addRow("Previous Reading:", previous_edit)
+
+            self.rooms_edit_layout.addWidget(room_edit_group)
+            self.room_edit_widgets.append({
+                "room_id": room_id, # Store original room ID
+                "name": room_name, # Store name for saving
+                "present_edit": present_edit,
+                "previous_edit": previous_edit
+            })
+            
+        if not room_data_list:
+             no_rooms_label = QLabel("No room data associated with this record.")
+             self.rooms_edit_layout.addWidget(no_rooms_label)
+
+        main_layout.addWidget(self.rooms_group)
+
+
+        # --- Buttons ---
+        self.save_button = CustomNavButton("Save Changes")
+        self.cancel_button = QPushButton("Cancel") # Cancel button does not need custom navigation
+        self.save_button.setStyleSheet(get_button_style())
+        self.cancel_button.setStyleSheet("background-color: #6c757d; color: white; border: none; border-radius: 4px; padding: 10px; font-weight: bold; font-size: 14px;") 
+
+        button_layout.addStretch()
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.save_button)
+        main_layout.addLayout(button_layout)
+
+        # --- Populate Fields ---
+        self.populate_data(main_data, room_data_list)
+
+        # --- Connections ---
+        self.save_button.clicked.connect(self.save_changes)
+        self.cancel_button.clicked.connect(self.reject) # Close dialog without saving
+
+        # --- Setup Navigation ---
+        self._setup_navigation_edit_dialog()
+        
+    def _setup_navigation_edit_dialog(self):
+        # Consolidate all editable CustomLineEdit fields in their logical tab order
+        main_fields = [
+            self.meter1_edit, self.diff1_edit,
+            self.meter2_edit, self.diff2_edit,
+            self.meter3_edit, self.diff3_edit,
+            self.additional_amount_edit
+        ]
+        room_fields_flat = []
+        for room_widget_set in self.room_edit_widgets:
+            room_fields_flat.append(room_widget_set["present_edit"])
+            room_fields_flat.append(room_widget_set["previous_edit"])
+
+        ordered_line_edits = main_fields + room_fields_flat
+
+        if not ordered_line_edits:
+            # If only a save button exists, or no fields, no custom navigation needed for CustomLineEdits
+            # Ensure custom_next_widget is None if button exists but no fields
+            if hasattr(self, 'save_button') and isinstance(self.save_button, CustomNavButton):
+                self.save_button.custom_next_widget = None
+            return
+
+    def _setup_navigation_edit_dialog(self):
+        # Main calculation fields
+        m1 = self.meter1_edit
+        m2 = self.meter2_edit
+        m3 = self.meter3_edit
+        d1 = self.diff1_edit
+        d2 = self.diff2_edit
+        d3 = self.diff3_edit
+        aa = self.additional_amount_edit
+        save_btn = self.save_button
+
+        # --- Clear all existing navigation links first ---
+        all_line_edits_in_dialog = [m1, m2, m3, d1, d2, d3, aa]
+        for room_set in self.room_edit_widgets:
+            all_line_edits_in_dialog.append(room_set["present_edit"])
+            all_line_edits_in_dialog.append(room_set["previous_edit"])
+
+        for widget in all_line_edits_in_dialog:
+            if widget: # Ensure widget exists
+                widget.next_widget_on_enter = None
+                widget.up_widget = None
+                widget.down_widget = None
+                widget.left_widget = None
+                widget.right_widget = None
+        
+        if isinstance(save_btn, CustomNavButton):
+            save_btn.next_widget_on_enter = None
+
+        # --- Define Enter/Return Key Sequence ---
+        # This will be a flat list for simplicity of Enter key progression
+        enter_sequence = [m1, d1, m2, d2, m3, d3, aa]
+        
+        # Add room fields to enter_sequence
+        for room_set in self.room_edit_widgets:
+            enter_sequence.append(room_set["present_edit"])
+            enter_sequence.append(room_set["previous_edit"])
+        
+        # Link Enter sequence
+        for i, widget in enumerate(enter_sequence):
+            if i < len(enter_sequence) - 1:
+                widget.next_widget_on_enter = enter_sequence[i+1]
+            else: # Last widget in enter_sequence (could be a room's previous_edit or additional_amount_edit)
+                widget.next_widget_on_enter = save_btn
+        
+        if isinstance(save_btn, CustomNavButton) and enter_sequence:
+            save_btn.next_widget_on_enter = enter_sequence[0] # Loop back to first field
+
+        # --- Define Arrow Key Navigation (Up/Down Fields Only, in a single sequence) ---
+        
+        # Sequence for main fields: m1 <-> m2 <-> m3 <-> d1 <-> d2 <-> d3 <-> aa
+        main_up_down_sequence = [m1, m2, m3, d1, d2, d3, aa]
+        
+        # Sequence for room fields: room1_present <-> room1_previous <-> room2_present <-> ...
+        room_up_down_sequence = []
+        for room_set in self.room_edit_widgets:
+            room_up_down_sequence.append(room_set["present_edit"])
+            room_up_down_sequence.append(room_set["previous_edit"])
+
+        # Combine sequences if rooms exist, otherwise just use main_fields
+        if room_up_down_sequence:
+            # Link aa down to first room field, and first room field up to aa
+            aa.down_widget = room_up_down_sequence[0]
+            room_up_down_sequence[0].up_widget = aa
+            
+            # Link last room field down to first main field (m1), and m1 up to last room field
+            room_up_down_sequence[-1].down_widget = main_up_down_sequence[0] # last room field down to m1
+            main_up_down_sequence[0].up_widget = room_up_down_sequence[-1]   # m1 up to last room field
+
+            # Link main_up_down_sequence internally (excluding ends that connect to rooms)
+            for i, widget in enumerate(main_up_down_sequence):
+                if widget == main_up_down_sequence[0]: # m1
+                    if i + 1 < len(main_up_down_sequence): widget.down_widget = main_up_down_sequence[i+1]
+                    # m1.up_widget is set above (to last room field)
+                elif widget == main_up_down_sequence[-1]: # aa
+                    if i - 1 >= 0: widget.up_widget = main_up_down_sequence[i-1]
+                    # aa.down_widget is set above (to first room field)
+                else: # Middle elements of main_up_down_sequence
+                    if i + 1 < len(main_up_down_sequence): widget.down_widget = main_up_down_sequence[i+1]
+                    if i - 1 >= 0: widget.up_widget = main_up_down_sequence[i-1]
+
+            # Link room_up_down_sequence internally
+            for i, widget in enumerate(room_up_down_sequence):
+                if widget == room_up_down_sequence[0]: # first room field
+                    if i + 1 < len(room_up_down_sequence): widget.down_widget = room_up_down_sequence[i+1]
+                    # first_room_field.up_widget is set above (to aa)
+                elif widget == room_up_down_sequence[-1]: # last room field
+                    if i - 1 >= 0: widget.up_widget = room_up_down_sequence[i-1]
+                    # last_room_field.down_widget is set above (to m1)
+                else: # Middle elements of room_up_down_sequence
+                     if i + 1 < len(room_up_down_sequence): widget.down_widget = room_up_down_sequence[i+1]
+                     if i - 1 >= 0: widget.up_widget = room_up_down_sequence[i-1]
+
+        else: # No rooms, main_up_down_sequence loops on itself
+            for i, widget in enumerate(main_up_down_sequence):
+                widget.down_widget = main_up_down_sequence[(i + 1) % len(main_up_down_sequence)]
+                widget.up_widget = main_up_down_sequence[(i - 1 + len(main_up_down_sequence)) % len(main_up_down_sequence)]
+
+        # Ensure Left/Right are None for all CustomLineEdits in this dialog
+        for widget_to_clear in all_line_edits_in_dialog: # all_line_edits_in_dialog defined earlier
+            if widget_to_clear: # Check if widget is not None
+                widget_to_clear.left_widget = None
+                widget_to_clear.right_widget = None
+        
+        # Set initial focus
+        if enter_sequence:
+            enter_sequence[0].setFocus()
+    def populate_data(self, main_data, room_data_list):
+        # Populate main fields using DB column names
+        self.meter1_edit.setText(str(main_data.get("meter1_reading", "") or ""))
+        self.meter2_edit.setText(str(main_data.get("meter2_reading", "") or ""))
+        self.meter3_edit.setText(str(main_data.get("meter3_reading", "") or ""))
+        self.diff1_edit.setText(str(main_data.get("diff1", "") or ""))
+        self.diff2_edit.setText(str(main_data.get("diff2", "") or ""))
+        self.diff3_edit.setText(str(main_data.get("diff3", "") or ""))
+        self.additional_amount_edit.setText(str(main_data.get("additional_amount", "") or ""))
+        
+        # Populate room fields
+        for i, room_widget_set in enumerate(self.room_edit_widgets):
+            if i < len(room_data_list):
+                room_data = room_data_list[i]
+                room_widget_set["present_edit"].setText(str(room_data.get("present_reading_room", "") or ""))
+                room_widget_set["previous_edit"].setText(str(room_data.get("previous_reading_room", "") or ""))
+
+
+    def save_changes(self):
+        # Helper functions for safe parsing
+        def _safe_parse_int(value_str, default=0):
+            try: return int(value_str) if value_str else default
+            except (ValueError, TypeError): return default
+            
+        def _safe_parse_float(value_str, default=0.0):
+            try: return float(value_str) if value_str else default
+            except (ValueError, TypeError): return default
+
+        try:
+            # TODO: Add more robust validation if needed
+            
+            # Get edited main values
+            meter1 = _safe_parse_int(self.meter1_edit.text())
+            meter2 = _safe_parse_int(self.meter2_edit.text())
+            meter3 = _safe_parse_int(self.meter3_edit.text())
+            diff1 = _safe_parse_int(self.diff1_edit.text())
+            diff2 = _safe_parse_int(self.diff2_edit.text())
+            diff3 = _safe_parse_int(self.diff3_edit.text())
+            additional_amount = _safe_parse_int(self.additional_amount_edit.text()) 
+
+            # Recalculate main derived fields
+            total_unit_cost = meter1 + meter2 + meter3 # Use DB name
+            total_diff_units = diff1 + diff2 + diff3 # Use DB name
+            per_unit_cost_calculated = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0 # Use DB name
+            grand_total_bill = total_unit_cost + additional_amount # Use DB name
+
+            # Prepare updated main data dictionary using DB column names
+            updated_main_data = {
+                "meter1_reading": meter1,
+                "meter2_reading": meter2,
+                "meter3_reading": meter3,
+                "diff1": diff1,
+                "diff2": diff2,
+                "diff3": diff3,
+                "additional_amount": additional_amount,
+                "total_unit_cost": total_unit_cost, 
+                "total_diff_units": total_diff_units, 
+                "per_unit_cost_calculated": per_unit_cost_calculated, 
+                "grand_total_bill": grand_total_bill 
+            }
+
+            # Prepare updated room data
+            updated_room_data_list = []
+            for room_widget_set in self.room_edit_widgets:
+                present_reading = _safe_parse_int(room_widget_set["present_edit"].text())
+                previous_reading = _safe_parse_int(room_widget_set["previous_edit"].text())
+                units_consumed = present_reading - previous_reading
+                cost = units_consumed * per_unit_cost_calculated # Use recalculated cost
+
+                room_data = {
+                    "main_calculation_id": self.record_id, # Link to the main record
+                    "room_name": room_widget_set["name"], # Use stored name
+                    "present_reading_room": present_reading,
+                    "previous_reading_room": previous_reading,
+                    "units_consumed_room": units_consumed,
+                    "cost_room": cost
+                    # Removed user_id as it expects UUID and allows NULL
+                }
+                updated_room_data_list.append(room_data)
+
+
+            # --- Execute Supabase Update ---
+            print(f"Updating main_calculations record ID: {self.record_id}")
+            # Update main record
+            self.supabase.table("main_calculations").update(updated_main_data).eq("id", self.record_id).execute()
+            
+            # Delete old room records for this main_calc_id
+            print(f"Deleting old room_calculations for main_calculation_id: {self.record_id}")
+            self.supabase.table("room_calculations").delete().eq("main_calculation_id", self.record_id).execute()
+
+            # Insert new room records 
+            if updated_room_data_list:
+                print(f"Inserting new room_calculations for main_calculation_id: {self.record_id}")
+                self.supabase.table("room_calculations").insert(updated_room_data_list).execute()
+
+            QMessageBox.information(self, "Success", "Record updated successfully.")
+            self.accept() # Close dialog with success signal
+
+        except APIError as e:
+            QMessageBox.critical(self, "Supabase API Error", f"Failed to update record: {e.message}\nDetails: {e.details}")
+            print(f"Supabase API Error on update: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "Update Error", f"An unexpected error occurred during update: {e}\n{traceback.format_exc()}")
+            print(f"Unexpected Update Error: {e}\n{traceback.format_exc()}")
+
+
 # Main application class
 class MeterCalculationApp(QMainWindow):
     def __init__(self):
@@ -241,24 +638,65 @@ class MeterCalculationApp(QMainWindow):
 
         # Set the window title
         self.setWindowTitle("Meter Calculation Application")
-        # Set the window size and position (x, y, width, height)
-        self.setGeometry(300, 100, 1300, 800)
+        
+        # Helper method for checking internet connectivity
+        def check_connectivity():
+            import socket
+            try:
+                # Try to establish a connection to Google's DNS server
+                socket.create_connection(("8.8.8.8", 53), timeout=3)
+                return True
+            except OSError:
+                return False
+                
+        self.check_internet_connectivity = check_connectivity
         
         # Set the window icon using the resource_path function to locate the icon file
         self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
         # Apply the stylesheet to the entire application
         self.setStyleSheet(get_stylesheet())
 
+        # Set a minimum size for the window
+        self.setMinimumSize(1400, 900) # Set a reasonable minimum size
+
+        # Initialize combo box for loading data source (used in Main and History tabs)
+        self.load_info_source_combo = QComboBox()
+        self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
+        self.load_info_source_combo.setStyleSheet(get_month_info_style()) # Reuse style
+        
+        # Initialize combo box for loading history source (used in History tab)
+        self.load_history_source_combo = QComboBox() # Instance variable
+        self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
+        self.load_history_source_combo.setStyleSheet(get_month_info_style()) # Reuse style
+
         # Initialize the user interface
         self.init_ui()
         # Set up the navigation for the application
         self.setup_navigation()
+
+        # Center the window on the screen
+        self.center_window()
+
+        # Initialize Supabase client
+        try:
+            url = os.environ.get("SUPABASE_URL")
+            key = os.environ.get("SUPABASE_ANON_KEY")
+            if not url or not key:
+                raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env file")
+            self.supabase: Client = create_client(url, key)
+            print("Supabase client initialized successfully.")
+        except Exception as e:
+            self.supabase = None
+            print(f"Failed to initialize Supabase client: {e}")
+            QMessageBox.warning(self, "Supabase Error", f"Failed to initialize Supabase client: {e}\nPlease check your .env file and internet connection.")
 
     def init_ui(self):
         # Initialize the main user interface
         central_widget = QWidget(self)  # Create a central widget for the main window
         self.setCentralWidget(central_widget)  # Set the central widget for the main window
         main_layout = QVBoxLayout(central_widget)  # Create a vertical layout for the central widget
+        main_layout.setContentsMargins(0, 0, 0, 0) # Remove margins from the main layout
+        main_layout.setSpacing(0) # Remove spacing from the main layout
 
         # Add header
         header = QLabel("Meter Calculation Application")  # Create a label for the header
@@ -272,95 +710,134 @@ class MeterCalculationApp(QMainWindow):
         self.tab_widget.addTab(self.create_history_tab(), "History")  # Add the history tab
         main_layout.addWidget(self.tab_widget)  # Add the tab widget to the main layout
 
-        # Add Save to PDF button
-        save_pdf_button = QPushButton("Save to PDF")  # Create a button for saving to PDF
-        save_pdf_button.setIcon(QIcon(resource_path("icons/save_icon.png")))  # Set an icon for the save button
-        save_pdf_button.clicked.connect(self.save_to_pdf)  # Connect the button click to the save_to_pdf method
-        main_layout.addWidget(save_pdf_button)  # Add the save button to the main layout
+        # Create a horizontal layout for the save buttons
+        save_buttons_layout = QHBoxLayout()
+
+        # Add Save as PDF button
+        save_pdf_button = QPushButton("Save as PDF")
+        save_pdf_button.setObjectName("savePdfButton") # For specific styling
+        save_pdf_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
+        save_pdf_button.clicked.connect(self.save_to_pdf)
+        save_buttons_layout.addWidget(save_pdf_button)
+
+        # Add Save as CSV button
+        save_csv_button = QPushButton("Save as CSV")
+        save_csv_button.setObjectName("saveCsvButton") # For specific styling
+        # You might want a different icon for CSV, e.g., a document icon
+        save_csv_button.setIcon(QIcon(resource_path("icons/save_icon.png"))) # Placeholder icon
+        save_csv_button.clicked.connect(self.save_calculation_to_csv)
+        save_buttons_layout.addWidget(save_csv_button)
+
+        # Add Save to Cloud button (formerly Save to Supabase)
+        save_cloud_button = QPushButton("Save to Cloud")
+        save_cloud_button.setObjectName("saveCloudButton") # For specific styling
+        save_cloud_button.setIcon(QIcon(resource_path("icons/database_icon.png"))) # Assuming a database_icon.png exists
+        save_cloud_button.clicked.connect(self.save_calculation_to_supabase)
+        save_buttons_layout.addWidget(save_cloud_button)
+        
+        main_layout.addLayout(save_buttons_layout) # Add the horizontal layout of buttons to the main layout
 
     def create_main_tab(self):
-        # Create the main calculation tab
-        main_tab = QWidget()  # Create a new QWidget for the main tab
-        main_layout = QVBoxLayout(main_tab)  # Create a vertical layout for the main tab
-        main_layout.setSpacing(20)  # Set spacing between layout items to 20 pixels
-        main_layout.setContentsMargins(20, 20, 20, 20)  # Set margins for the layout
+        main_tab = QWidget()
+        main_layout = QVBoxLayout(main_tab)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-         # Create a horizontal layout for the top section
-        top_layout = QHBoxLayout()  
+        # --- NEW TOP ROW ---
+        new_top_row_layout = QHBoxLayout()
+        new_top_row_layout.setSpacing(20) 
 
-        # Add Date Selection group
-        filter_group = QGroupBox("Date Selection")  # Create a group box for date selection
-        filter_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
-        filter_layout = QHBoxLayout()  # Create a horizontal layout for the filter group
-        filter_group.setLayout(filter_layout)  # Set the horizontal layout for the filter group
+        # Date Selection Group (Left side of Top Row)
+        # This group contains the month/year for the CURRENT calculation
+        date_selection_group = QGroupBox("Date Selection") 
+        date_selection_group.setStyleSheet(get_group_box_style())
+        date_selection_filter_layout = QHBoxLayout() 
+        date_selection_group.setLayout(date_selection_filter_layout)
 
-        # Add Month selection
-        month_label = QLabel("Month:")  # Create a label for month selection
-        month_label.setStyleSheet(get_label_style())  # Apply custom style to the month label
-        self.month_combo = QComboBox()  # Create a combo box for month selection
-        self.month_combo.addItems([  # Add month names to the combo box
+        month_label = QLabel("Month:")
+        month_label.setStyleSheet(get_label_style())
+        self.month_combo = QComboBox() 
+        self.month_combo.addItems([
             "January", "February", "March", "April", "May", "June", 
             "July", "August", "September", "October", "November", "December"
         ])
-        self.month_combo.setStyleSheet(get_month_info_style())  # Apply custom style to the month combo box
+        self.month_combo.setStyleSheet(get_month_info_style())
 
-        # Add Year selection
-        year_label = QLabel("Year:")  # Create a label for year selection
-        year_label.setStyleSheet(get_label_style())  # Apply custom style to the year label
-        self.year_spinbox = QSpinBox()  # Create a spin box for year selection
-        self.year_spinbox.setRange(2000, 2100)  # Set the range of years from 2000 to 2100
-        self.year_spinbox.setValue(datetime.now().year)  # Set the current year as default value
-        self.year_spinbox.setStyleSheet(get_month_info_style())  # Apply custom style to the year spin box
+        year_label = QLabel("Year:")
+        year_label.setStyleSheet(get_label_style())
+        self.year_spinbox = QSpinBox()
+        self.year_spinbox.setRange(2000, 2100)
+        self.year_spinbox.setValue(datetime.now().year)
+        self.year_spinbox.setStyleSheet(get_month_info_style())
 
-        # Add widgets to filter layout
-        filter_layout.addWidget(month_label)  # Add month label to the filter layout
-        filter_layout.addWidget(self.month_combo)  # Add month combo box to the filter layout
-        filter_layout.addSpacing(20)  # Add 20 pixels of spacing
-        filter_layout.addWidget(year_label)  # Add year label to the filter layout
-        filter_layout.addWidget(self.year_spinbox)  # Add year spin box to the filter layout
-        filter_layout.addStretch(1)  # Add stretchable space at the end
+        date_selection_filter_layout.addWidget(month_label)
+        date_selection_filter_layout.addWidget(self.month_combo)
+        date_selection_filter_layout.addSpacing(20)
+        date_selection_filter_layout.addWidget(year_label)
+        date_selection_filter_layout.addWidget(self.year_spinbox)
+        date_selection_filter_layout.addStretch(1)
+        
+        new_top_row_layout.addWidget(date_selection_group, 1) 
 
-        top_layout.addWidget(filter_group)  # Add the filter group to the main layout
+        # Moved Load Data Options Group (Right side of Top Row)
+        # This group is for LOADING data from history/cloud into the current input fields
+        moved_load_options_group = QGroupBox("Load Data Options")
+        moved_load_options_group.setStyleSheet(get_group_box_style())
 
-        # Additional Amount group
+        moved_load_options_internal_layout = QVBoxLayout()
+        moved_load_options_group.setLayout(moved_load_options_internal_layout)
+
+        # create_load_info_group contains its own month/year (self.load_month_combo, self.load_year_spinbox) and Load button
+        load_info_group = self.create_load_info_group() 
+        moved_load_options_internal_layout.addWidget(load_info_group)
+
+        # Source for 'Load' Button
+        source_info_layout = QHBoxLayout()
+        source_info_label = QLabel("Source for 'Load' Button:")
+        source_info_label.setStyleSheet(get_label_style())
+        source_info_layout.addWidget(source_info_label)
+        source_info_layout.addWidget(self.load_info_source_combo) # Initialized in __init__
+        source_info_layout.addStretch(1) 
+        moved_load_options_internal_layout.addLayout(source_info_layout)
+        
+        new_top_row_layout.addWidget(moved_load_options_group, 1) 
+
+        main_layout.addLayout(new_top_row_layout)
+
+        # --- NEW MIDDLE ROW ---
+        new_middle_row_layout = QHBoxLayout()
+        new_middle_row_layout.setSpacing(20)
+
+        meter_group = self.create_meter_group()
+        new_middle_row_layout.addWidget(meter_group, 1) 
+
+        diff_group = self.create_diff_group()
+        new_middle_row_layout.addWidget(diff_group, 1) 
+        
         amount_group = self.create_additional_amount_group()
-        top_layout.addWidget(amount_group)  # Add the additional amount group to the top layout
+        new_middle_row_layout.addWidget(amount_group, 1) 
 
-        # Add the top layout to the main layout
-        main_layout.addLayout(top_layout)
+        main_layout.addLayout(new_middle_row_layout)
 
-        # Add Meter and Difference Readings
-        readings_layout = QHBoxLayout()  # Create a horizontal layout for readings
-        readings_layout.setSpacing(20)  # Set spacing between items in the readings layout
+        # --- RESULTS SECTION --- (Moved before Calculate button)
+        results_group = self.create_results_group()
+        main_layout.addWidget(results_group)
 
-        meter_group = self.create_meter_group()  # Create the meter readings group
-        readings_layout.addWidget(meter_group)  # Add meter group to the readings layout
+        # --- CALCULATE BUTTON ---
+        self.main_calculate_button = CustomNavButton("Calculate")
+        self.main_calculate_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
+        self.main_calculate_button.clicked.connect(self.calculate_main)
+        self.main_calculate_button.setStyleSheet(get_button_style())
+        self.main_calculate_button.setFixedHeight(50)
+        main_layout.addWidget(self.main_calculate_button)
 
-        diff_group = self.create_diff_group()  # Create the difference readings group
-        readings_layout.addWidget(diff_group)  # Add difference group to the readings layout
-
-        main_layout.addLayout(readings_layout)  # Add the readings layout to the main layout
-
-        # Add Calculate button
-        calculate_button = QPushButton("Calculate")  # Create a calculate button
-        calculate_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))  # Set icon for the calculate button
-        calculate_button.clicked.connect(self.calculate_main)  # Connect button click to calculate_main method
-        calculate_button.setStyleSheet(get_button_style())  # Apply custom style to the button
-        calculate_button.setFixedHeight(50)  # Set fixed height for the button
-        main_layout.addWidget(calculate_button)  # Add the calculate button to the main layout
-
-        # Add Results section
-        results_group = self.create_results_group()  # Create the results group
-        main_layout.addWidget(results_group)  # Add the results group to the main layout
-
-        # Add stretch to push everything to the top
-        main_layout.addStretch(1)  # Add stretchable space at the bottom
-
-        return main_tab  # Return the created main tab
+        # Removed final stretch to allow vertical expansion
+        return main_tab
     
 
     def create_additional_amount_group(self):
         amount_group = QGroupBox("Additional Amount")
+        amount_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Allow horizontal expansion
         amount_group.setStyleSheet(get_group_box_style())
         amount_layout = QHBoxLayout()
         amount_group.setLayout(amount_layout)
@@ -368,6 +845,7 @@ class MeterCalculationApp(QMainWindow):
         amount_label = QLabel("Additional Amount:")
         amount_label.setStyleSheet(get_label_style())
         self.additional_amount_input = CustomLineEdit()
+        self.additional_amount_input.setObjectName("main_additional_amount_input")
         self.additional_amount_input.setPlaceholderText("Enter additional amount")
         self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
         self.additional_amount_input.setStyleSheet(get_line_edit_style())
@@ -433,12 +911,15 @@ class MeterCalculationApp(QMainWindow):
         # Create the Meter Readings group
         meter_group = QGroupBox("Meter Readings")  # Create a QGroupBox for meter readings
         meter_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
+        meter_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Allow horizontal expansion
         meter_layout = QFormLayout()  # Create a form layout for organizing the meter entries
+        meter_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow) # Make fields expand horizontally
         meter_layout.setSpacing(10)  # Set spacing between form layout items
         self.meter_entries = []  # Initialize an empty list to store meter entry widgets
         for i in range(3):  # Loop 3 times to create 3 meter entry fields
-            meter_entry = CustomLineEdit()  # Create a custom line edit widget for each meter entry
-            meter_entry.setPlaceholderText(f"Enter meter {i+1} reading")  # Set placeholder text for the entry
+            meter_entry = CustomLineEdit()
+            meter_entry.setObjectName(f"main_meter_entry_{i}")
+            meter_entry.setPlaceholderText(f"Enter meter {i+1} reading")
             meter_layout.addRow(f"Meter {i+1} Reading:", meter_entry)  # Add a labeled row to the form layout
             self.meter_entries.append(meter_entry)  # Add the entry widget to the list of meter entries
         meter_group.setLayout(meter_layout)  # Set the form layout as the layout for the group box
@@ -448,62 +929,97 @@ class MeterCalculationApp(QMainWindow):
         # Create the Difference Readings group
         diff_group = QGroupBox("Difference Readings")  # Create a QGroupBox for difference readings
         diff_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
+        diff_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Allow horizontal expansion
         diff_layout = QFormLayout()  # Create a form layout for organizing the difference entries
+        diff_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow) # Make fields expand horizontally
         diff_layout.setSpacing(10)  # Set spacing between form layout items
         self.diff_entries = []  # Initialize an empty list to store difference entry widgets
         for i in range(3):  # Loop 3 times to create 3 difference entry fields
-            diff_entry = CustomLineEdit()  # Create a custom line edit widget for each difference entry
-            diff_entry.setPlaceholderText(f"Enter difference {i+1}")  # Set placeholder text for the entry
-            diff_layout.addRow(f"Difference {i+1}:", diff_entry)  # Add a labeled row to the form layout
+            diff_entry = CustomLineEdit()
+            diff_entry.setObjectName(f"main_diff_entry_{i}")
+            diff_entry.setPlaceholderText(f"Enter difference {i+1} reading")
+            diff_layout.addRow(f"Difference {i+1} Reading:", diff_entry)  # Add a labeled row to the form layout
             self.diff_entries.append(diff_entry)  # Add the entry widget to the list of difference entries
         diff_group.setLayout(diff_layout)  # Set the form layout as the layout for the group box
         return diff_group  # Return the created and configured group box
 
     def create_results_group(self):
-        # Create the Results group
-        results_group = QGroupBox("Results")  # Create a QGroupBox for the results
-        results_layout = QHBoxLayout()  # Create a horizontal layout for the results
-        results_layout.setSpacing(50)  # Set spacing between items in the layout
+        # Create the Results section with new layout
+        results_group = QGroupBox("Results")
+        # Apply general group box style, specific label styles will override QLabel part
+        results_group.setStyleSheet(get_group_box_style())
+        results_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         
-        # Create labels for titles and values
-        total_unit_title = QLabel("Total Unit Cost")  # Create a label for total unit cost title
-        self.total_unit_label = QLabel("N/A")  # Create a label to display total unit cost value
-        total_diff_title = QLabel("Total Difference")  # Create a label for total difference title
-        self.total_diff_label = QLabel("N/A")  # Create a label to display total difference value
-        per_unit_cost_title = QLabel("Per Unit Cost")  # Create a label for per unit cost title
-        self.per_unit_cost_label = QLabel("N/A")  # Create a label to display per unit cost value
-        added_amount_title = QLabel("Added Amount")
-        self.added_amount_label = QLabel("N/A")
-        in_total_title = QLabel("In Total")
-        self.in_total_label = QLabel("N/A")
+        results_layout = QHBoxLayout(results_group) # Main horizontal layout
+        results_layout.setSpacing(20) # Spacing between each vertical metric group
+        results_layout.setContentsMargins(15, 25, 15, 15) # top margin increased for title space
 
-        # Create vertical layouts for each result
-        for title, value in [
-            (total_unit_title, self.total_unit_label),
-            (total_diff_title, self.total_diff_label),
-            (per_unit_cost_title, self.per_unit_cost_label),
-            (added_amount_title, self.added_amount_label),
-            (in_total_title, self.in_total_label)
-        ]:
-            item_layout = QVBoxLayout()  # Create a vertical layout for each result pair
-            item_layout.addWidget(title)  # Add the title label to the layout
-            item_layout.addWidget(value)  # Add the value label to the layout
-            results_layout.addLayout(item_layout)  # Add the vertical layout to the main horizontal layout
+        # --- Create Vertical Layouts for Each Metric ---
+        
+        # Metric 1: Total Units
+        total_unit_layout = QVBoxLayout()
+        total_unit_layout.setSpacing(2) # Minimal spacing between title and value
+        total_unit_title_label = QLabel("Total Units")
+        total_unit_title_label.setStyleSheet(get_result_title_style())
+        self.total_unit_value_label = QLabel("0") # Instance variable for value
+        self.total_unit_value_label.setStyleSheet(get_result_value_style())
+        total_unit_layout.addWidget(total_unit_title_label)
+        total_unit_layout.addWidget(self.total_unit_value_label)
+        total_unit_layout.addStretch(1) # Push to top if needed
+        results_layout.addLayout(total_unit_layout, 1) # Add to main layout with stretch
 
-        # Set the layout for the group box
-        results_group.setLayout(results_layout)  # Set the main layout for the results group
-        results_group.setStyleSheet(get_results_group_style())  # Apply custom style to the results group
+        # Metric 2: Total Difference
+        total_diff_layout = QVBoxLayout()
+        total_diff_layout.setSpacing(2)
+        total_diff_title_label = QLabel("Total Difference")
+        total_diff_title_label.setStyleSheet(get_result_title_style())
+        self.total_diff_value_label = QLabel("0")
+        self.total_diff_value_label.setStyleSheet(get_result_value_style())
+        total_diff_layout.addWidget(total_diff_title_label)
+        total_diff_layout.addWidget(self.total_diff_value_label)
+        total_diff_layout.addStretch(1)
+        results_layout.addLayout(total_diff_layout, 1)
 
-        # Apply styles to all labels
-        for label in [total_unit_title, self.total_unit_label, 
-                    total_diff_title, self.total_diff_label, 
-                    per_unit_cost_title, self.per_unit_cost_label,
-                    added_amount_title, self.added_amount_label,
-                    in_total_title, self.in_total_label]:
-            label.setStyleSheet("border: none; background-color: transparent; padding: 0;")  # Set style for each label
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center-align the text in each label
+        # Metric 3: Per Unit Cost
+        per_unit_cost_layout = QVBoxLayout()
+        per_unit_cost_layout.setSpacing(2)
+        per_unit_cost_title_label = QLabel("Per Unit Cost")
+        per_unit_cost_title_label.setStyleSheet(get_result_title_style())
+        self.per_unit_cost_value_label = QLabel("0.00")
+        self.per_unit_cost_value_label.setStyleSheet(get_result_value_style())
+        per_unit_cost_layout.addWidget(per_unit_cost_title_label)
+        per_unit_cost_layout.addWidget(self.per_unit_cost_value_label)
+        per_unit_cost_layout.addStretch(1)
+        results_layout.addLayout(per_unit_cost_layout, 1)
 
-        return results_group  # Return the created results group
+        # Metric 4: Added Amount
+        added_amount_layout = QVBoxLayout()
+        added_amount_layout.setSpacing(2)
+        added_amount_title_label = QLabel("Added Amount")
+        added_amount_title_label.setStyleSheet(get_result_title_style())
+        self.additional_amount_value_label = QLabel("0") # Renamed instance variable
+        self.additional_amount_value_label.setStyleSheet(get_result_value_style())
+        added_amount_layout.addWidget(added_amount_title_label)
+        added_amount_layout.addWidget(self.additional_amount_value_label)
+        added_amount_layout.addStretch(1)
+        results_layout.addLayout(added_amount_layout, 1)
+
+        # Metric 5: In Total
+        in_total_layout = QVBoxLayout()
+        in_total_layout.setSpacing(2)
+        in_total_title_label = QLabel("In Total")
+        in_total_title_label.setStyleSheet(get_result_title_style())
+        self.in_total_value_label = QLabel("0.00") # Renamed instance variable
+        self.in_total_value_label.setStyleSheet(get_result_value_style())
+        in_total_layout.addWidget(in_total_title_label)
+        in_total_layout.addWidget(self.in_total_value_label)
+        in_total_layout.addStretch(1)
+        results_layout.addLayout(in_total_layout, 1)
+
+        # Adjust minimum height if necessary based on new font sizes
+        results_group.setMinimumHeight(100) # Increased minimum height guess
+
+        return results_group
 
     def create_rooms_tab(self):
         # Create the Room Calculations tab
@@ -549,14 +1065,15 @@ class MeterCalculationApp(QMainWindow):
         self.room_entries = []
         self.room_results = []
 
-        self.update_room_inputs()
+        # Add Calculate Room Bills button FIRST, so it exists when update_room_inputs is called
+        self.calculate_rooms_button = CustomNavButton("Calculate Room Bills")
+        self.calculate_rooms_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
+        self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
+        self.calculate_rooms_button.setStyleSheet(get_button_style())
+        layout.addWidget(self.calculate_rooms_button)
 
-        # Add Calculate Room Bills button
-        calculate_rooms_button = QPushButton("Calculate Room Bills")  # Create a button for calculating room bills
-        calculate_rooms_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))  # Set an icon for the button
-        calculate_rooms_button.clicked.connect(self.calculate_rooms)  # Connect button click to calculation method
-        calculate_rooms_button.setStyleSheet(get_button_style())  # Apply style to the button
-        layout.addWidget(calculate_rooms_button)  # Add the button to the main layout
+        # Now call update_room_inputs, which also sets up navigation
+        self.update_room_inputs()
 
         return rooms_tab  # Return the created rooms tab
 
@@ -565,7 +1082,9 @@ class MeterCalculationApp(QMainWindow):
         # Clear existing widgets from the scroll layout
         for i in reversed(range(self.rooms_scroll_layout.count())):
             # Remove each widget from the layout and set its parent to None
-            self.rooms_scroll_layout.itemAt(i).widget().setParent(None)
+            widget = self.rooms_scroll_layout.itemAt(i).widget()
+            if widget: # Check if it's a widget before calling setParent
+                widget.setParent(None)
 
         # Get the number of rooms from the spinbox
         num_rooms = self.num_rooms_spinbox.value()
@@ -579,14 +1098,18 @@ class MeterCalculationApp(QMainWindow):
             room_group = QGroupBox(f"Room {i+1}")
             # Create a form layout for the room's inputs
             room_layout = QFormLayout()
+            room_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow) # Make fields expand horizontally
             # Set the layout for the room group
             room_group.setLayout(room_layout)
             # Apply the room group style
             room_group.setStyleSheet(get_room_group_style())
+            room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Allow horizontal expansion
 
             # Create input fields and labels for the room
             present_entry = CustomLineEdit()
+            present_entry.setObjectName(f"room_{i}_present")
             previous_entry = CustomLineEdit()
+            previous_entry.setObjectName(f"room_{i}_previous")
             real_unit_label = QLabel()
             unit_bill_label = QLabel()
 
@@ -607,67 +1130,136 @@ class MeterCalculationApp(QMainWindow):
             # Add the room group to the scroll layout
             self.rooms_scroll_layout.addWidget(room_group, i // 3, i % 3)
 
+        # Set column stretch factors for the grid layout to distribute space
+        if self.rooms_scroll_layout.columnCount() > 0: # Check if there are columns
+            for col in range(self.rooms_scroll_layout.columnCount()):
+                 self.rooms_scroll_layout.setColumnStretch(col, 1)
+
         # Apply styles to all CustomLineEdit widgets in the room entries
         for present_entry, previous_entry in self.room_entries:
             present_entry.setStyleSheet(get_line_edit_style())
             previous_entry.setStyleSheet(get_line_edit_style())
 
         # Ensure the scroll area updates its content
-        self.rooms_scroll_widget.setLayout(self.rooms_scroll_layout)
-        self.rooms_scroll_area.setWidget(self.rooms_scroll_widget)
+        self.rooms_scroll_widget.setLayout(self.rooms_scroll_layout) # Re-set layout after adding widgets
+        self.rooms_scroll_area.setWidget(self.rooms_scroll_widget) # Re-set widget after modifying layout
+
+        # --- Setup Navigation for Room Entries ---
+        if hasattr(self, 'calculate_rooms_button') and self.room_entries:
+            all_room_line_edits = []
+            for present_entry_widget, previous_entry_widget in self.room_entries:
+                all_room_line_edits.append(present_entry_widget)
+                all_room_line_edits.append(previous_entry_widget)
+
+            if all_room_line_edits and isinstance(self.calculate_rooms_button, CustomNavButton):
+                # First, clear all potential old links
+                for pe_widget, prev_e_widget in self.room_entries:
+                    pe_widget.next_widget_on_enter = None; pe_widget.up_widget = None; pe_widget.down_widget = None; pe_widget.left_widget = None; pe_widget.right_widget = None
+                    prev_e_widget.next_widget_on_enter = None; prev_e_widget.up_widget = None; prev_e_widget.down_widget = None; prev_e_widget.left_widget = None; prev_e_widget.right_widget = None
+                if isinstance(self.calculate_rooms_button, CustomNavButton):
+                    self.calculate_rooms_button.next_widget_on_enter = None
+
+                # Link Enter sequence (Field1 -> Field2 -> ... -> Button -> Field1)
+                enter_sequence_rooms = []
+                for pe, prev_e in self.room_entries:
+                    enter_sequence_rooms.append(pe)
+                    enter_sequence_rooms.append(prev_e)
+                
+                if enter_sequence_rooms: # Only proceed if there are room entries
+                    for idx, widget in enumerate(enter_sequence_rooms):
+                        if idx < len(enter_sequence_rooms) - 1:
+                            widget.next_widget_on_enter = enter_sequence_rooms[idx+1]
+                        else: # Last room field
+                            widget.next_widget_on_enter = self.calculate_rooms_button
+                    if isinstance(self.calculate_rooms_button, CustomNavButton):
+                        self.calculate_rooms_button.next_widget_on_enter = enter_sequence_rooms[0]
+
+                # Link Arrow Key Navigation (Up/Down Fields Only, in a single sequence for rooms)
+                # Sequence: room1_present <-> room1_previous <-> room2_present <-> ... <-> last_room_previous
+                
+                # all_room_line_edits was already created for the Enter sequence. We can reuse it.
+                if all_room_line_edits: # Check if there are any room line edits
+                    for i, widget in enumerate(all_room_line_edits):
+                        # Down navigation
+                        if i < len(all_room_line_edits) - 1:
+                            widget.down_widget = all_room_line_edits[i+1]
+                        else: # Last widget in room sequence, loops to first
+                            widget.down_widget = all_room_line_edits[0]
+                        
+                        # Up navigation
+                        if i > 0:
+                            widget.up_widget = all_room_line_edits[i-1]
+                        else: # First widget in room sequence, loops to last
+                            widget.up_widget = all_room_line_edits[-1]
+                        
+                        # Ensure Left/Right are None for text cursor movement
+                        widget.left_widget = None
+                        widget.right_widget = None
+            
+            # Optionally, set initial focus
+            # if self.room_entries and self.tab_widget.currentWidget() == self.rooms_scroll_area.parentWidget().parentWidget().parentWidget():
+            #     self.room_entries[0][0].setFocus()
 
     def calculate_main(self):
-        # Calculate the main meter readings
+        # Calculate main meter readings and update result labels
         try:
-            # Sum up the total unit from meter entries, converting each to int if not empty
-            total_unit = sum(int(entry.text()) for entry in self.meter_entries if entry.text())
-            # Sum up the total difference from diff entries, converting each to int if not empty
-            total_diff = sum(int(entry.text()) for entry in self.diff_entries if entry.text())
+            meter_readings = [int(entry.text()) if entry.text() else 0 for entry in self.meter_entries]
+            diff_readings = [int(entry.text()) if entry.text() else 0 for entry in self.diff_entries]
+            additional_amount = self.get_additional_amount() # Get additional amount
 
-            # Get the additional amount
-            additional_amount = self.get_additional_amount()
+            total_unit = sum(meter_readings)  # Calculate total units
+            total_diff = sum(diff_readings)  # Calculate total differences
 
-            # Calculate the in total amount
-            in_total = total_unit + additional_amount
+            if total_diff == 0: # Avoid division by zero
+                per_unit_cost = 0
+            else:
+                per_unit_cost = total_unit / total_diff  # Calculate per unit cost
+            
+            in_total = total_unit + additional_amount # Calculate in total including additional amount
 
-
-            # Check if total_diff is zero to avoid division by zero
-            if total_diff == 0:
-                raise ZeroDivisionError
-            # Calculate the per unit cost by dividing total unit by total difference
-            per_unit_cost = total_unit / total_diff
-
-            # Set the total unit label text with the calculated value
-            self.total_unit_label.setText(f"{total_unit} TK")
-            # Set the total difference label text with the calculated value
-            self.total_diff_label.setText(f"{total_diff}")
-            # Set the per unit cost label text with the calculated value, formatted to 2 decimal places
-            self.per_unit_cost_label.setText(f"{per_unit_cost:.2f} TK")
-            # Set the added amount label text
-            self.added_amount_label.setText(f"{additional_amount} TK")
-            # Set the in total label text
-            self.in_total_label.setText(f"{in_total} TK")
-
-            # Don't save here, as room calculations haven't been performed yet
+            # Update result value labels with calculated values
+            self.total_unit_value_label.setText(f"{total_unit}")
+            self.total_diff_value_label.setText(f"{total_diff}")
+            self.per_unit_cost_value_label.setText(f"{per_unit_cost:.2f}")
+            self.additional_amount_value_label.setText(f"{additional_amount}")
+            self.in_total_value_label.setText(f"{in_total:.2f}")
 
         except ValueError:
-            # Show a warning message if invalid input is detected
-            QMessageBox.warning(self, "Invalid Input", "Please enter valid integer values for all fields.")
-        except ZeroDivisionError:
-            # Show a warning message if total difference is zero
-            QMessageBox.warning(self, "Division by Zero", "Total Diff cannot be zero.")
+            # Show warning message for invalid input
+            QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values for all readings.")
+        except Exception as e:
+            # Show error message for other exceptions
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
 
     def calculate_rooms(self):
         # Calculate the room bills
         try:
             # Get the per unit cost text from the label and remove 'TK'
-            per_unit_cost_text = self.per_unit_cost_label.text().replace("TK", "")
-            # If per unit cost is not calculated, raise an error
-            if not per_unit_cost_text:
-                raise ValueError("Per unit cost not calculated")
+            label_content = self.per_unit_cost_value_label.text().strip()
+            value_to_process = ""
 
-            # Convert per unit cost to float
-            per_unit_cost = float(per_unit_cost_text)
+            if ':' in label_content:
+                parts = label_content.split(':', 1)
+                if len(parts) > 1:
+                    value_to_process = parts[1].strip()
+                else: # Colon present, but nothing after it (e.g., "Label:")
+                    raise ValueError(f"Per unit cost value is missing after colon in '{label_content}'.")
+            else: # No colon, assume the whole content is the value
+                value_to_process = label_content
+
+            if not value_to_process: # Handles empty label or label that became empty after stripping
+                raise ValueError(f"Per unit cost value is empty or missing. Original label content: '{label_content}'.")
+
+            # Clean for "tk" and try to convert
+            cleaned_value_text = value_to_process.lower().replace("tk", "").strip()
+
+            if not cleaned_value_text:
+                raise ValueError(f"Per unit cost value is non-numeric (e.g., only 'TK' or whitespace) after cleaning. Original value part: '{value_to_process}', from label: '{label_content}'.")
+
+            try:
+                per_unit_cost = float(cleaned_value_text)
+            except ValueError as e:
+                raise ValueError(f"Cannot convert per unit cost value '{cleaned_value_text}' to a number. Original label content: '{label_content}'. Error: {e}")
             # Iterate through room entries and results
             for (present_entry, previous_entry), (real_unit_label, unit_bill_label) in zip(self.room_entries, self.room_results):
                 # Get present and previous unit values
@@ -694,72 +1286,217 @@ class MeterCalculationApp(QMainWindow):
                     unit_bill_label.setText("Incomplete")
 
             # Save calculations after both main and room calculations are complete
-            self.save_calculation_to_csv()
+            # self.save_calculation_to_csv() # Removed automatic save from here
         except ValueError as e:
             # Show warning if there's a value error
             QMessageBox.warning(self, "Error", str(e))
+        except Exception as e: # Catch broader exceptions
+             QMessageBox.critical(self, "Error", f"An unexpected error occurred during room calculation: {e}\n{traceback.format_exc()}")
 
     def save_calculation_to_csv(self):
-        # Save the calculation results to a CSV file
+        # Save the main calculation and room bills to a CSV file
         month_name = f"{self.month_combo.currentText()} {self.year_spinbox.value()}"  # Create a string with month and year
-        filename = "meter_calculation_history.csv"  # Set the filename for the CSV file
-        
+        filename = "meter_calculation_history.csv"  # Define the filename for the CSV
+
+        # Check if essential fields are empty
+        meter_texts = [entry.text() for entry in self.meter_entries]
+        diff_texts = [entry.text() for entry in self.diff_entries]
+        if all(not text for text in meter_texts) and all(not text for text in diff_texts):
+             QMessageBox.warning(self, "Empty Data", "Cannot save empty calculation data.")
+             return
+
         try:
             file_exists = os.path.isfile(filename)  # Check if the file already exists
             
             with open(filename, mode='a', newline='') as file:  # Open the file in append mode
                 writer = csv.writer(file)  # Create a CSV writer object
-                if not file_exists:  # If the file doesn't exist, write the header row
+                
+                # Write header row if the file is new or empty
+                if not file_exists or os.path.getsize(filename) == 0:
                     writer.writerow([
                         "Month", "Meter-1", "Meter-2", "Meter-3", 
                         "Diff-1", "Diff-2", "Diff-3", "Total Unit", 
-                        "Total Diff", "Per Unit Cost", "Added Amount", "In Total", "Room", 
-                        "Present Unit", "Previous Unit", "Real Unit", "Unit Bill"
+                        "Total Diff", "Per Unit Cost", "Added Amount", "In Total", # Added "Added Amount"
+                        "Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill"
                     ])
 
-                # Write main calculation data
+                # Prepare main calculation data
                 main_data = [
-                    month_name,  # Add month and year
-                    *[entry.text() for entry in self.meter_entries],  # Add meter readings
-                    *[entry.text() for entry in self.diff_entries],  # Add difference readings
-                    self.total_unit_label.text().replace("TK", "").strip(),  # Add total unit cost
-                    self.total_diff_label.text().strip(),  # Add total difference
-                    self.per_unit_cost_label.text().replace("TK", "").strip(),  # Add per unit cost
-                    self.added_amount_label.text().replace("TK", "").strip(),  # Add added amount
-                    self.in_total_label.text().replace("TK", "").strip(),  # Add in total amount
-                    "", "", "", "", ""  # Empty fields for room-specific data
+                    month_name,
+                    self.meter_entries[0].text() or "0", self.meter_entries[1].text() or "0", self.meter_entries[2].text() or "0",
+                    self.diff_entries[0].text() or "0", self.diff_entries[1].text() or "0", self.diff_entries[2].text() or "0",
+                    (lambda _t: (lambda _v: _v if _v else '0')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.total_unit_value_label.text().strip()),
+                    (lambda _t: (lambda _v: _v if _v else '0')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.total_diff_value_label.text().strip()),
+                    (lambda _t: (lambda _v: _v if _v else '0.00')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.per_unit_cost_value_label.text().strip()),
+                    str(self.get_additional_amount()), # Save additional amount
+                    (lambda _t: (lambda _v: _v if _v else '0.00')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.in_total_value_label.text().strip())
                 ]
-                writer.writerow(main_data)  # Write the main data row
 
-                # Write room calculation data
-                for i, (present_entry, previous_entry) in enumerate(self.room_entries):  # Iterate through room entries
-                    real_unit_label, unit_bill_label = self.room_results[i]  # Get corresponding room results
-                    room_data = [
-                        month_name,  # Add month and year
-                        *[""] * 11,  # Empty fields for main calculation data
-                        f"Room {i+1}",  # Add room number
-                        present_entry.text(),  # Add present unit reading
-                        previous_entry.text(),  # Add previous unit reading
-                        real_unit_label.text(),  # Add real unit value
-                        unit_bill_label.text().replace("TK", "").strip()  # Add unit bill value
-                    ]
-                    writer.writerow(room_data)  # Write the room data row
+                # Check if room calculations have been performed and data exists
+                if self.room_entries and hasattr(self, 'room_results') and self.room_results: # Check if room_results exists and is populated
+                    for i, room in enumerate(self.room_entries):
+                        room_name = f"Room {i+1}" # Default name
+                        # Find the QGroupBox for this room to get the name if set
+                        room_group_widget = self.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                        if isinstance(room_group_widget, QGroupBox):
+                            room_name = room_group_widget.title()
 
-            QMessageBox.information(self, "Save Successful", "Calculation data has been saved to CSV.")  # Show success message
+                        present_unit = room[0].text() or "0" # present_entry
+                        previous_unit = room[1].text() or "0" # previous_entry
+                        
+                        real_unit = "N/A"
+                        unit_bill = "N/A"
+                        if i < len(self.room_results):
+                            real_unit_label, unit_bill_label = self.room_results[i]
+                            real_unit = real_unit_label.text() if real_unit_label.text() != "Incomplete" else "N/A"
+                            unit_bill = unit_bill_label.text().replace(" TK", "") if unit_bill_label.text() != "Incomplete" else "N/A"
+                        
+                        # For the first room, write main data alongside room data
+                        if i == 0:
+                            writer.writerow(main_data + [room_name, present_unit, previous_unit, real_unit, unit_bill])
+                        else:
+                            # For subsequent rooms, write month_name, then pad other main data fields with empty strings, then room data
+                            writer.writerow([month_name] + [""] * (len(main_data) - 1) + [room_name, present_unit, previous_unit, real_unit, unit_bill])
+                else:
+                    # If no room data, just write the main calculation data
+                    writer.writerow(main_data + ["N/A"] * 5) # Add placeholders for room columns
+
+            QMessageBox.information(self, "Save Successful", f"Data saved to {filename}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save data: {str(e)}")  # Show error message if saving fails
+            QMessageBox.critical(self, "Save Error", f"Failed to save data to CSV: {e}\n{traceback.format_exc()}")
+
+    def save_calculation_to_supabase(self):
+        # Save the main calculation and room bills to Supabase
+        if not self.supabase:
+            QMessageBox.critical(self, "Supabase Error", "Supabase client is not initialized. Cannot save data.")
+            return
+        
+        # Check if we're online before attempting Supabase operations
+        if not self.check_internet_connectivity():
+            QMessageBox.warning(self, "Network Error", 
+                             "No internet connection detected. Please check your network connection and try again.\n\n"
+                             "Tip: You can still use local CSV files for saving data when offline.")
+            return
+
+        try:
+            month = self.month_combo.currentText()
+            year = self.year_spinbox.value()
+            
+            # Helper to safely parse string to int or float
+            def _safe_parse_int(value_str, default=None):
+                try: return int(value_str) if value_str else default
+                except (ValueError, TypeError): return default
+            
+            def _safe_parse_float(value_str, default=None):
+                try: return float(value_str) if value_str else default
+                except (ValueError, TypeError): return default
+
+            # Recalculate derived fields before saving
+            meter1 = _safe_parse_int(self.meter_entries[0].text())
+            meter2 = _safe_parse_int(self.meter_entries[1].text())
+            meter3 = _safe_parse_int(self.meter_entries[2].text())
+            diff1 = _safe_parse_int(self.diff_entries[0].text())
+            diff2 = _safe_parse_int(self.diff_entries[1].text())
+            diff3 = _safe_parse_int(self.diff_entries[2].text())
+            additional_amount = _safe_parse_int(self.additional_amount_input.text())
+
+            total_unit_cost = meter1 + meter2 + meter3 # Use DB name
+            total_diff_units = diff1 + diff2 + diff3 # Use DB name
+            per_unit_cost_calculated = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0 # Use DB name
+            grand_total_bill = total_unit_cost + additional_amount # Use DB name
+
+            # Main calculation data using DB column names
+            main_calc_data = {
+                "month": month,
+                "year": year,
+                "meter1_reading": meter1, # DB name
+                "meter2_reading": meter2, # DB name
+                "meter3_reading": meter3, # DB name
+                "diff1": diff1,
+                "diff2": diff2,
+                "diff3": diff3,
+                "additional_amount": additional_amount,
+                "total_unit_cost": total_unit_cost, # DB name
+                "total_diff_units": total_diff_units, # DB name
+                "per_unit_cost_calculated": per_unit_cost_calculated, # DB name
+                "grand_total_bill": grand_total_bill # DB name
+                # Removed user_id as it doesn't exist in the schema
+            }
+
+            # Upsert main calculation data
+            response = self.supabase.table("main_calculations").select("id").eq("month", month).eq("year", year).execute()
+            
+            main_calc_id = None
+            if response.data: # Record exists, update it
+                main_calc_id = response.data[0]['id']
+                self.supabase.table("main_calculations").update(main_calc_data).eq("id", main_calc_id).execute()
+                print(f"Main calculation data updated for {month} {year}")
+            else: # Record doesn't exist, insert it
+                insert_response = self.supabase.table("main_calculations").insert(main_calc_data).execute()
+                if insert_response.data:
+                    main_calc_id = insert_response.data[0]['id']
+                    print(f"Main calculation data inserted for {month} {year} with ID: {main_calc_id}")
+                else:
+                    QMessageBox.critical(self, "Supabase Error", f"Failed to insert main calculation data.")
+                    return
 
 
+            # Room calculation data (if main_calc_id is available)
+            if main_calc_id and self.room_entries and hasattr(self, 'room_results') and self.room_results:
+                # First, delete existing room calculations for this main_calc_id to avoid duplicates on update
+                self.supabase.table("room_calculations").delete().eq("main_calculation_id", main_calc_id).execute()
+                print(f"Deleted existing room calculations for main_calc_id: {main_calc_id}")
+
+                room_data_list = []
+                for i, room_entry_set in enumerate(self.room_entries):
+                    present_entry, previous_entry = room_entry_set
+                    real_unit_label, unit_bill_label = self.room_results[i]
+                    
+                    # Get room name from group box title
+                    room_group_widget = self.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                    room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
+                    
+                    # Get calculated room values
+                    present_reading = _safe_parse_int(present_entry.text())
+                    previous_reading = _safe_parse_int(previous_entry.text())
+                    units_consumed = _safe_parse_int(real_unit_label.text())
+                    cost = _safe_parse_float(unit_bill_label.text().replace(" TK", ""))
+
+                    room_data = {
+                        "main_calculation_id": main_calc_id,
+                        "room_name": room_name,
+                        "present_reading_room": present_reading, # DB name
+                        "previous_reading_room": previous_reading, # DB name
+                        "units_consumed_room": units_consumed, # DB name
+                        "cost_room": cost # DB name
+                        # Removed user_id as it likely doesn't exist in the schema
+                    }
+                    room_data_list.append(room_data)
+                
+                if room_data_list:
+                    self.supabase.table("room_calculations").insert(room_data_list).execute()
+                    print(f"Room calculation data inserted/updated for main_calc_id: {main_calc_id}")
+
+            QMessageBox.information(self, "Save Successful", "Data saved to Cloud successfully.")
+
+        except APIError as e:
+            QMessageBox.critical(self, "Supabase API Error", f"Failed to save data to Supabase: {e.message}\nDetails: {e.details}")
+            print(f"Supabase API Error: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred while saving to Supabase: {e}\n{traceback.format_exc()}")
+            print(f"Unexpected Supabase Save Error: {e}\n{traceback.format_exc()}")
+            
     def create_load_info_group(self):
-        # Create Load Information box
+        # Create Load Information box (used in Main tab now)
         load_info_group = QGroupBox("Load Information")
         load_info_group.setStyleSheet(get_group_box_style())
+        load_info_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred) 
         load_info_layout = QHBoxLayout()
         load_info_group.setLayout(load_info_layout)
 
         load_month_label = QLabel("Month:")
         load_month_label.setStyleSheet(get_label_style())
-        self.load_month_combo = QComboBox()
+        self.load_month_combo = QComboBox() # For selecting which month's data to load
         self.load_month_combo.addItems([
             "January", "February", "March", "April", "May", "June", 
             "July", "August", "September", "October", "November", "December"
@@ -768,14 +1505,14 @@ class MeterCalculationApp(QMainWindow):
 
         load_year_label = QLabel("Year:")
         load_year_label.setStyleSheet(get_label_style())
-        self.load_year_spinbox = QSpinBox()
+        self.load_year_spinbox = QSpinBox() # For selecting which year's data to load
         self.load_year_spinbox.setRange(2000, 2100)
         self.load_year_spinbox.setValue(datetime.now().year)
         self.load_year_spinbox.setStyleSheet(get_month_info_style())
 
-        load_button = QPushButton("Load")
+        load_button = QPushButton("Load") # Button to trigger loading into input fields
         load_button.setStyleSheet(get_button_style())
-        load_button.clicked.connect(self.load_info_to_inputs)
+        load_button.clicked.connect(self.load_info_to_inputs) # Connects to a method that loads data
 
         load_info_layout.addWidget(load_month_label)
         load_info_layout.addWidget(self.load_month_combo)
@@ -784,256 +1521,686 @@ class MeterCalculationApp(QMainWindow):
         load_info_layout.addWidget(self.load_year_spinbox)
         load_info_layout.addSpacing(20)
         load_info_layout.addWidget(load_button)
+        load_info_layout.addStretch(1) # Push elements to the left
 
         return load_info_group
 
     def create_history_tab(self):
-        # Create the History tab
-        history_tab = QWidget()  # Create a new QWidget for the history tab
-        layout = QVBoxLayout()  # Create a vertical box layout for the tab
-        layout.setSpacing(20)  # Set the spacing between widgets to 20 pixels
-        layout.setContentsMargins(20, 20, 20, 20)  # Set the margins of the layout
-        history_tab.setLayout(layout)  # Set the layout for the history tab
+        history_tab = QWidget()
+        layout = QVBoxLayout(history_tab)
+        layout.setSpacing(20)
+        layout.setContentsMargins(20, 20, 20, 20)
 
-        # Create a horizontal layout for filter options and load info
+        # --- TOP ROW: Filter Options and Load History Options ---
         top_layout = QHBoxLayout()
+        top_layout.setSpacing(15) # Adjusted spacing
 
-        # Add month and year selection for filtering
-        filter_group = QGroupBox("Filter Options")  # Create a group box for filter options
-        filter_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
-        filter_layout = QHBoxLayout()  # Create a horizontal box layout for the filter options
-        filter_group.setLayout(filter_layout)  # Set the layout for the filter group
-        
-        month_label = QLabel("Month:")  # Create a label for month selection
-        month_label.setStyleSheet(get_label_style())  # Apply custom style to the month label
-        self.history_month_combo = QComboBox()  # Create a combo box for month selection
-        self.history_month_combo.addItems([  # Add items to the month combo box
-            "All", "January", "February", "March", "April", "May", "June", 
+        # Filter Options Group
+        filter_group = QGroupBox("Filter Options")
+        filter_group.setStyleSheet(get_group_box_style())
+        filter_layout = QHBoxLayout(filter_group)
+
+        month_label = QLabel("Month:")
+        month_label.setStyleSheet(get_label_style())
+        self.history_month_combo = QComboBox()
+        self.history_month_combo.addItems([
+            "All", "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ])
-        self.history_month_combo.setStyleSheet(get_month_info_style())  # Apply custom style to the month combo box
+        self.history_month_combo.setStyleSheet(get_month_info_style())
         
-        year_label = QLabel("Year:")  # Create a label for year selection
-        year_label.setStyleSheet(get_label_style())  # Apply custom style to the year label
-        self.history_year_spinbox = QSpinBox()  # Create a spin box for year selection
-        self.history_year_spinbox.setRange(2000, 2100)  # Set the range of years from 2000 to 2100
-        self.history_year_spinbox.setValue(datetime.now().year)  # Set the current year as default value
-        self.history_year_spinbox.setSpecialValueText("All")  # Display "All" when value is minimum
-        self.history_year_spinbox.setStyleSheet(get_month_info_style())  # Apply custom style to the year spin box
+        year_label = QLabel("Year:")
+        year_label.setStyleSheet(get_label_style())
+        self.history_year_spinbox = QSpinBox()
+        self.history_year_spinbox.setRange(2000, 2100)
+        self.history_year_spinbox.setValue(datetime.now().year)
+        self.history_year_spinbox.setSpecialValueText("All")
+        self.history_year_spinbox.setStyleSheet(get_month_info_style())
         
-        filter_layout.addWidget(month_label)  # Add month label to the filter layout
-        filter_layout.addWidget(self.history_month_combo)  # Add month combo box to the filter layout
-        filter_layout.addSpacing(20)  # Add 20 pixels of spacing
-        filter_layout.addWidget(year_label)  # Add year label to the filter layout
-        filter_layout.addWidget(self.history_year_spinbox)  # Add year spin box to the filter layout
-        filter_layout.addStretch(1)  # Add stretchable space to push everything to the left
+        filter_layout.addWidget(month_label)
+        filter_layout.addWidget(self.history_month_combo)
+        filter_layout.addSpacing(15)
+        filter_layout.addWidget(year_label)
+        filter_layout.addWidget(self.history_year_spinbox)
+        filter_layout.addStretch(1)
         
-        top_layout.addWidget(filter_group)
+        top_layout.addWidget(filter_group, 2) # Stretch factor 2
 
-        # Add Load Information box
-        load_info_group = self.create_load_info_group()
-        top_layout.addWidget(load_info_group)
+        # Load History Options Group
+        load_history_options_group = QGroupBox("Load History Options")
+        load_history_options_group.setStyleSheet(get_group_box_style())
+        load_history_options_layout = QHBoxLayout(load_history_options_group)
+        load_history_options_layout.setSpacing(10)
+        
+        history_source_label = QLabel("Source:")
+        history_source_label.setStyleSheet(get_label_style())
+        load_history_options_layout.addWidget(history_source_label)
+        load_history_options_layout.addWidget(self.load_history_source_combo)
+        
+        load_history_button = QPushButton("Load History Table")
+        load_history_button.clicked.connect(self.load_history)
+        load_history_button.setStyleSheet(get_button_style())
+        load_history_button.setFixedHeight(35)
+        load_history_options_layout.addWidget(load_history_button)
+        load_history_options_layout.addStretch(1)
 
-        layout.addLayout(top_layout)  # Add the top layout to the main layout
+        top_layout.addWidget(load_history_options_group, 2) # Stretch factor 2
 
-        # Add Main Calculation Info Section
-        main_calc_group = QGroupBox("Main Calculation Info")  # Create a group box for main calculation info
-        main_calc_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
-        main_calc_layout = QVBoxLayout()  # Create a vertical box layout for main calculation info
-        main_calc_group.setLayout(main_calc_layout)  # Set the layout for the main calculation group
+        # Record Actions Group (New)
+        record_actions_group = QGroupBox("Record Actions")
+        record_actions_group.setStyleSheet(get_group_box_style())
+        record_actions_layout = QHBoxLayout(record_actions_group)
+        record_actions_layout.setSpacing(10)
 
-        self.main_history_table = QTableWidget()  # Create a table widget for main calculation history
-        self.main_history_table.setColumnCount(12)  # Set the number of columns to 10
-        self.main_history_table.setHorizontalHeaderLabels([  # Set the horizontal header labels
-            "Month", "Meter-1", "Meter-2", "Meter-3", 
-            "Diff-1", "Diff-2", "Diff-3", "Total Unit", 
-            "Total Diff", "Per Unit Cost", "Added Amount", "In Total"
+        self.edit_selected_record_button = QPushButton("Edit Record")
+        self.edit_selected_record_button.setStyleSheet(get_button_style())
+        self.edit_selected_record_button.setFixedHeight(35)
+        self.edit_selected_record_button.clicked.connect(self.handle_edit_selected_record)
+
+        self.delete_selected_record_button = QPushButton("Delete Record")
+        # Consider a different style for delete, e.g., red background
+        delete_button_style = "background-color: #dc3545; color: white; border: none; border-radius: 4px; padding: 8px; font-weight: bold; font-size: 13px;"
+        self.delete_selected_record_button.setStyleSheet(delete_button_style)
+        self.delete_selected_record_button.setFixedHeight(35)
+        self.delete_selected_record_button.clicked.connect(self.handle_delete_selected_record)
+        
+        record_actions_layout.addWidget(self.edit_selected_record_button)
+        record_actions_layout.addWidget(self.delete_selected_record_button)
+        record_actions_layout.addStretch(1)
+
+        top_layout.addWidget(record_actions_group, 1) # Stretch factor 1
+
+        layout.addLayout(top_layout)
+
+        # --- Main Calculation Info Section ---
+        main_calc_group = QGroupBox("Main Calculation Info")
+        main_calc_group.setStyleSheet(get_group_box_style())
+        main_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed) # Strict fixed vertical policy
+        main_calc_layout = QVBoxLayout(main_calc_group)
+
+        self.main_history_table = QTableWidget()
+        self.main_history_table.setColumnCount(12) # Reduced column count
+        self.main_history_table.setHorizontalHeaderLabels([
+            "Month", "Meter-1", "Meter-2", "Meter-3",
+            "Diff-1", "Diff-2", "Diff-3", "Total Unit Cost",
+            "Total Diff Units", "Per Unit Cost", "Added Amount", "Grand Total" # Removed "Actions"
         ])
-        self.main_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # Make columns stretch to fit
-        self.main_history_table.setAlternatingRowColors(True)  # Set alternating row colors
-        self.main_history_table.setStyleSheet(get_table_style())  # Apply custom style to the table
-        main_calc_layout.addWidget(self.main_history_table)  # Add the table to the main calculation layout
+        header = self.main_history_table.horizontalHeader()
+        for i in range(self.main_history_table.columnCount()): # Stretch all columns
+             header.setSectionResizeMode(i, QHeaderView.Stretch)
+        
+        self.main_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.main_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.main_history_table.setAlternatingRowColors(True)
+        self.main_history_table.setStyleSheet(get_table_style())
+        
+        # Set fixed height for main_history_table to show header + 2 data rows
+        table_header_height = self.main_history_table.horizontalHeader().height()
+        # Estimate row height or use a fixed value if defaultSectionSize is unreliable before items are added
+        # A common default row height is around 25-30px. Let's use 28 for calculation.
+        estimated_row_height = 30 # Increased
+        num_data_rows_main_table = 2
+        
+        # Calculate height for the table itself
+        table_content_height = (num_data_rows_main_table * estimated_row_height)
+        # Add a small buffer for table borders/internal padding if any
+        table_total_height = table_header_height + table_content_height + 10 # Increased buffer slightly
+        self.main_history_table.setFixedHeight(table_total_height)
 
-        layout.addWidget(main_calc_group)  # Add the main calculation group to the main layout
+        main_calc_layout.addWidget(self.main_history_table)
+        
+        # Calculate fixed height for the main_calc_group
+        group_box_margins = main_calc_group.layout().contentsMargins()
+        # Approximate title bar height + top/bottom margins/padding of the group box itself
+        group_box_chrome_and_internal_padding = 40 # Increased estimate
 
-        # Add Room Calculation Info Section
-        room_calc_group = QGroupBox("Room Calculation Info")  # Create a group box for room calculation info
-        room_calc_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
-        room_calc_layout = QVBoxLayout()  # Create a vertical box layout for room calculation info
-        room_calc_group.setLayout(room_calc_layout)  # Set the layout for the room calculation group
+        # Add a small overall buffer for the group box
+        overall_buffer = 5
+        
+        fixed_group_height = table_total_height + group_box_margins.top() + group_box_margins.bottom() + group_box_chrome_and_internal_padding + overall_buffer
+        main_calc_group.setFixedHeight(fixed_group_height)
 
-        self.room_history_table = QTableWidget()  # Create a table widget for room calculation history
-        self.room_history_table.setColumnCount(6)  # Set the number of columns to 6
-        self.room_history_table.setHorizontalHeaderLabels([  # Set the horizontal header labels
-            "Month", "Room", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill"
+        layout.addWidget(main_calc_group, 0) # Stretch factor 0 for main_calc_group
+
+        # --- Room Calculation Info Section ---
+        room_calc_group = QGroupBox("Room Calculation Info")
+        room_calc_group.setStyleSheet(get_group_box_style())
+        room_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding) # This should take remaining space
+        room_calc_layout = QVBoxLayout(room_calc_group)
+
+        self.room_history_table = QTableWidget()
+        self.room_history_table.setColumnCount(6)
+        self.room_history_table.setHorizontalHeaderLabels([
+            "Month", "Room", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill" # Use CSV/Display Names
         ])
-        self.room_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # Make columns stretch to fit
-        self.room_history_table.setAlternatingRowColors(True)  # Set alternating row colors
-        self.room_history_table.setStyleSheet(get_table_style())  # Apply custom style to the table
-        room_calc_layout.addWidget(self.room_history_table)  # Add the table to the room calculation layout
+        self.room_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch) 
+        self.room_history_table.setAlternatingRowColors(True)
+        self.room_history_table.setStyleSheet(get_table_style())
+        room_calc_layout.addWidget(self.room_history_table)
+        layout.addWidget(room_calc_group)
+        
+        # Removed final stretch to allow vertical expansion
 
-        layout.addWidget(room_calc_group)  # Add the room calculation group to the main layout
+        return history_tab
 
-        # Add Load History Button
-        load_history_button = QPushButton("Load History")  # Create a button to load history
-        load_history_button.clicked.connect(self.load_history)  # Connect button click to load_history method
-        load_history_button.setStyleSheet(get_button_style())  # Apply custom style to the button
-        load_history_button.setFixedHeight(40)  # Set fixed height for the button
-        layout.addWidget(load_history_button)  # Add the load history button to the main layout
-
-        return history_tab  # Return the created history tab
-    
     def load_info_to_inputs(self):
-        selected_month = self.load_month_combo.currentText()
-        selected_year = self.load_year_spinbox.value()
-        selected_month_year = f"{selected_month} {selected_year}"
+        # Determine source (CSV or Supabase)
+        source = self.load_info_source_combo.currentText()
+        selected_month = self.load_month_combo.currentText() # Month from the "Load Data Options"
+        selected_year = self.load_year_spinbox.value()    # Year from the "Load Data Options"
 
+        if source == "Load from PC (CSV)":
+            self.load_info_to_inputs_from_csv(selected_month, selected_year)
+        elif source == "Load from Cloud":
+            self.load_info_to_inputs_from_supabase(selected_month, selected_year) # Call the new method
+        else:
+            QMessageBox.warning(self, "Unknown Source", "Please select a valid source to load data from.")
+
+    def load_info_to_inputs_from_csv(self, selected_month, selected_year):
         filename = "meter_calculation_history.csv"
-        if not os.path.isfile(filename):
-            QMessageBox.information(self, "No History", "No history available")
+        selected_month_year = f"{selected_month} {selected_year}" # This variable is not used in the current comparison logic
+        selected_month = selected_month.strip() # Ensure no leading/trailing spaces from UI
+        
+        if not os.path.exists(filename):
+            QMessageBox.warning(self, "File Not Found", f"{filename} does not exist.")
             return
 
         try:
-            with open(filename, mode='r', newline='') as file:
-                reader = csv.reader(file)
-                header = next(reader, None)
-                if not header:
-                    raise ValueError("No header found in CSV file")
-                
-                main_data = None
-                room_data = {}
+            with open(filename, mode='r', newline='', encoding='utf-8') as file: # Added encoding='utf-8'
+                reader = csv.DictReader(file)
+                found_main = False
+                room_data_for_month = []
+
+                # Helper function for robust, case-insensitive CSV value retrieval
+                def get_csv_value(row_dict, key_name, default_if_missing_or_empty):
+                    for k_original, v_original in row_dict.items():
+                        if k_original.lower() == key_name.lower():
+                            # Key found, process its value
+                            stripped_v = v_original.strip() if isinstance(v_original, str) else ""
+                            return stripped_v if stripped_v else default_if_missing_or_empty
+                    # Key not found, or initial value was not a string (e.g. None)
+                    return default_if_missing_or_empty
 
                 for row in reader:
-                    if row[0] == selected_month_year:
-                        if not main_data:
-                            main_data = row
-                            print(f"Main data: {main_data}")  # Debug print
-                        elif len(row) > 12 and row[12].startswith("Room"):
-                            room_number = int(row[12].split()[1])
-                            room_data[room_number] = row[12:]
-                            print(f"Room {room_number} data: {room_data[room_number]}")  # Debug print
-                    elif main_data:
-                        break
+                    csv_month_year_str = get_csv_value(row, "Month", "")
+                    if not csv_month_year_str:
+                        continue # Skip row if month string is empty
 
-                if main_data:
-                    # Load main calculation data
-                    for i in range(min(3, len(main_data) - 1)):
-                        if i + 1 < len(main_data):
-                            self.meter_entries[i].setText(main_data[i+1])
-                        if i + 4 < len(main_data):
-                            self.diff_entries[i].setText(main_data[i+4])
-                    
-                    if len(main_data) > 7:
-                        self.total_unit_label.setText(main_data[7])
-                    if len(main_data) > 8:
-                        self.total_diff_label.setText(main_data[8])
-                    if len(main_data) > 9:
-                        self.per_unit_cost_label.setText(main_data[9])
-                    if len(main_data) > 10:
-                        self.added_amount_label.setText(main_data[10])
-                    if len(main_data) > 11:
-                        self.in_total_label.setText(main_data[11])
+                    parsed_csv_month_full = None
+                    parsed_csv_year_full = None
 
-                    # Clear all room entries first
-                    for i, room_entry in enumerate(self.room_entries):
-                        room_entry[0].clear()  # Clear Present Unit
-                        room_entry[1].clear()  # Clear Previous Unit
-                        self.room_results[i][0].setText("")  # Clear Real Unit
-                        self.room_results[i][1].setText("")  # Clear Unit Bill
-
-                    # Now load the available room data
-                    for i, room_entry in enumerate(self.room_entries):
-                        room_number = i + 1
-                        print(f"Processing Room {room_number}")  # Debug print
-                        if room_number in room_data:
-                            room = room_data[room_number]
-                            print(f"Room {room_number} data: {room}")  # Debug print
-                            if len(room) > 1:
-                                room_entry[0].setText(room[1])  # Present Unit
-                                print(f"Set Present Unit for Room {room_number}: {room[1]}")  # Debug print
-                            if len(room) > 2:
-                                room_entry[1].setText(room[2])  # Previous Unit
-                                print(f"Set Previous Unit for Room {room_number}: {room[2]}")  # Debug print
-                            if len(room) > 3:
-                                self.room_results[i][0].setText(room[3])  # Real Unit
-                                print(f"Set Real Unit for Room {room_number}: {room[3]}")  # Debug print
-                            if len(room) > 4:
-                                self.room_results[i][1].setText(room[4])  # Unit Bill
-                                print(f"Set Unit Bill for Room {room_number}: {room[4]}")  # Debug print
+                    try:
+                        # Attempt 1: Parse "Month YYYY" format (e.g., "January 2025")
+                        parts = csv_month_year_str.split(' ', 1)
+                        if len(parts) == 2 and len(parts[1]) == 4 and parts[1].isdigit():
+                            month_str, year_str = parts
+                            parsed_csv_month_full = dt_class.strptime(month_str, '%B').strftime('%B') # Validate full month name
+                            parsed_csv_year_full = year_str
                         else:
-                            print(f"No data found for Room {room_number}")  # Debug print
+                            # If not "Month YYYY", raise error to try "Mon-YY"
+                            raise ValueError("Not Month YYYY format")
+                            
+                    except ValueError:
+                        try:
+                            # Attempt 2: Parse "Mon-YY" format (e.g., "Jan-25")
+                            csv_month_abbr, csv_year_short = csv_month_year_str.split('-', 1)
+                            if not (len(csv_year_short) == 2 and csv_year_short.isdigit()):
+                                continue # Invalid "Mon-YY" year format
 
-                    QMessageBox.information(self, "Data Loaded", f"Data for {selected_month_year} has been loaded.")
-                else:
-                    QMessageBox.information(self, "No Data", f"No data found for {selected_month_year}")
+                            parsed_csv_month_full = dt_class.strptime(csv_month_abbr, '%b').strftime('%B')
+                            parsed_csv_year_full = "20" + csv_year_short
+                        except ValueError:
+                            # Both parsing attempts failed
+                            continue # Skip this row
+
+                    if parsed_csv_month_full and parsed_csv_year_full:
+                        # Compare with UI selected month (full name) and year (as string)
+                        if parsed_csv_month_full.lower() == selected_month.lower() and \
+                           parsed_csv_year_full == str(selected_year):
+                            if not found_main: # Load main data only once
+                                # Populate main calculation inputs
+                                self.month_combo.setCurrentText(selected_month) # Set main tab's month
+                                self.year_spinbox.setValue(selected_year)     # Set main tab's year
+                                
+                                self.meter_entries[0].setText(get_csv_value(row, "Meter-1", "0"))
+                                self.meter_entries[1].setText(get_csv_value(row, "Meter-2", "0"))
+                                self.meter_entries[2].setText(get_csv_value(row, "Meter-3", "0"))
+                                self.diff_entries[0].setText(get_csv_value(row, "Diff-1", "0"))
+                                self.diff_entries[1].setText(get_csv_value(row, "Diff-2", "0"))
+                                self.diff_entries[2].setText(get_csv_value(row, "Diff-3", "0"))
+                                self.additional_amount_input.setText(get_csv_value(row, "Added Amount", "0"))
+                                found_main = True
+
+                            # Collect room data if present (only if month/year matched)
+                            room_name_csv = get_csv_value(row, "Room Name", "")
+                            # Case-insensitive check for "N/A"
+                            if room_name_csv and room_name_csv.upper() != "N/A":
+                                 # Check if room_entries is initialized and has enough space
+                                if hasattr(self, 'room_entries'):
+                                    room_data_for_month.append({
+                                        "name": room_name_csv, # Already processed by get_csv_value
+                                        "present": get_csv_value(row, "Present Unit", ""),
+                                        "previous": get_csv_value(row, "Previous Unit", "")
+                                    })
+                
+                if not found_main:
+                    QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month_year} in {filename}.")
+                    return
+
+                # Populate room inputs if data was found
+                if room_data_for_month and hasattr(self, 'room_entries'):
+                    num_rooms_to_load = len(room_data_for_month)
+                    # Check if num_rooms_spinbox exists before setting value
+                    if hasattr(self, 'num_rooms_spinbox'):
+                         self.num_rooms_spinbox.setValue(num_rooms_to_load) 
+                         QApplication.processEvents() # Ensure UI updates from setValue
+
+                         for i, room_csv_data in enumerate(room_data_for_month):
+                             if i < len(self.room_entries): # Check bounds
+                                 present_entry, previous_entry = self.room_entries[i]
+                                 # Find the corresponding group box to set the title (room name)
+                                 room_group_widget = self.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                                 if isinstance(room_group_widget, QGroupBox):
+                                     room_group_widget.setTitle(room_csv_data["name"]) # name is already stripped
+                                 present_entry.setText(room_csv_data["present"]) # present is already stripped
+                                 previous_entry.setText(room_csv_data["previous"]) # previous is already stripped
+                    else:
+                         print("Warning: num_rooms_spinbox not found during CSV load.")
+
+                elif hasattr(self, 'num_rooms_spinbox'): # If no room data found, reset to 1 room
+                    self.num_rooms_spinbox.setValue(1) 
+                    QApplication.processEvents()
+                    # Clear any existing room entries if no specific room data was loaded
+                    if hasattr(self, 'room_entries'):
+                        for index, entry_set in enumerate(self.room_entries):
+                             present_entry, previous_entry = entry_set
+                             present_entry.clear()
+                             previous_entry.clear()
+                             # Also reset group title if needed
+                             room_group_widget = self.rooms_scroll_layout.itemAtPosition(index // 3, index % 3).widget()
+                             if isinstance(room_group_widget, QGroupBox): room_group_widget.setTitle(f"Room {index+1}")
+
+
+                QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year} loaded into input fields.")
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load data: {str(e)}")
-            print(f"Detailed error: {str(e)}")
+            QMessageBox.critical(self, "Load Error", f"Failed to load data from CSV: {e}\n{traceback.format_exc()}")
+
+    def load_info_to_inputs_from_supabase(self, selected_month, selected_year):
+        if not self.supabase:
+            QMessageBox.critical(self, "Supabase Error", "Supabase client is not initialized. Cannot load data.")
+            return
+            
+        # Check if we're online before attempting Supabase operations
+        if not self.check_internet_connectivity():
+            QMessageBox.warning(self, "Network Error", 
+                             "No internet connection detected. Please check your network connection and try again.\n\n"
+                             "Tip: You can still use local CSV files for saving and loading data when offline.")
+            return
+
+        try:
+            # Fetch main calculation data
+            print(f"Fetching main data for {selected_month} {selected_year} from Supabase...")
+            response_main = self.supabase.table("main_calculations") \
+                                .select("*") \
+                                .eq("month", selected_month) \
+                                .eq("year", selected_year) \
+                                .limit(1) \
+                                .execute()
+
+            if not response_main.data:
+                QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month} {selected_year} in Cloud.")
+                return
+
+            main_data = response_main.data[0]
+            main_calc_id = main_data.get('id')
+            print(f"Found main data with ID: {main_calc_id}")
+
+            # Populate main calculation inputs using DB column names
+            self.month_combo.setCurrentText(main_data.get("month", selected_month))
+            self.year_spinbox.setValue(main_data.get("year", selected_year))
+            
+            self.meter_entries[0].setText(str(main_data.get("meter1_reading", "") or "")) # Use DB name
+            self.meter_entries[1].setText(str(main_data.get("meter2_reading", "") or "")) # Use DB name
+            self.meter_entries[2].setText(str(main_data.get("meter3_reading", "") or "")) # Use DB name
+            self.diff_entries[0].setText(str(main_data.get("diff1", "") or ""))
+            self.diff_entries[1].setText(str(main_data.get("diff2", "") or ""))
+            self.diff_entries[2].setText(str(main_data.get("diff3", "") or ""))
+            self.additional_amount_input.setText(str(main_data.get("additional_amount", "") or ""))
+
+            # Fetch related room calculation data
+            room_data_list = []
+            if main_calc_id:
+                print(f"Fetching room data for main_calc_id: {main_calc_id}...")
+                response_rooms = self.supabase.table("room_calculations") \
+                                     .select("*") \
+                                     .eq("main_calculation_id", main_calc_id) \
+                                     .order("id") \
+                                     .execute()
+                if response_rooms.data:
+                    room_data_list = response_rooms.data
+                    print(f"Found {len(room_data_list)} room records.")
+                else:
+                    print("No room records found for this main calculation.")
+
+            # Populate room inputs using DB column names
+            if room_data_list and hasattr(self, 'room_entries') and hasattr(self, 'num_rooms_spinbox'):
+                num_rooms_to_load = len(room_data_list)
+                self.num_rooms_spinbox.setValue(num_rooms_to_load)
+                QApplication.processEvents() # Allow UI to update
+
+                for i, room_db_data in enumerate(room_data_list):
+                    if i < len(self.room_entries):
+                        present_entry, previous_entry = self.room_entries[i]
+                        room_group_widget = self.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                        
+                        if isinstance(room_group_widget, QGroupBox):
+                            room_group_widget.setTitle(room_db_data.get("room_name", f"Room {i+1}"))
+                        present_entry.setText(str(room_db_data.get("present_reading_room", "") or "")) # Use DB name
+                        previous_entry.setText(str(room_db_data.get("previous_reading_room", "") or "")) # Use DB name
+            
+            elif hasattr(self, 'num_rooms_spinbox'): # If no room data found, reset to 1 room
+                self.num_rooms_spinbox.setValue(1)
+                QApplication.processEvents()
+                if hasattr(self, 'room_entries'):
+                    for index, entry_set in enumerate(self.room_entries):
+                        present_entry, previous_entry = entry_set
+                        present_entry.clear()
+                        previous_entry.clear()
+                        room_group_widget = self.rooms_scroll_layout.itemAtPosition(index // 3, index % 3).widget()
+                        if isinstance(room_group_widget, QGroupBox): room_group_widget.setTitle(f"Room {index+1}")
+
+            QMessageBox.information(self, "Load Successful", f"Data for {selected_month} {selected_year} loaded from Cloud.")
+
+        except APIError as e:
+            QMessageBox.critical(self, "Supabase API Error", f"Failed to load data from Supabase: {e.message}\nDetails: {e.details}")
+            print(f"Supabase API Error: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"An unexpected error occurred while loading from Supabase: {e}\n{traceback.format_exc()}")
+            print(f"Unexpected Supabase Load Error: {e}\n{traceback.format_exc()}")
+
 
     def load_history(self):
-        # Load and display historical data
-        filename = "meter_calculation_history.csv"  # Define the filename for the history CSV file
-        if not os.path.isfile(filename):  # Check if the file exists
-            QMessageBox.information(self, "No History", "No history available")  # Show a message if no history file is found
-            return  # Exit the function if no file is found
+        # This method now populates the history tables, not the input fields
+        selected_month = self.history_month_combo.currentText() # Month from history tab filter
+        selected_year_val = self.history_year_spinbox.value()   # Year from history tab filter
+        source = self.load_history_source_combo.currentText() # Source from history tab
 
-        try:  # Start a try-except block to handle potential errors
-            selected_month = self.history_month_combo.currentText()  # Get the selected month from the combo box
-            selected_year = self.history_year_spinbox.value()  # Get the selected year from the spin box
-            selected_year_str = str(selected_year) if selected_year != self.history_year_spinbox.minimum() else ""  # Convert year to string, or empty if minimum
+        try:
+            if source == "Load from PC (CSV)":
+                self.load_history_tables_from_csv(selected_month, selected_year_val)
+            elif source == "Load from Cloud":
+                self.load_history_tables_from_supabase(selected_month, selected_year_val) # Call the new method
+            else:
+                QMessageBox.warning(self, "Unknown Source", "Please select a valid source for history.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while loading history: {e}\n{traceback.format_exc()}")
 
-            with open(filename, mode='r', newline='') as file:  # Open the CSV file in read mode
-                reader = csv.reader(file)  # Create a CSV reader object
-                header = next(reader, None)  # Skip the header row
-                if not header:  # Check if the header is None
-                    raise ValueError("No header found in CSV file")  # Raise an error if no header is found
+
+    def load_history_tables_from_csv(self, selected_month, selected_year_val):
+        # Reverted logic based on previous working version from previus/HomeUnitCalculator.py
+        filename = "meter_calculation_history.csv"
+        if not os.path.isfile(filename):
+            QMessageBox.information(self, "No History", "No history file found.")
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+            return
+
+        try:
+            is_all_months = (selected_month == "All")
+            # Check if "All" is selected for year. The specialValueText is "All" when value is minimum.
+            is_all_years = (selected_year_val == self.history_year_spinbox.minimum() and 
+                            self.history_year_spinbox.text() == self.history_year_spinbox.specialValueText())
+            selected_year_str = str(selected_year_val) if not is_all_years else ""
+
+            with open(filename, mode='r', newline='') as file:
+                reader = csv.reader(file)
+                header = next(reader, None) # Read/skip header
+                if not header:
+                    raise ValueError("CSV file is empty or missing header.")
                 
-                history = list(reader)  # Read all rows into a list
+                history = list(reader) # Read all data rows
 
-            filtered_history = []  # Initialize an empty list for filtered history
-            for row in history:  # Iterate through each row in the history
-                if not row:  # Check if the row is empty
-                    continue  # Skip empty rows
-                month_year = row[0].split() if row[0] else []  # Split the first column into month and year
-                if len(month_year) == 2:  # Check if the split resulted in two parts
-                    month, year = month_year  # Unpack month and year
-                    if (selected_month == "All" or month == selected_month) and \
-                    (not selected_year_str or year == selected_year_str):  # Filter based on selected month and year
-                        filtered_history.append(row)  # Add matching rows to filtered history
+            filtered_history = []
+            for row in history:
+                if not row or not row[0]: # Skip empty rows or rows without a month/year
+                    continue
+                month_year = row[0].split()
+                if len(month_year) == 2:
+                    month, year_str = month_year
+                    match_month = is_all_months or (month == selected_month)
+                    match_year = is_all_years or (year_str == selected_year_str)
+                    if match_month and match_year:
+                        filtered_history.append(row)
 
-            # Separate main calculation and room calculation data
-            main_history = []  # Initialize list for main calculation history
-            room_history = []  # Initialize list for room calculation history
-            for row in filtered_history:  # Iterate through filtered history
-                if len (row)> 12 and row[12].strip():  # Check if there's a room number (11th column)
-                    room_history.append(row)  # Add to room history if room number exists
-                else:
-                    main_history.append(row)  # Add to main history if no room number
+            # Logic to load all rooms associated with a main entry
+            main_history_dict = {}
+            room_history_for_display = [] # This will store all rooms
+            last_main_month_year_key = None
 
-            # Load main calculation info
-            self.main_history_table.setRowCount(len(main_history))  # Set the number of rows in main history table
-            for row_index, row in enumerate(main_history):  # Iterate through main history rows
-                for column_index, item in enumerate(row[:12]):  # Iterate through first 10 columns
-                    self.main_history_table.setItem(row_index, column_index, QTableWidgetItem(str(item)))  # Set table item
+            for row_index, row in enumerate(filtered_history):
+                if not row or len(row) < 1:
+                    print(f"Skipping empty or invalid row at index {row_index}: {row}")
+                    continue
 
-            # Load room calculation info
-            self.room_history_table.setRowCount(len(room_history))  # Set the number of rows in room history table
-            for row_index, row in enumerate(room_history):  # Iterate through room history rows
-                room_data = [row[0]] + row[12:18]  # Combine month with room-specific data
-                for column_index, item in enumerate(room_data):  # Iterate through room data
-                    self.room_history_table.setItem(row_index, column_index, QTableWidgetItem(str(item)))  # Set table item
+                current_row_month_year_key = row[0].strip() if row[0] and row[0].strip() else None
 
-            QMessageBox.information(self, "History Loaded", f"Loaded {len(main_history)} main records and {len(room_history)} room records from history.")  # Show success message
-        except Exception as e:  # Catch any exceptions that occur
-            QMessageBox.critical(self, "Error", f"Failed to load history: {str(e)}")  # Show error message
-            print(f"Detailed error: {str(e)}")  # Print detailed error message
+                # If current_row_month_year_key is present, it's a potential main entry row
+                if current_row_month_year_key:
+                    if current_row_month_year_key not in main_history_dict:
+                        main_data_for_table = row[:12]
+                        while len(main_data_for_table) < 12:
+                            main_data_for_table.append("")
+                        main_history_dict[current_row_month_year_key] = main_data_for_table[:12]
+                    last_main_month_year_key = current_row_month_year_key # Update last seen main key
+
+                # Check for room data in this row
+                # Room Name (index 12), Present (13), Previous (14), Real Unit (15), Unit Bill (16)
+                is_room_row_candidate = False
+                if len(row) > 12 and row[12] and row[12].strip() and row[12].strip().lower() != "n/a":
+                    is_room_row_candidate = True
+
+                if is_room_row_candidate:
+                    # Determine the effective month_year_key for this room
+                    # If row[0] is populated, use that. Otherwise, use the last_main_month_year_key.
+                    effective_month_year_for_room = current_row_month_year_key if current_row_month_year_key else last_main_month_year_key
+
+                    if effective_month_year_for_room:
+                        # Room table expects: Month-Year, Room Name, Present, Previous, Units, Cost
+                        room_data_to_add = [effective_month_year_for_room]
+                        # Room details are from index 12 (Room Name) to 16 (Unit Bill)
+                        room_details_from_csv = row[12:17] if len(row) >= 17 else row[12:]
+                        room_data_to_add.extend(room_details_from_csv)
+                        
+                        # Ensure room_data_to_add has exactly 6 columns for the table
+                        while len(room_data_to_add) < 6:
+                            room_data_to_add.append("")
+                        
+                        room_history_for_display.append(room_data_to_add[:6])
+                    else:
+                        print(f"Warning: Room data found but no effective month-year key to associate it with: {row}")
+                
+                elif not current_row_month_year_key and not is_room_row_candidate:
+                     print(f"Skipping row with no month_year_key and no identifiable room data: {row}")
+
+
+            # Convert main_history_dict.values() to a list for populating the table
+            main_history_list = list(main_history_dict.values())
+            
+            # Populate Main History Table
+            self.main_history_table.setRowCount(0) # Clear table
+            self.main_history_table.setRowCount(len(main_history_list))
+            for r_idx, r_data in enumerate(main_history_list):
+                for c_idx, item in enumerate(r_data):
+                    self.main_history_table.setItem(r_idx, c_idx, QTableWidgetItem(str(item or "")))
+
+            # Populate Room History Table
+            self.room_history_table.setRowCount(0) # Clear table
+            self.room_history_table.setRowCount(len(room_history_for_display))
+            for r_idx, r_data in enumerate(room_history_for_display):
+                for c_idx, item in enumerate(r_data):
+                    self.room_history_table.setItem(r_idx, c_idx, QTableWidgetItem(str(item or "")))
+
+            if not main_history_list and not room_history_for_display:
+                 QMessageBox.information(self, "No Data", "No matching history data found for the selected criteria.")
+            # Removed the success message as it might be redundant if data is shown
+            # else:
+            #      QMessageBox.information(self, "History Loaded", f"Loaded {len(main_history_list)} main records and {len(room_history_for_display)} room records from CSV.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+
+
+    def load_history_tables_from_supabase(self, selected_month, selected_year_val):
+        if not self.supabase:
+            QMessageBox.critical(self, "Supabase Error", "Supabase client is not initialized. Cannot load history.")
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+            return
+        
+        # Check if we're online before attempting Supabase operations
+        if not self.check_internet_connectivity():
+            QMessageBox.warning(self, "Network Error", 
+                             "No internet connection detected. Please check your network connection and try again.\n\n"
+                             "Tip: You can still use local CSV files for viewing history when offline.")
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+            return
+
+        try: 
+            is_all_months = (selected_month == "All")
+            is_all_years = (selected_year_val == self.history_year_spinbox.minimum() and 
+                            self.history_year_spinbox.text() == self.history_year_spinbox.specialValueText())
+
+            # Ensure 'id' is selected
+            query = self.supabase.table("main_calculations").select("id, *, room_calculations(*)") 
+
+            if not is_all_months:
+                query = query.eq("month", selected_month)
+            if not is_all_years:
+                query = query.eq("year", selected_year_val)
+            
+            query = query.order("year", desc=True).order("month", desc=True) # Order by date
+
+            response = query.execute()
+
+            main_data_for_table = [] # List to hold dicts {id: ..., display_data: [...]}
+            room_data_to_display = []
+            
+            # Prepare data for display first
+            if response.data:
+                for main_row in response.data:
+                     # Format main data for table display using DB column names
+                    main_data_for_table.append({
+                        "id": main_row.get('id'), # Store ID for button connection
+                        "display_data": [
+                            f"{main_row.get('month','')} {main_row.get('year','')}",
+                            str(main_row.get('meter1_reading', '') or ''), # DB name
+                            str(main_row.get('meter2_reading', '') or ''), # DB name
+                            str(main_row.get('meter3_reading', '') or ''), # DB name
+                            str(main_row.get('diff1', '') or ''), 
+                            str(main_row.get('diff2', '') or ''), 
+                            str(main_row.get('diff3', '') or ''),
+                            str(main_row.get('total_unit_cost', '') or ''), # DB name
+                            str(main_row.get('total_diff_units', '') or ''), # DB name
+                            f"{main_row.get('per_unit_cost_calculated', 0.0):.2f}" if main_row.get('per_unit_cost_calculated') is not None else '', # DB name
+                            str(main_row.get('additional_amount', '') or ''),
+                            f"{main_row.get('grand_total_bill', 0.0):.2f}" if main_row.get('grand_total_bill') is not None else '' # DB name
+                        ]
+                    })
+                    
+                    # Format room data for table display using DB column names
+                    if main_row.get('room_calculations'):
+                        for room_row in main_row['room_calculations']:
+                             room_data_to_display.append([
+                                f"{main_row.get('month','')} {main_row.get('year','')}", # Month Year context
+                                room_row.get('room_name', ''),
+                                str(room_row.get('present_reading_room', '') or ''), # DB name
+                                str(room_row.get('previous_reading_room', '') or ''), # DB name
+                                str(room_row.get('units_consumed_room', '') or ''), # DB name
+                                f"{room_row.get('cost_room', 0.0):.2f}" if room_row.get('cost_room') is not None else '' # DB name
+                            ])
+
+
+            # Populate Main History Table
+            self.main_history_table.setRowCount(0) # Clear existing rows
+            for item in main_data_for_table:
+                row_position = self.main_history_table.rowCount()
+                self.main_history_table.insertRow(row_position)
+                
+                # Populate data cells (now 12 columns)
+                record_id = item.get('id') # Get record_id for storing
+                for col_num, data_value in enumerate(item["display_data"]): # item["display_data"] should have 12 items
+                    if col_num < 12: # Ensure we don't try to write more than 12 columns
+                        table_item = QTableWidgetItem(str(data_value or '')) # Use data_value here
+                        if col_num == 0 and record_id: # Store record_id with the first item of the row
+                            table_item.setData(Qt.UserRole, record_id)
+                        self.main_history_table.setItem(row_position, col_num, table_item)
+            
+            # Populate Room History Table
+            self.room_history_table.setRowCount(0) # Clear existing rows
+            # self.room_history_table.setRowCount(len(room_data_to_display)) # Not needed if inserting rows one by one
+            for row_data_item in room_data_to_display: # Iterate through room_data_to_display
+                row_pos_room = self.room_history_table.rowCount()
+                self.room_history_table.insertRow(row_pos_room)
+                for col_idx, cell_data in enumerate(row_data_item): # Iterate through items in row_data_item
+                    self.room_history_table.setItem(row_pos_room, col_idx, QTableWidgetItem(str(cell_data or '')))
+
+            if not main_data_for_table and not room_data_to_display:
+                 QMessageBox.information(self, "No Data", "No matching history data found in Cloud for the selected criteria.")
+
+        except APIError as e:
+            QMessageBox.critical(self, "Supabase API Error", f"Failed to load history from Supabase: {e.message}\nDetails: {e.details}") # Corrected variable name
+            print(f"Supabase API Error: {e}")
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"An unexpected error occurred while loading history from Supabase: {e}\n{traceback.format_exc()}")
+            print(f"Unexpected Supabase History Load Error: {e}\n{traceback.format_exc()}")
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+
 
     def save_to_pdf(self):
-        # Open a file dialog to save the PDF
-        file_path, _ = QFileDialog.getSaveFileName(self, "Save PDF", "", "PDF Files (*.pdf)")  # Open save file dialog
-        if file_path:  # If a file path is selected
-            self.generate_pdf(file_path)  # Call the generate_pdf method with the selected file path
+        month_name = self.month_combo.currentText()
+        year_value = self.year_spinbox.value()
+        default_filename = f"MeterCalculation_{month_name}_{year_value}.pdf"
+        
+        def try_save_pdf(path):
+            try:
+                self.generate_pdf(path)
+                QMessageBox.information(self, "PDF Saved", f"Report saved to {path}")
+                return True
+            except PermissionError as pe:
+                # Special handling for permission errors
+                QMessageBox.warning(self, "Permission Denied", 
+                                  f"Cannot save to {path}\n\nThe file may be open in another program or you don't have write permission to this location. Please close any programs using this file and try again or select a different location.")
+                return False
+            except Exception as e:
+                QMessageBox.critical(self, "PDF Save Error", f"Failed to save PDF: {e}\n{traceback.format_exc()}")
+                return False
+        
+        options = QFileDialog.Options()
+        # options |= QFileDialog.DontUseNativeDialog  # Using native dialog may help with permissions
+        
+        # Try until successful or user cancels
+        while True:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Save PDF", 
+                default_filename, 
+                "PDF Files (*.pdf);;All Files (*)", 
+                options=options
+            )
+            
+            if not file_path:  # User canceled
+                break
+                
+            # Try saving with the chosen path
+            if try_save_pdf(file_path):
+                break  # Success, exit the loop
 
     def generate_pdf(self, file_path):
         # Generate a PDF report of the calculations
@@ -1065,7 +2232,7 @@ class MeterCalculationApp(QMainWindow):
             fontSize=10,
             textColor=colors.black,
             spaceAfter=2
-        )
+        ) # Added missing closing parenthesis
         label_style = ParagraphStyle(  # Create a custom style for labels
             'LabelStyle',
             parent=styles['Normal'],
@@ -1111,19 +2278,19 @@ class MeterCalculationApp(QMainWindow):
         elements.append(Spacer(1, 0.1*inch))  # Add some space before the main meter info
         elements.append(create_cell("Main Meter Info", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))  # Add the main meter info headline
 
-        # Main Meter Info Content
+        # Main Meter Info Content - Use correct label splitting
         meter_info_left = [  # Create a list for the left side of the main meter info
             [Paragraph("Meter-1 Unit:", normal_style), Paragraph(f"{self.meter_entries[0].text() or 'N/A'}", normal_style)],
             [Paragraph("Meter-2 Unit:", normal_style), Paragraph(f"{self.meter_entries[1].text() or 'N/A'}", normal_style)],
             [Paragraph("Meter-3 Unit:", normal_style), Paragraph(f"{self.meter_entries[2].text() or 'N/A'}", normal_style)],
-            [Paragraph("Total Difference:", normal_style), Paragraph(f"{self.total_diff_label.text() or 'N/A'}", normal_style)],
+            [Paragraph("Total Difference:", normal_style), Paragraph(f"{self.total_diff_value_label.text() or 'N/A'}", normal_style)],
         ]
 
         meter_info_right = [  # Create a list for the right side of the main meter info
-            [Paragraph("Per Unit Cost:", normal_style), Paragraph(f"{self.per_unit_cost_label.text() or 'N/A'}", normal_style)],
-            [Paragraph("Total Unit Cost:", normal_style), Paragraph(f"{self.total_unit_label.text() or 'N/A'}", normal_style)],
-            [Paragraph("Added Amount:", normal_style), Paragraph(f"{self.added_amount_label.text() or 'N/A'}", normal_style)],
-            [Paragraph("In Total Amount:", normal_style), Paragraph(f"{self.in_total_label.text() or 'N/A'}", normal_style)],
+            [Paragraph("Per Unit Cost:", normal_style), Paragraph(f"{self.per_unit_cost_value_label.text() or 'N/A'}", normal_style)],
+            [Paragraph("Total Unit Cost:", normal_style), Paragraph(f"{self.total_unit_value_label.text() or 'N/A'}", normal_style)],
+            [Paragraph("Added Amount:", normal_style), Paragraph(f"{self.additional_amount_value_label.text() or 'N/A'}", normal_style)], # Corrected label reference
+            [Paragraph("In Total Amount:", normal_style), Paragraph(f"{self.in_total_value_label.text() or 'N/A'}", normal_style)],
         ]
 
         main_meter_table = Table(  # Create a table for the main meter info
@@ -1159,22 +2326,82 @@ class MeterCalculationApp(QMainWindow):
                 if i + j < len(self.room_entries):  # Check if there's a room to process
                     present_entry, previous_entry = self.room_entries[i + j]  # Get the present and previous entries for the room
                     real_unit_label, unit_bill_label = self.room_results[i + j]  # Get the real unit and unit bill labels for the room
+                    
+                    # Get room name from group box title
+                    room_group_widget = self.rooms_scroll_layout.itemAtPosition((i+j) // 3, (i+j) % 3).widget()
+                    room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+j+1}"
 
+
+                    # Get the next month name for display
+                    month_idx = self.month_combo.currentIndex()
+                    next_month_idx = (month_idx + 1) % 12  # Wrap around to January if December
+                    next_month_name = self.month_combo.itemText(next_month_idx)
+                    
+                    # Create header style for room header with dark navy text
+                    room_header_style = ParagraphStyle(
+                        'RoomHeaderStyle',
+                        parent=styles['Normal'],
+                        fontSize=10,  # Standard font size
+                        textColor=colors.darkblue,  # Dark navy text for header
+                        spaceAfter=2,
+                        fontName='Helvetica-Bold'
+                    )
+                    
+                    # Create bold style for unit bill - slightly larger but not too big
+                    bold_unit_bill_style = ParagraphStyle(
+                        'BoldUnitBillStyle',
+                        parent=styles['Normal'],
+                        fontSize=11,  # Slightly larger font size for the unit bill
+                        textColor=colors.black,
+                        spaceAfter=2,
+                        fontName='Helvetica-Bold'
+                    )
+                    
+                    # Set up first row with Room X and Created: on the same line
+                    header_style_left = ParagraphStyle(
+                        'HeaderStyleLeft',
+                        parent=room_header_style,
+                        alignment=0  # 0 = left alignment
+                    )
+                    
+                    header_style_right = ParagraphStyle(
+                        'HeaderStyleRight',
+                        parent=room_header_style,
+                        alignment=2  # 2 = right alignment
+                    )
+                    
+                    # Create style for Created: text (light gray)
+                    header_style_right_gray = ParagraphStyle(
+                        'HeaderStyleRightGray',
+                        parent=room_header_style,
+                        alignment=2,  # 2 = right alignment
+                        textColor=colors.gray  # Lighter gray color for less prominence
+                    )
+                    
+                    # Create a single row header with Room, Created: and month name all in one line
+                    header_row = [
+                        Paragraph(f"{room_name}", header_style_left),
+                        Paragraph(f"Created: {next_month_name}", header_style_right_gray)
+                    ]
+                    
                     room_info = [  # Create a list of room information
-                        [Paragraph(f"<b>Room {i + j + 1}</b>", normal_style)],  # Room number
+                        header_row,      # Single row header with all information
                         [Paragraph("Month:", label_style), Paragraph(month_year, normal_style)],  # Month and year
-                        [Paragraph("Per-Unit Cost:", label_style), Paragraph(self.per_unit_cost_label.text() or 'N/A', normal_style)],  # Per-unit cost
+                        [Paragraph("Per-Unit Cost:", label_style), Paragraph(self.per_unit_cost_value_label.text() or 'N/A', normal_style)], # Get cost from main results
                         [Paragraph("Unit:", label_style), Paragraph(real_unit_label.text() or 'N/A', normal_style)],  # Unit
-                        [Paragraph("Unit Bill:", label_style), Paragraph(unit_bill_label.text() or 'N/A', normal_style)]  # Unit bill
+                        [Paragraph("Unit Bill:", label_style), Paragraph(unit_bill_label.text() or 'N/A', bold_unit_bill_style)]  # Unit bill with bold style
                     ]
 
-                    room_table = Table(room_info, colWidths=[1.5*inch, 2.15*inch])  # Create a table for each room
+                    # Define row heights for the single header row plus content rows
+                    room_row_heights = [0.3*inch] + [0.2*inch] * 4  # Single header row + content rows
+                    
+                    room_table = Table(room_info, colWidths=[1.5*inch, 2.15*inch], rowHeights=room_row_heights)  # Create a table for each room with custom row heights
                     room_table.setStyle(TableStyle([  # Set the style for the room table
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.lightsteelblue),  # Set background color for the header
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.lightsteelblue),  # Set background color for the header row
                         ('BACKGROUND', (0, 1), (-1, -1), colors.white),  # Set background color for the content
                         ('BOX', (0, 0), (-1, -1), 1, colors.darkblue),  # Add a box around the table
-                        ('LINEBELOW', (0, 0), (-1, 0), 1, colors.darkblue),  # Add a line below the header
-                        ('LINEABOVE', (0, 1), (-1, -1), 1, colors.lightgrey),  # Add lines above each row
+                        ('LINEBELOW', (0, 0), (-1, 0), 1, colors.darkblue),  # Add a line below the header row
+                        ('LINEABOVE', (0, 1), (-1, -1), 1, colors.lightgrey),  # Add lines above each content row
                         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),  # Vertically align content to middle
                         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),  # Horizontally align content to left
                         ('LEFTPADDING', (0, 0), (-1, -1), 6),  # Set left padding
@@ -1196,66 +2423,252 @@ class MeterCalculationApp(QMainWindow):
         # Build the PDF document
         doc.build(elements)  # Build the PDF with all the elements
 
+    def handle_edit_record(self, record_id):
+        print(f"Attempting to edit record ID: {record_id}")
+        if not self.supabase:
+            QMessageBox.critical(self, "Supabase Error", "Supabase client is not initialized.")
+            return
+            
+        # Check internet connectivity
+        if not self.check_internet_connectivity():
+            QMessageBox.warning(self, "Network Error", 
+                              "No internet connection detected. Cannot edit records while offline.")
+            return
+
+        try:
+            # Fetch the specific record including related room data
+            response = self.supabase.table("main_calculations") \
+                           .select("*, room_calculations(*)") \
+                           .eq("id", record_id) \
+                           .maybe_single() \
+                           .execute()
+
+            if response.data:
+                main_data = response.data
+                room_data_list = main_data.get("room_calculations", [])
+                
+                # Create and show the dialog
+                dialog = EditRecordDialog(record_id, main_data, room_data_list, parent=self) # Uncommented
+                if dialog.exec_() == QDialog.Accepted: # Uncommented
+                    print(f"Edit dialog accepted for record {record_id}. Refreshing history.") # Uncommented
+                    # Refresh the history view if changes were saved
+                    self.load_history() # Uncommented
+                else: # Uncommented
+                    print(f"Edit dialog cancelled for record {record_id}.") # Uncommented
+                # Removed placeholder QMessageBox
+                # print("Fetched data for edit:", main_data) # Optional: Keep for debugging if needed
+
+            else:
+                QMessageBox.warning(self, "Not Found", f"Record with ID {record_id} not found in the database.")
+
+        except APIError as e:
+            QMessageBox.critical(self, "Supabase API Error", f"Failed to fetch record for editing: {e.message}\nDetails: {e.details}")
+            print(f"Supabase API Error on fetch for edit: {e}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while preparing to edit: {e}\n{traceback.format_exc()}")
+            print(f"Unexpected error in handle_edit_record: {e}\n{traceback.format_exc()}")
+
+    def handle_delete_record(self, record_id):
+        print(f"Attempting to delete record ID: {record_id}")
+        if not self.supabase:
+            QMessageBox.critical(self, "Supabase Error", "Supabase client is not initialized.")
+            return
+            
+        # Check internet connectivity
+        if not self.check_internet_connectivity():
+            QMessageBox.warning(self, "Network Error", 
+                              "No internet connection detected. Cannot delete records while offline.")
+            return
+
+        # Confirmation Dialog
+        reply = QMessageBox.question(self, 'Confirm Delete', 
+                                     f"Are you sure you want to permanently delete record ID {record_id} and all its associated room data from the Cloud?", 
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            try:
+                print(f"Confirmed deletion for record ID: {record_id}")
+                # 1. Delete associated room calculations first (CASCADE should handle this, but explicit delete is safer)
+                print(f"Deleting room_calculations for main_calculation_id: {record_id}")
+                delete_rooms_response = self.supabase.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
+                print(f"Room deletion response: {delete_rooms_response}") # Log response
+
+                # 2. Delete the main calculation record
+                print(f"Deleting main_calculations record ID: {record_id}")
+                delete_main_response = self.supabase.table("main_calculations").delete().eq("id", record_id).execute()
+                print(f"Main deletion response: {delete_main_response}") # Log response
+                
+                # Basic check (Supabase delete often returns empty data on success)
+                # A more robust check might involve checking status codes if the client library provides them easily
+                # For now, assume success if no exception is raised.
+                
+                QMessageBox.information(self, "Delete Successful", f"Record ID {record_id} deleted successfully from the Cloud.")
+                
+                # Refresh the history view
+                self.load_history()
+                # else:
+                #     QMessageBox.warning(self, "Delete Failed", f"Failed to delete record ID {record_id}. It might have already been deleted.")
+
+
+            except APIError as e:
+                QMessageBox.critical(self, "Supabase API Error", f"Failed to delete record: {e.message}\nDetails: {e.details}")
+                print(f"Supabase API Error on delete: {e}")
+            except Exception as e:
+                QMessageBox.critical(self, "Delete Error", f"An unexpected error occurred during deletion: {e}\n{traceback.format_exc()}")
+                print(f"Unexpected error in handle_delete_record: {e}\n{traceback.format_exc()}")
+        else:
+            print(f"Deletion cancelled for record ID: {record_id}")
+
+    def handle_edit_selected_record(self):
+        selected_items = self.main_history_table.selectedItems()
+        if not selected_items:
+            QMessageBox.information(self, "No Selection", "Please select a record from the Main Calculation Info table to edit.")
+            return
+
+        # Assuming the record_id is stored in the UserRole of the first item in the selected row
+        selected_row = selected_items[0].row()
+        first_item_in_row = self.main_history_table.item(selected_row, 0)
+        if not first_item_in_row:
+            QMessageBox.warning(self, "Error", "Could not retrieve data for the selected row.")
+            return
+            
+        record_id = first_item_in_row.data(Qt.UserRole)
+
+        if record_id:
+            # Check if the source is Supabase, as CSV editing is not directly supported by EditRecordDialog
+            source = self.load_history_source_combo.currentText()
+            if source == "Load from Cloud":
+                self.handle_edit_record(record_id) # Call existing Supabase edit logic
+            else:
+                QMessageBox.information(self, "Not Supported", "Editing records loaded from CSV is not currently supported via this button. Please edit the CSV file directly or load from cloud.")
+        else:
+            QMessageBox.warning(self, "No Record ID", "Could not find a Record ID for the selected row. Editing may not be supported for this item (e.g., if loaded from CSV without a unique ID).")
+
+    def handle_delete_selected_record(self):
+        selected_items = self.main_history_table.selectedItems()
+        if not selected_items:
+            QMessageBox.information(self, "No Selection", "Please select a record from the Main Calculation Info table to delete.")
+            return
+
+        selected_row = selected_items[0].row()
+        first_item_in_row = self.main_history_table.item(selected_row, 0)
+        if not first_item_in_row:
+            QMessageBox.warning(self, "Error", "Could not retrieve data for the selected row.")
+            return
+
+        record_id = first_item_in_row.data(Qt.UserRole)
+
+        if record_id:
+            # Check if the source is Supabase
+            source = self.load_history_source_combo.currentText()
+            if source == "Load from Cloud":
+                self.handle_delete_record(record_id) # Call existing Supabase delete logic
+            else:
+                QMessageBox.information(self, "Not Supported", "Deleting records loaded from CSV is not currently supported via this button. Please manage the CSV file directly or load from cloud.")
+        else:
+            # For CSV, we might not have a stored record_id.
+            # We could offer to remove the row from the view, but not from the file.
+            # Or, identify by month/year if that's unique enough for CSV context.
+            # For now, indicate it's not supported for items without a clear ID.
+            QMessageBox.warning(self, "No Record ID", "Could not find a Record ID for the selected row. Deletion may not be supported for this item (e.g., if loaded from CSV without a unique ID).")
+
+
     def setup_navigation(self):
-        # Setup navigation for main calculation tab
-        for i in range(3):  # Loop through 3 pairs of meter and diff entries
-            meter_entry = self.meter_entries[i]  # Get the current meter entry
-            diff_entry = self.diff_entries[i]  # Get the current diff entry
-            
-            # Set navigation from meter to diff
-            meter_entry.next_widget = diff_entry  # Set the next widget for meter entry to be the diff entry
-            diff_entry.previous_widget = meter_entry  # Set the previous widget for diff entry to be the meter entry
-            
-            # Set navigation from diff to next meter (or back to first meter if it's the last pair)
-            if i < 2:  # If it's not the last pair
-                diff_entry.next_widget = self.meter_entries[i+1]  # Set next widget of diff to be the next meter entry
-                self.meter_entries[i+1].previous_widget = diff_entry  # Set previous widget of next meter to be current diff
-            else:  # If it's the last pair
-                diff_entry.next_widget = self.meter_entries[0]  # Set next widget of last diff to be the first meter entry
-                self.meter_entries[0].previous_widget = diff_entry  # Set previous widget of first meter to be the last diff
+        # --- Main Calculation Tab Navigation ---
+        # Ensure all widgets are created before calling this
+        if hasattr(self, 'meter_entries') and len(self.meter_entries) == 3 and \
+           hasattr(self, 'diff_entries') and len(self.diff_entries) == 3 and \
+           hasattr(self, 'additional_amount_input') and hasattr(self, 'main_calculate_button'):
 
-        # Setup navigation for room calculation tab
-        num_rooms = len(self.room_entries)  # Get the total number of rooms
-        for i, (present_entry, previous_entry) in enumerate(self.room_entries):  # Loop through room entries
-            # Set navigation within the room
-            present_entry.next_widget = previous_entry  # Set next widget of present entry to be previous entry
-            previous_entry.previous_widget = present_entry  # Set previous widget of previous entry to be present entry
-            
-            # Set navigation to the next room (or back to the first room if it's the last room)
-            next_room_index = (i + 1) % num_rooms  # Calculate the index of the next room (wrapping around if necessary)
-            previous_entry.next_widget = self.room_entries[next_room_index][0]  # Set next widget of previous entry to be present entry of next room
-            present_entry.previous_widget = self.room_entries[i - 1][1]  # Set previous widget of present entry to be previous entry of previous room
+            main_tab_fields_in_order = [
+                self.meter_entries[0], self.diff_entries[0],
+                self.meter_entries[1], self.diff_entries[1],
+                self.meter_entries[2], self.diff_entries[2],
+                self.additional_amount_input
+            ]
 
-        # Set focus to the first entry when the tab is opened
-        self.tab_widget.currentChanged.connect(self.set_focus_on_tab_change)  # Connect tab change event to focus setting function
+            if main_tab_fields_in_order and isinstance(self.main_calculate_button, CustomNavButton):
+                m1, d1, m2, d2, m3, d3, aa = main_tab_fields_in_order
+                calc_btn = self.main_calculate_button
 
-        # Add accessibility features
-        self.add_accessibility_features(self.meter_entries + self.diff_entries)  # Add accessibility features to meter and diff entries
-        for room_entries in self.room_entries:  # Loop through room entries
-            self.add_accessibility_features(room_entries)  # Add accessibility features to each room's entries
+                # Clear existing links for all fields involved
+                all_main_tab_line_edits = [m1, d1, m2, d2, m3, d3, aa]
+                for widget in all_main_tab_line_edits:
+                    widget.next_widget_on_enter = None; widget.up_widget = None; widget.down_widget = None; widget.left_widget = None; widget.right_widget = None
+                calc_btn.next_widget_on_enter = None
 
-        # Add keyboard shortcut for quick navigation
-        self.shortcut = QShortcut(QKeySequence("Ctrl+N"), self)  # Create a keyboard shortcut
-        self.shortcut.activated.connect(self.focus_next_entry)  # Connect the shortcut to the focus_next_entry function
+                # Enter/Return Key Sequence (Field1 -> ... -> LastField -> Button -> Field1)
+                m1.next_widget_on_enter = d1; d1.next_widget_on_enter = m2
+                m2.next_widget_on_enter = d2; d2.next_widget_on_enter = m3
+                m3.next_widget_on_enter = d3; d3.next_widget_on_enter = aa
+                aa.next_widget_on_enter = calc_btn
+                calc_btn.next_widget_on_enter = m1
+
+                # Arrow Key Navigation (Up/Down Fields Only, in a single sequence)
+                # Sequence: m1 <-> m2 <-> m3 <-> d1 <-> d2 <-> d3 <-> aa
+                
+                up_down_sequence = [m1, m2, m3, d1, d2, d3, aa]
+
+                for i, widget in enumerate(up_down_sequence):
+                    # Down navigation
+                    if i < len(up_down_sequence) - 1:
+                        widget.down_widget = up_down_sequence[i+1]
+                    else: # Last widget (aa), loops to first (m1)
+                        widget.down_widget = up_down_sequence[0]
+                    
+                    # Up navigation
+                    if i > 0:
+                        widget.up_widget = up_down_sequence[i-1]
+                    else: # First widget (m1), loops to last (aa)
+                        widget.up_widget = up_down_sequence[-1]
+
+                # Ensure Left/Right are None for all these fields so CustomLineEdit uses super() for them
+                for widget_in_main_tab in all_main_tab_line_edits: # all_main_tab_line_edits defined earlier
+                    widget_in_main_tab.left_widget = None
+                    widget_in_main_tab.right_widget = None
+
+        # Call to connect tab change signal for initial focus
+        if not hasattr(self, '_tab_change_connected'): # Connect only once
+            self.tab_widget.currentChanged.connect(self.set_focus_on_tab_change)
+            self._tab_change_connected = True
+        
+        # Set initial focus on the first tab's first input field
+        self.set_focus_on_tab_change(0)
+
 
     def set_focus_on_tab_change(self, index):
-        if index == 0 and self.meter_entries:  # If switching to main calculation tab and meter entries exist
-            self.meter_entries[0].setFocus()  # Set focus to the first meter entry
-        elif index == 1 and self.room_entries:  # If switching to room calculation tab and room entries exist
-            self.room_entries[0][0].setFocus()  # Set focus to the first entry of the first room
+        current_tab = self.tab_widget.widget(index)
+        if current_tab:
+            first_input = current_tab.findChild(CustomLineEdit)
+            if not first_input:
+                first_input = current_tab.findChild(QSpinBox)
+            
+            if first_input:
+                first_input.setFocus()
+                if isinstance(first_input, QLineEdit):
+                    first_input.selectAll()
+
 
     def add_accessibility_features(self, entries):
-        for i, entry in enumerate(entries):  # Loop through the entries
-            entry.setAccessibleName(f"Entry {i + 1}")  # Set an accessible name for each entry
-            entry.setAccessibleDescription("Input field for meter or difference value")  # Set an accessible description for each entry
+        for i, entry in enumerate(entries):
+            if i + 1 < len(entries):
+                entry.next_widget = entries[i+1]
+            if i - 1 >= 0:
+                entry.previous_widget = entries[i-1]
 
     def focus_next_entry(self):
-        current = QApplication.focusWidget()  # Get the currently focused widget
-        if isinstance(current, CustomLineEdit) and current.next_widget:  # If the current widget is a CustomLineEdit and has a next widget
-            current.next_widget.setFocus()  # Set focus to the next widget
+        current = self.focusWidget()
+        if isinstance(current, CustomLineEdit) and current.next_widget:
+            current.next_widget.setFocus()
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)  # Create a QApplication instance
-    window = MeterCalculationApp()  # Create an instance of the MeterCalculationApp
-    window.show()  # Show the main window
-    sys.exit(app.exec_())  # Start the event loop and exit when it's done
+    def center_window(self):
+        qr = self.frameGeometry()
+        cp = QDesktopWidget().availableGeometry().center()
+        qr.moveCenter(cp)
+        self.move(qr.topLeft())
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MeterCalculationApp()
+    window.show()
+    sys.exit(app.exec_())
