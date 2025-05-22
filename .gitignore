@@ -3,3 +3,6 @@ __pycache__/
 .env
 .roo
 .pdf
+.db
+.md
+.key
