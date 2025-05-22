@@ -3,3 +3,5 @@ reportlab
 supabase
 python-dotenv
 postgrest
+cryptography
+keyring
