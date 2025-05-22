@@ -1,9 +1,11 @@
 import textwrap
 import functools
+from types import MappingProxyType
+from typing import Mapping
 # Import the resource_path function from the utils module
 from utils import resource_path
 
-COLOR_VARS = {
+_COLOR_VARS_RW = {
     "bg_primary":      "#EFF6FF",
     "bg_secondary":    "#E0F2FE",
     "accent_primary":  "#3B82F6",
@@ -23,6 +25,9 @@ COLOR_VARS = {
     "disabled_bg": "#E5E7EB",
     "disabled_text": "#9CA3AF",
 }
+
+# Expose as immutable mapping
+COLOR_VARS: Mapping[str, str] = MappingProxyType(_COLOR_VARS_RW)
 
 @functools.lru_cache(maxsize=None)
 def get_stylesheet():
