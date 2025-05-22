@@ -1,4 +1,5 @@
 import sys
+import json
 from datetime import datetime as dt_class # Changed import for clarity
 import functools # Added import 
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
@@ -291,6 +292,7 @@ class EditRecordDialog(QDialog):
         self.record_id = record_id # Store the ID of the record being edited
         self.supabase = parent.supabase # Get supabase client from parent
         self.room_edit_widgets = [] # To store references to room input widgets
+        self.meter_diff_edit_widgets = [] # To store references to meter/diff input widgets
         
         self.setWindowTitle("Edit Calculation Record")
         self.setMinimumWidth(600) 
@@ -307,24 +309,88 @@ class EditRecordDialog(QDialog):
 
         # --- Main Calculation Fields ---
         main_group = QGroupBox("Main Calculation Data")
-        main_group_layout = QFormLayout(main_group)
+        main_scroll_area = AutoScrollArea()
+        main_scroll_area.setWidgetResizable(True)
+        main_scroll_widget = QWidget()
+        main_group_layout = QFormLayout(main_scroll_widget)
         main_group_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow) # Allow fields to expand
+        main_scroll_area.setWidget(main_scroll_widget)
+        main_group_vbox = QVBoxLayout(main_group)
+        main_group_vbox.addWidget(main_scroll_area)
         
+        # Create the default meter/diff entries first (for backward compatibility)
         self.meter1_edit = CustomLineEdit(); self.meter1_edit.setObjectName("dialog_meter1_edit")
         self.meter2_edit = CustomLineEdit(); self.meter2_edit.setObjectName("dialog_meter2_edit")
         self.meter3_edit = CustomLineEdit(); self.meter3_edit.setObjectName("dialog_meter3_edit")
         self.diff1_edit = CustomLineEdit(); self.diff1_edit.setObjectName("dialog_diff1_edit")
         self.diff2_edit = CustomLineEdit(); self.diff2_edit.setObjectName("dialog_diff2_edit")
         self.diff3_edit = CustomLineEdit(); self.diff3_edit.setObjectName("dialog_diff3_edit")
-        self.additional_amount_edit = CustomLineEdit(); self.additional_amount_edit.setObjectName("dialog_additional_amount_edit")
+        
+        # Determine the number of meter/diff pairs needed
+        # First check for the default pairs (meter1, meter2, meter3, diff1, diff2, diff3)
+        meter_values = [
+            main_data.get("meter1_reading", "") or "",
+            main_data.get("meter2_reading", "") or "",
+            main_data.get("meter3_reading", "") or ""
+        ]
+        diff_values = [
+            main_data.get("diff1", "") or "",
+            main_data.get("diff2", "") or "",
+            main_data.get("diff3", "") or ""
+        ]
+        
+        # Check for extra meter/diff readings in JSON format
+        extra_meter_readings = main_data.get("extra_meter_readings", None)
+        extra_diff_readings = main_data.get("extra_diff_readings", None)
+        
+        # Parse extra values if they exist
+        if extra_meter_readings:
+            try:
+                extra_meters = json.loads(extra_meter_readings)
+                if isinstance(extra_meters, list):
+                    meter_values.extend(extra_meters)
+            except Exception as e:
+                print(f"Error parsing extra meter readings in dialog: {e}")
+        
+        if extra_diff_readings:
+            try:
+                extra_diffs = json.loads(extra_diff_readings)
+                if isinstance(extra_diffs, list):
+                    diff_values.extend(extra_diffs)
+            except Exception as e:
+                print(f"Error parsing extra diff readings in dialog: {e}")
+        
+        # Determine total number of pairs needed
+        num_pairs = max(len(meter_values), len(diff_values))
+        
+        # Create meter/diff entries for each pair
+        for i in range(num_pairs):
+            # For the first three pairs, use the pre-defined widgets for backward compatibility
+            if i < 3:
+                meter_edit = [self.meter1_edit, self.meter2_edit, self.meter3_edit][i]
+                diff_edit = [self.diff1_edit, self.diff2_edit, self.diff3_edit][i]
+            else:
+                # Create new custom widgets for additional pairs
+                meter_edit = CustomLineEdit()
+                meter_edit.setObjectName(f"dialog_meter{i+1}_edit")
+                diff_edit = CustomLineEdit()
+                diff_edit.setObjectName(f"dialog_diff{i+1}_edit")
+            
+            # Add the row to the form layout
+            main_group_layout.addRow(f"Meter {i+1} Reading:", meter_edit)
+            main_group_layout.addRow(f"Difference {i+1}:", diff_edit)
+            
+            # Store in the widgets list
+            self.meter_diff_edit_widgets.append({
+                'meter_edit': meter_edit,
+                'diff_edit': diff_edit,
+                'index': i
+            })
+        
+        # Add additional amount at the end
+        self.additional_amount_edit = CustomLineEdit()
+        self.additional_amount_edit.setObjectName("dialog_additional_amount_edit")
         self.additional_amount_edit.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$'))) # Allow decimals
-
-        main_group_layout.addRow("Meter 1 Reading:", self.meter1_edit) # Use DB names for labels
-        main_group_layout.addRow("Meter 2 Reading:", self.meter2_edit)
-        main_group_layout.addRow("Meter 3 Reading:", self.meter3_edit)
-        main_group_layout.addRow("Difference 1:", self.diff1_edit)
-        main_group_layout.addRow("Difference 2:", self.diff2_edit)
-        main_group_layout.addRow("Difference 3:", self.diff3_edit)
         main_group_layout.addRow("Additional Amount:", self.additional_amount_edit)
         
         main_layout.addWidget(main_group)
@@ -396,41 +462,36 @@ class EditRecordDialog(QDialog):
         # --- Setup Navigation ---
         self._setup_navigation_edit_dialog()
         
-    def _setup_navigation_edit_dialog(self):
-        # Consolidate all editable CustomLineEdit fields in their logical tab order
-        main_fields = [
-            self.meter1_edit, self.diff1_edit,
-            self.meter2_edit, self.diff2_edit,
-            self.meter3_edit, self.diff3_edit,
-            self.additional_amount_edit
-        ]
-        room_fields_flat = []
-        for room_widget_set in self.room_edit_widgets:
-            room_fields_flat.append(room_widget_set["present_edit"])
-            room_fields_flat.append(room_widget_set["previous_edit"])
-
-        ordered_line_edits = main_fields + room_fields_flat
-
-        if not ordered_line_edits:
-            # If only a save button exists, or no fields, no custom navigation needed for CustomLineEdits
-            # Ensure custom_next_widget is None if button exists but no fields
-            if hasattr(self, 'save_button') and isinstance(self.save_button, CustomNavButton):
-                self.save_button.custom_next_widget = None
-            return
+    # This method sets up keyboard navigation for the edit dialog fields 
+    # It defines the tab order and arrow key navigation between all input fields
+    # The implementation at line ~487 is the active version
 
     def _setup_navigation_edit_dialog(self):
-        # Main calculation fields
-        m1 = self.meter1_edit
-        m2 = self.meter2_edit
-        m3 = self.meter3_edit
-        d1 = self.diff1_edit
-        d2 = self.diff2_edit
-        d3 = self.diff3_edit
+        """Set up keyboard navigation for edit dialog fields.
+        
+        This method configures the tab order and arrow key navigation between
+        all input fields in the edit dialog. It creates a navigation sequence that includes:
+        1. All meter/diff input fields first
+        2. The additional amount field
+        3. All room input fields (present/previous pairs)
+        
+        Navigation links both Enter/Return key progression and Up/Down arrow keys.
+        """
+        # Get all meter/diff fields
+        meter_diff_edits = []
+        for pair in self.meter_diff_edit_widgets:
+            meter_edit = pair.get('meter_edit')
+            diff_edit = pair.get('diff_edit')
+            if meter_edit and diff_edit:
+                meter_diff_edits.append(meter_edit)
+                meter_diff_edits.append(diff_edit)
+        
+        # Additional amount edit and save button
         aa = self.additional_amount_edit
         save_btn = self.save_button
 
         # --- Clear all existing navigation links first ---
-        all_line_edits_in_dialog = [m1, m2, m3, d1, d2, d3, aa]
+        all_line_edits_in_dialog = meter_diff_edits + [aa]
         for room_set in self.room_edit_widgets:
             all_line_edits_in_dialog.append(room_set["present_edit"])
             all_line_edits_in_dialog.append(room_set["previous_edit"])
@@ -448,7 +509,7 @@ class EditRecordDialog(QDialog):
 
         # --- Define Enter/Return Key Sequence ---
         # This will be a flat list for simplicity of Enter key progression
-        enter_sequence = [m1, d1, m2, d2, m3, d3, aa]
+        enter_sequence = meter_diff_edits + [aa]
         
         # Add room fields to enter_sequence
         for room_set in self.room_edit_widgets:
@@ -467,8 +528,8 @@ class EditRecordDialog(QDialog):
 
         # --- Define Arrow Key Navigation (Up/Down Fields Only, in a single sequence) ---
         
-        # Sequence for main fields: m1 <-> m2 <-> m3 <-> d1 <-> d2 <-> d3 <-> aa
-        main_up_down_sequence = [m1, m2, m3, d1, d2, d3, aa]
+        # Sequence for main fields: meter1 <-> diff1 <-> meter2 <-> diff2 <-> ... <-> aa
+        main_up_down_sequence = meter_diff_edits + [aa]
         
         # Sequence for room fields: room1_present <-> room1_previous <-> room2_present <-> ...
         room_up_down_sequence = []
@@ -525,13 +586,51 @@ class EditRecordDialog(QDialog):
         if enter_sequence:
             enter_sequence[0].setFocus()
     def populate_data(self, main_data, room_data_list):
-        # Populate main fields using DB column names
-        self.meter1_edit.setText(str(main_data.get("meter1_reading", "") or ""))
-        self.meter2_edit.setText(str(main_data.get("meter2_reading", "") or ""))
-        self.meter3_edit.setText(str(main_data.get("meter3_reading", "") or ""))
-        self.diff1_edit.setText(str(main_data.get("diff1", "") or ""))
-        self.diff2_edit.setText(str(main_data.get("diff2", "") or ""))
-        self.diff3_edit.setText(str(main_data.get("diff3", "") or ""))
+        # Get the default and additional meter/difference values
+        meter_values = [
+            main_data.get("meter1_reading", "") or "",
+            main_data.get("meter2_reading", "") or "",
+            main_data.get("meter3_reading", "") or ""
+        ]
+        diff_values = [
+            main_data.get("diff1", "") or "",
+            main_data.get("diff2", "") or "",
+            main_data.get("diff3", "") or ""
+        ]
+        
+        # Check for extra meter readings and diff readings (added in JSON format)
+        extra_meter_readings = main_data.get("extra_meter_readings", None)
+        extra_diff_readings = main_data.get("extra_diff_readings", None)
+        
+        # Parse extra values if they exist
+        if extra_meter_readings:
+            try:
+                extra_meters = json.loads(extra_meter_readings)
+                if isinstance(extra_meters, list):
+                    meter_values.extend(extra_meters)
+            except Exception as e:
+                print(f"Error parsing extra meter readings: {e}")
+        
+        if extra_diff_readings:
+            try:
+                extra_diffs = json.loads(extra_diff_readings)
+                if isinstance(extra_diffs, list):
+                    diff_values.extend(extra_diffs)
+            except Exception as e:
+                print(f"Error parsing extra diff readings: {e}")
+        
+        # Set the values for each meter/diff pair
+        for i, pair in enumerate(self.meter_diff_edit_widgets):
+            meter_edit = pair.get('meter_edit')
+            diff_edit = pair.get('diff_edit')
+            
+            if meter_edit and i < len(meter_values):
+                meter_edit.setText(str(meter_values[i]))
+                
+            if diff_edit and i < len(diff_values):
+                diff_edit.setText(str(diff_values[i]))
+                
+        # Set additional amount
         self.additional_amount_edit.setText(str(main_data.get("additional_amount", "") or ""))
         
         # Populate room fields
@@ -555,18 +654,51 @@ class EditRecordDialog(QDialog):
         try:
             # TODO: Add more robust validation if needed
             
-            # Get edited main values
-            meter1 = _safe_parse_int(self.meter1_edit.text())
-            meter2 = _safe_parse_int(self.meter2_edit.text())
-            meter3 = _safe_parse_int(self.meter3_edit.text())
-            diff1 = _safe_parse_int(self.diff1_edit.text())
-            diff2 = _safe_parse_int(self.diff2_edit.text())
-            diff3 = _safe_parse_int(self.diff3_edit.text())
-            additional_amount = _safe_parse_int(self.additional_amount_edit.text()) 
+            # Collect all meter/diff values
+            meter_values = []
+            diff_values = []
+            
+            for pair in self.meter_diff_edit_widgets:
+                meter_edit = pair.get('meter_edit')
+                diff_edit = pair.get('diff_edit')
+                
+                if meter_edit:
+                    meter_values.append(_safe_parse_int(meter_edit.text(), 0))
+                else:
+                    meter_values.append(0)
+                    
+                if diff_edit:
+                    diff_values.append(_safe_parse_int(diff_edit.text(), 0))
+                else:
+                    diff_values.append(0)
+            
+            # Ensure we have at least 3 values for the fixed fields
+            while len(meter_values) < 3:
+                meter_values.append(0)
+            while len(diff_values) < 3:
+                diff_values.append(0)
+                
+            # Get the first three pairs for backward compatibility
+            meter1 = meter_values[0]
+            meter2 = meter_values[1]
+            meter3 = meter_values[2]
+            diff1 = diff_values[0]
+            diff2 = diff_values[1]
+            diff3 = diff_values[2]
+            
+            # Handle extra pairs beyond the first three
+            extra_meter_readings = meter_values[3:] if len(meter_values) > 3 else []
+            extra_diff_readings = diff_values[3:] if len(diff_values) > 3 else []
+            
+            # Convert to JSON strings for storage
+            extra_meter_json = json.dumps(extra_meter_readings) if extra_meter_readings else None
+            extra_diff_json = json.dumps(extra_diff_readings) if extra_diff_readings else None
+            
+            additional_amount = _safe_parse_float(self.additional_amount_edit.text())
 
             # Recalculate main derived fields
-            total_unit_cost = meter1 + meter2 + meter3 # Use DB name
-            total_diff_units = diff1 + diff2 + diff3 # Use DB name
+            total_unit_cost = sum(meter_values) # Use DB name
+            total_diff_units = sum(diff_values) # Use DB name
             per_unit_cost_calculated = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0 # Use DB name
             grand_total_bill = total_unit_cost + additional_amount # Use DB name
 
@@ -582,7 +714,9 @@ class EditRecordDialog(QDialog):
                 "total_unit_cost": total_unit_cost, 
                 "total_diff_units": total_diff_units, 
                 "per_unit_cost_calculated": per_unit_cost_calculated, 
-                "grand_total_bill": grand_total_bill 
+                "grand_total_bill": grand_total_bill,
+                "extra_meter_readings": extra_meter_json,
+                "extra_diff_readings": extra_diff_json
             }
 
             # Prepare updated room data
@@ -637,7 +771,7 @@ class MeterCalculationApp(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Home Unit Calculator")
-        self.setGeometry(100, 100, 1200, 800) # Increased width for better layout
+        self.setGeometry(100, 100, 1300, 860) # Increased width for better layout
         self.setStyleSheet(get_stylesheet())
         self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
         
@@ -678,38 +812,23 @@ class MeterCalculationApp(QMainWindow):
         self.supabase_url = config.get("SUPABASE_URL")
         self.supabase_key = config.get("SUPABASE_KEY")
 
-        if self.supabase_url and self.supabase_key:
-            try:
-                self.supabase = create_client(self.supabase_url, self.supabase_key)
-                print("Supabase client initialized successfully from stored config.")
-            except Exception as e:
-                self.supabase = None
-                QMessageBox.critical(self, "Supabase Error", f"Failed to initialize Supabase client with stored credentials: {e}\nPlease re-enter your Supabase configuration.")
-        else:
+        if not (self.supabase_url and self.supabase_key):
             self.supabase = None
-            QMessageBox.information(self, "Supabase Configuration", "Supabase URL and Key not found. Please configure Supabase to enable cloud features.")
+            QMessageBox.information(
+                self, "Supabase Configuration",
+                "Supabase URL and Key not found. Please configure Supabase to enable cloud features."
+            )
+            return
 
-        if self.supabase_url and self.supabase_key:
-            try:
-                self.supabase = create_client(self.supabase_url, self.supabase_key)
-                print("Supabase client initialized successfully from stored config.")
-            except Exception as e:
-                self.supabase = None
-                QMessageBox.critical(self, "Supabase Error", f"Failed to initialize Supabase client with stored credentials: {e}\nPlease re-enter your Supabase configuration.")
-        else:
+        try:
+            self.supabase = create_client(self.supabase_url, self.supabase_key)
+            print("Supabase client initialized successfully from stored config.")
+        except Exception as e:
             self.supabase = None
-            QMessageBox.information(self, "Supabase Configuration", "Supabase URL and Key not found. Please configure Supabase to enable cloud features.")
-
-        if self.supabase_url and self.supabase_key:
-            try:
-                self.supabase = create_client(self.supabase_url, self.supabase_key)
-                print("Supabase client initialized successfully from stored config.")
-            except Exception as e:
-                self.supabase = None
-                QMessageBox.critical(self, "Supabase Error", f"Failed to initialize Supabase client with stored credentials: {e}\nPlease re-enter your Supabase configuration.")
-        else:
-            self.supabase = None
-            QMessageBox.information(self, "Supabase Configuration", "Supabase URL and Key not found. Please configure Supabase to enable cloud features.")
+            QMessageBox.critical(
+                self, "Supabase Error",
+                f"Failed to initialize Supabase client with stored credentials: {e}\nPlease re-enter your Supabase configuration."
+            )
 
     def init_ui(self):
         # Initialize the main user interface
@@ -839,20 +958,84 @@ class MeterCalculationApp(QMainWindow):
 
         main_layout.addLayout(new_top_row_layout)
 
-        # --- NEW MIDDLE ROW ---
-        new_middle_row_layout = QHBoxLayout()
-        new_middle_row_layout.setSpacing(20)
-
-        meter_group = self.create_meter_group()
-        new_middle_row_layout.addWidget(meter_group, 1) 
-
-        diff_group = self.create_diff_group()
-        new_middle_row_layout.addWidget(diff_group, 1) 
+        # --- MIDDLE ROW (METER, DIFF, RIGHT COLUMN) ---
+        middle_row_layout = QHBoxLayout()
         
+        # Create Meter group with scrollable area
+        meter_group = QGroupBox("Meter Readings")
+        meter_group.setStyleSheet(get_group_box_style())
+        meter_scroll = AutoScrollArea()
+        meter_scroll.setWidgetResizable(True)
+        meter_container = QWidget()
+        self.meter_layout = QFormLayout(meter_container)
+        self.meter_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        meter_scroll.setWidget(meter_container)
+        meter_group_layout = QVBoxLayout(meter_group)
+        meter_group_layout.addWidget(meter_scroll)
+        middle_row_layout.addWidget(meter_group, 1)
+        
+        # Create Difference group with scrollable area
+        diff_group = QGroupBox("Difference Readings")
+        diff_group.setStyleSheet(get_group_box_style())
+        diff_scroll = AutoScrollArea()
+        diff_scroll.setWidgetResizable(True)
+        diff_container = QWidget()
+        self.diff_layout = QFormLayout(diff_container)
+        self.diff_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        diff_scroll.setWidget(diff_container)
+        diff_group_layout = QVBoxLayout(diff_group)
+        diff_group_layout.addWidget(diff_scroll)
+        middle_row_layout.addWidget(diff_group, 1)
+        
+        # Store references to dynamically created widgets
+        self.meter_entries = []
+        self.diff_entries = []
+        
+        # Right column (Spinboxes and Additional Amount)
+        right_column_layout = QVBoxLayout()
+        
+        # Create a horizontal layout for meter and diff spinboxes
+        spinboxes_layout = QHBoxLayout()
+        
+        # Number of Meters group
+        meter_count_group = QGroupBox("Number of Meters:")
+        meter_count_group.setStyleSheet(get_group_box_style())
+        meter_count_layout = QHBoxLayout(meter_count_group)
+        meter_count_layout.setContentsMargins(5, 5, 5, 5)  # Reduce padding (left, top, right, bottom)
+        meter_count_layout.setSpacing(2)  # Reduce spacing between elements
+        self.meter_count_spinbox = CustomSpinBox()
+        self.meter_count_spinbox.setRange(1, 10)
+        self.meter_count_spinbox.setValue(3)  # Default to 3 meters
+        self.meter_count_spinbox.valueChanged.connect(self.update_meter_inputs)
+        meter_count_layout.addWidget(self.meter_count_spinbox)
+        spinboxes_layout.addWidget(meter_count_group)
+        
+        # Number of Diffs group
+        diff_count_group = QGroupBox("Number of Diffs:")
+        diff_count_group.setStyleSheet(get_group_box_style())
+        diff_count_layout = QHBoxLayout(diff_count_group)
+        diff_count_layout.setContentsMargins(5, 5, 5, 5)  # Reduce padding (left, top, right, bottom)
+        diff_count_layout.setSpacing(2)  # Reduce spacing between elements
+        self.diff_count_spinbox = CustomSpinBox()
+        self.diff_count_spinbox.setRange(1, 10)
+        self.diff_count_spinbox.setValue(3)  # Default to 3 diffs
+        self.diff_count_spinbox.valueChanged.connect(self.update_diff_inputs)
+        diff_count_layout.addWidget(self.diff_count_spinbox)
+        spinboxes_layout.addWidget(diff_count_group)
+        
+        # Set smaller spacing for the spinboxes_layout
+        spinboxes_layout.setSpacing(5)  # Reduce spacing between spinbox groups
+        
+        # Add the horizontal spinboxes layout to the right column
+        right_column_layout.addLayout(spinboxes_layout)
+        
+        # Additional Amount group
         amount_group = self.create_additional_amount_group()
-        new_middle_row_layout.addWidget(amount_group, 1) 
-
-        main_layout.addLayout(new_middle_row_layout)
+        right_column_layout.addWidget(amount_group)
+        
+        middle_row_layout.addLayout(right_column_layout, 1)
+        
+        main_layout.addLayout(middle_row_layout)
 
         # --- RESULTS SECTION --- (Moved before Calculate button)
         results_group = self.create_results_group()
@@ -865,6 +1048,10 @@ class MeterCalculationApp(QMainWindow):
         self.main_calculate_button.setStyleSheet(get_button_style())
         self.main_calculate_button.setFixedHeight(50)
         main_layout.addWidget(self.main_calculate_button)
+        
+        # Initialize the dynamic meter/diff inputs
+        self.update_meter_inputs(3)
+        self.update_diff_inputs(3)
 
         # Removed final stretch to allow vertical expansion
         return main_tab
@@ -908,10 +1095,10 @@ class MeterCalculationApp(QMainWindow):
 
     def get_additional_amount(self):
         try:
-            return int(self.additional_amount_input.text()) if self.additional_amount_input.text() else 0
+            return float(self.additional_amount_input.text()) if self.additional_amount_input.text() else 0.0
         except ValueError:
             QMessageBox.warning(self, "Invalid Input", "Please enter a valid numeric value for the additional amount.")
-            return 0
+            return 0.0
 
     def create_month_info_section(self):
         # Create the month and year selection section
@@ -942,41 +1129,97 @@ class MeterCalculationApp(QMainWindow):
 
         return month_info_layout  # Return the completed layout
 
+    def update_meter_inputs(self, value=None):
+        # Get the requested number of meter entries (or use the current spinbox value if not provided)
+        num_meters = value if value is not None else self.meter_count_spinbox.value()
+        
+        # Store current values from existing widgets if any
+        current_values = {}
+        for i, meter_edit in enumerate(self.meter_entries):
+            if i < len(self.meter_entries):
+                current_values[i] = meter_edit.text()
+        
+        # Clear existing widgets from the layout
+        self._clear_layout(self.meter_layout)
+        self.meter_entries = []
+        
+        # Create the requested number of meter inputs
+        for i in range(num_meters):
+            # Create a meter input
+            meter_edit = CustomLineEdit()
+            meter_edit.setObjectName(f"meter_edit_{i}")
+            meter_edit.setPlaceholderText(f"Enter meter {i+1} reading")
+            self.meter_layout.addRow(f"Meter {i+1} Reading:", meter_edit)
+            
+            # Restore previous value if available
+            if i in current_values:
+                meter_edit.setText(current_values[i])
+            
+            # Store reference for later use
+            self.meter_entries.append(meter_edit)
+        
+        # Update navigation
+        self.setup_navigation()
+    
+    def update_diff_inputs(self, value=None):
+        # Get the requested number of diff entries (or use the current spinbox value if not provided)
+        num_diffs = value if value is not None else self.diff_count_spinbox.value()
+        
+        # Store current values from existing widgets if any
+        current_values = {}
+        for i, diff_edit in enumerate(self.diff_entries):
+            if i < len(self.diff_entries):
+                current_values[i] = diff_edit.text()
+        
+        # Clear existing widgets from the layout
+        self._clear_layout(self.diff_layout)
+        self.diff_entries = []
+        
+        # Create the requested number of diff inputs
+        for i in range(num_diffs):
+            # Create a diff input
+            diff_edit = CustomLineEdit()
+            diff_edit.setObjectName(f"diff_edit_{i}")
+            diff_edit.setPlaceholderText(f"Enter difference {i+1} reading")
+            self.diff_layout.addRow(f"Difference {i+1} Reading:", diff_edit)
+            
+            # Restore previous value if available
+            if i in current_values:
+                diff_edit.setText(current_values[i])
+            
+            # Store reference for later use
+            self.diff_entries.append(diff_edit)
+        
+        # Update navigation
+        self.setup_navigation()
+    
+    def _clear_layout(self, layout):
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    # Properly dispose the widget to release memory & native handles
+                    widget.setParent(None)
+                    widget.deleteLater()
+                elif item.layout() is not None:
+                    self._clear_layout(item.layout())
+                    # do **not** return – continue the while-loop so subsequent siblings are processed
+    
+    # Keep these methods for backward compatibility but modify them to be empty or use the new system
     def create_meter_group(self):
-        # Create the Meter Readings group
-        meter_group = QGroupBox("Meter Readings")  # Create a QGroupBox for meter readings
-        meter_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
-        meter_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Allow horizontal expansion
-        meter_layout = QFormLayout()  # Create a form layout for organizing the meter entries
-        meter_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow) # Make fields expand horizontally
-        meter_layout.setSpacing(10)  # Set spacing between form layout items
-        self.meter_entries = []  # Initialize an empty list to store meter entry widgets
-        for i in range(3):  # Loop 3 times to create 3 meter entry fields
-            meter_entry = CustomLineEdit()
-            meter_entry.setObjectName(f"main_meter_entry_{i}")
-            meter_entry.setPlaceholderText(f"Enter meter {i+1} reading")
-            meter_layout.addRow(f"Meter {i+1} Reading:", meter_entry)  # Add a labeled row to the form layout
-            self.meter_entries.append(meter_entry)  # Add the entry widget to the list of meter entries
-        meter_group.setLayout(meter_layout)  # Set the form layout as the layout for the group box
-        return meter_group  # Return the created and configured group box
+        # This method is no longer used, but kept for backward compatibility
+        # The functionality is now part of update_meter_diff_inputs
+        group = QGroupBox("Meter Readings")
+        group.setLayout(QVBoxLayout())
+        return group
     
     def create_diff_group(self):
-        # Create the Difference Readings group
-        diff_group = QGroupBox("Difference Readings")  # Create a QGroupBox for difference readings
-        diff_group.setStyleSheet(get_group_box_style())  # Apply custom style to the group box
-        diff_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred) # Allow horizontal expansion
-        diff_layout = QFormLayout()  # Create a form layout for organizing the difference entries
-        diff_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow) # Make fields expand horizontally
-        diff_layout.setSpacing(10)  # Set spacing between form layout items
-        self.diff_entries = []  # Initialize an empty list to store difference entry widgets
-        for i in range(3):  # Loop 3 times to create 3 difference entry fields
-            diff_entry = CustomLineEdit()
-            diff_entry.setObjectName(f"main_diff_entry_{i}")
-            diff_entry.setPlaceholderText(f"Enter difference {i+1} reading")
-            diff_layout.addRow(f"Difference {i+1} Reading:", diff_entry)  # Add a labeled row to the form layout
-            self.diff_entries.append(diff_entry)  # Add the entry widget to the list of difference entries
-        diff_group.setLayout(diff_layout)  # Set the form layout as the layout for the group box
-        return diff_group  # Return the created and configured group box
+        # This method is no longer used, but kept for backward compatibility
+        # The functionality is now part of update_meter_diff_inputs
+        group = QGroupBox("Difference Readings")
+        group.setLayout(QVBoxLayout())
+        return group
 
     def create_results_group(self):
         # Create the Results section with new layout
@@ -1238,8 +1481,24 @@ class MeterCalculationApp(QMainWindow):
     def calculate_main(self):
         # Calculate main meter readings and update result labels
         try:
-            meter_readings = [int(entry.text()) if entry.text() else 0 for entry in self.meter_entries]
-            diff_readings = [int(entry.text()) if entry.text() else 0 for entry in self.diff_entries]
+            # Get values from the meter and diff entries
+            meter_readings = []
+            diff_readings = []
+            
+            # Get meter readings
+            for meter_edit in self.meter_entries:
+                if meter_edit and meter_edit.text():
+                    meter_readings.append(int(meter_edit.text()))
+                else:
+                    meter_readings.append(0)
+            
+            # Get difference readings
+            for diff_edit in self.diff_entries:
+                if diff_edit and diff_edit.text():
+                    diff_readings.append(int(diff_edit.text()))
+                else:
+                    diff_readings.append(0)
+            
             additional_amount = self.get_additional_amount() # Get additional amount
 
             total_unit = sum(meter_readings)  # Calculate total units
@@ -1255,9 +1514,9 @@ class MeterCalculationApp(QMainWindow):
             # Update result value labels with calculated values
             self.total_unit_value_label.setText(f"{total_unit}")
             self.total_diff_value_label.setText(f"{total_diff}")
-            self.per_unit_cost_value_label.setText(f"{per_unit_cost:.2f}")
-            self.additional_amount_value_label.setText(f"{additional_amount}")
-            self.in_total_value_label.setText(f"{in_total:.2f}")
+            self.per_unit_cost_value_label.setText(f"{per_unit_cost:.2f} TK")
+            self.additional_amount_value_label.setText(f"{additional_amount:.2f} TK")
+            self.in_total_value_label.setText(f"{in_total:.2f} TK")
 
         except ValueError:
             # Show warning message for invalid input
@@ -1334,8 +1593,15 @@ class MeterCalculationApp(QMainWindow):
         filename = "meter_calculation_history.csv"  # Define the filename for the CSV
 
         # Check if essential fields are empty
-        meter_texts = [entry.text() for entry in self.meter_entries]
-        diff_texts = [entry.text() for entry in self.diff_entries]
+        meter_texts = []
+        diff_texts = []
+        
+        # Gather all meter and diff inputs
+        for meter_edit in self.meter_entries:
+            meter_texts.append(meter_edit.text())
+        for diff_edit in self.diff_entries:
+            diff_texts.append(diff_edit.text())
+                
         if all(not text for text in meter_texts) and all(not text for text in diff_texts):
              QMessageBox.warning(self, "Empty Data", "Cannot save empty calculation data.")
              return
@@ -1346,26 +1612,54 @@ class MeterCalculationApp(QMainWindow):
             with open(filename, mode='a', newline='') as file:  # Open the file in append mode
                 writer = csv.writer(file)  # Create a CSV writer object
                 
+                # Determine how many meter/diff entries we have
+                num_pairs = max(len(self.meter_entries), len(self.diff_entries))
+                
                 # Write header row if the file is new or empty
                 if not file_exists or os.path.getsize(filename) == 0:
-                    writer.writerow([
-                        "Month", "Meter-1", "Meter-2", "Meter-3", 
-                        "Diff-1", "Diff-2", "Diff-3", "Total Unit", 
-                        "Total Diff", "Per Unit Cost", "Added Amount", "In Total", # Added "Added Amount"
+                    # Create header dynamically based on number of pairs
+                    header = ["Month"]
+                    
+                    # Add headers for each meter/diff pair (always reserve 10 columns)
+                    for i in range(1, 11):
+                        header.append(f"Meter-{i}")
+                    for i in range(1, 11):
+                        header.append(f"Diff-{i}")
+                        
+                    # Add the rest of the headers
+                    header.extend([
+                        "Total Unit", "Total Diff", "Per Unit Cost", 
+                        "Added Amount", "In Total", 
                         "Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill"
                     ])
+                    
+                    writer.writerow(header)
 
                 # Prepare main calculation data
-                main_data = [
-                    month_name,
-                    self.meter_entries[0].text() or "0", self.meter_entries[1].text() or "0", self.meter_entries[2].text() or "0",
-                    self.diff_entries[0].text() or "0", self.diff_entries[1].text() or "0", self.diff_entries[2].text() or "0",
+                main_data = [month_name]
+                
+                # Add all meter readings (always pad to 10 columns)
+                for i in range(10):
+                    if i < len(self.meter_entries):
+                        main_data.append(self.meter_entries[i].text() if self.meter_entries[i] and self.meter_entries[i].text() else "0")
+                    else:
+                        main_data.append("0")  # Pad with zeros for missing entries
+                
+                # Add all diff readings (always pad to 10 columns)
+                for i in range(10):
+                    if i < len(self.diff_entries):
+                        main_data.append(self.diff_entries[i].text() if self.diff_entries[i] and self.diff_entries[i].text() else "0")
+                    else:
+                        main_data.append("0")  # Pad with zeros for missing entries
+                
+                # Add the calculated values
+                main_data.extend([
                     (lambda _t: (lambda _v: _v if _v else '0')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.total_unit_value_label.text().strip()),
                     (lambda _t: (lambda _v: _v if _v else '0')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.total_diff_value_label.text().strip()),
                     (lambda _t: (lambda _v: _v if _v else '0.00')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.per_unit_cost_value_label.text().strip()),
                     str(self.get_additional_amount()), # Save additional amount
                     (lambda _t: (lambda _v: _v if _v else '0.00')((_t.split(':',1)[1] if ':' in _t else _t).strip().lower().replace('tk','').strip()))(self.in_total_value_label.text().strip())
-                ]
+                ])
 
                 # Check if room calculations have been performed and data exists
                 if self.room_entries and hasattr(self, 'room_results') and self.room_results: # Check if room_results exists and is populated
@@ -1426,19 +1720,49 @@ class MeterCalculationApp(QMainWindow):
                 try: return float(value_str) if value_str else default
                 except (ValueError, TypeError): return default
 
-            # Recalculate derived fields before saving
-            meter1 = _safe_parse_int(self.meter_entries[0].text())
-            meter2 = _safe_parse_int(self.meter_entries[1].text())
-            meter3 = _safe_parse_int(self.meter_entries[2].text())
-            diff1 = _safe_parse_int(self.diff_entries[0].text())
-            diff2 = _safe_parse_int(self.diff_entries[1].text())
-            diff3 = _safe_parse_int(self.diff_entries[2].text())
-            additional_amount = _safe_parse_int(self.additional_amount_input.text())
+            # Get values from meter and diff entries
+            meter_readings = []
+            diff_readings = []
+            
+            # Process all meter entries (up to max 10)
+            for i, meter_edit in enumerate(self.meter_entries):
+                if i < 10:  # Limit to 10 maximum
+                    meter_readings.append(_safe_parse_int(meter_edit.text(), 0))
+            
+            # Process all diff entries (up to max 10)
+            for i, diff_edit in enumerate(self.diff_entries):
+                if i < 10:  # Limit to 10 maximum
+                    diff_readings.append(_safe_parse_int(diff_edit.text(), 0))
+            
+            # Ensure we have at least 3 values for backward compatibility
+            while len(meter_readings) < 3:
+                meter_readings.append(0)
+            while len(diff_readings) < 3:
+                diff_readings.append(0)
+            
+            # Get first three values for backward compatibility (meter1, meter2, meter3)
+            meter1 = meter_readings[0]
+            meter2 = meter_readings[1]
+            meter3 = meter_readings[2]
+            diff1 = diff_readings[0]
+            diff2 = diff_readings[1]
+            diff3 = diff_readings[2]
+            # Preserve decimals entered by the user
+            additional_amount = _safe_parse_float(self.additional_amount_input.text(), 0.0)
 
-            total_unit_cost = meter1 + meter2 + meter3 # Use DB name
-            total_diff_units = diff1 + diff2 + diff3 # Use DB name
+            # Recalculate totals
+            total_unit_cost = sum(meter_readings) # Use DB name
+            total_diff_units = sum(diff_readings) # Use DB name
             per_unit_cost_calculated = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0 # Use DB name
             grand_total_bill = total_unit_cost + additional_amount # Use DB name
+
+            # Prepare meter and diff data as JSON strings for all pairs beyond the first 3
+            extra_meter_readings = meter_readings[3:] if len(meter_readings) > 3 else []
+            extra_diff_readings = diff_readings[3:] if len(diff_readings) > 3 else []
+            
+            # Serialize extra meter/diff readings to JSON strings for storage
+            extra_meter_json = json.dumps(extra_meter_readings) if extra_meter_readings else None
+            extra_diff_json = json.dumps(extra_diff_readings) if extra_diff_readings else None
 
             # Main calculation data using DB column names
             main_calc_data = {
@@ -1454,7 +1778,9 @@ class MeterCalculationApp(QMainWindow):
                 "total_unit_cost": total_unit_cost, # DB name
                 "total_diff_units": total_diff_units, # DB name
                 "per_unit_cost_calculated": per_unit_cost_calculated, # DB name
-                "grand_total_bill": grand_total_bill # DB name
+                "grand_total_bill": grand_total_bill, # DB name
+                "extra_meter_readings": extra_meter_json, # New field for additional meter readings
+                "extra_diff_readings": extra_diff_json  # New field for additional diff readings
                 # Removed user_id as it doesn't exist in the schema
             }
 
@@ -1902,12 +2228,64 @@ class MeterCalculationApp(QMainWindow):
                                 self.month_combo.setCurrentText(selected_month) # Set main tab's month
                                 self.year_spinbox.setValue(selected_year)     # Set main tab's year
                                 
-                                self.meter_entries[0].setText(get_csv_value(row, "Meter-1", "0"))
-                                self.meter_entries[1].setText(get_csv_value(row, "Meter-2", "0"))
-                                self.meter_entries[2].setText(get_csv_value(row, "Meter-3", "0"))
-                                self.diff_entries[0].setText(get_csv_value(row, "Diff-1", "0"))
-                                self.diff_entries[1].setText(get_csv_value(row, "Diff-2", "0"))
-                                self.diff_entries[2].setText(get_csv_value(row, "Diff-3", "0"))
+                                # Read all meter/diff values that exist in the CSV file
+                                meter_values = []
+                                diff_values = []
+                                
+                                # Check for meter-X values until we don't find any more
+                                i = 1
+                                while True:
+                                    meter_value = get_csv_value(row, f"Meter-{i}", None)
+                                    if meter_value is None:
+                                        break
+                                    meter_values.append(meter_value)
+                                    i += 1
+                                    
+                                # Check for diff-X values until we don't find any more    
+                                i = 1
+                                while True:
+                                    diff_value = get_csv_value(row, f"Diff-{i}", None)
+                                    if diff_value is None:
+                                        break
+                                    diff_values.append(diff_value)
+                                    i += 1
+                                
+                                # Fall back to the minimum of 3 pairs if none found
+                                if not meter_values:
+                                    meter_values = ["0", "0", "0"]
+                                if not diff_values:
+                                    diff_values = ["0", "0", "0"]
+                                
+                                # Set the spinbox values to match the number of meter/diff entries
+                                # Ensure we don't exceed spinbox maximum values
+                                num_meters = min(len(meter_values), self.meter_count_spinbox.maximum())
+                                num_diffs = min(len(diff_values), self.diff_count_spinbox.maximum())
+                                
+                                # Update meter spinbox without triggering value change handler
+                                self.meter_count_spinbox.blockSignals(True)
+                                self.meter_count_spinbox.setValue(num_meters)
+                                self.meter_count_spinbox.blockSignals(False)
+                                
+                                # Update diff spinbox without triggering value change handler
+                                self.diff_count_spinbox.blockSignals(True)
+                                self.diff_count_spinbox.setValue(num_diffs)
+                                self.diff_count_spinbox.blockSignals(False)
+                                
+                                # Manually update the meter and diff inputs
+                                self.update_meter_inputs(num_meters)
+                                self.update_diff_inputs(num_diffs)
+                                
+                                # Set the values for each meter entry
+                                for i, meter_edit in enumerate(self.meter_entries):
+                                    if i < len(meter_values):
+                                        meter_edit.setText(meter_values[i])
+                                
+                                # Set the values for each diff entry
+                                for i, diff_edit in enumerate(self.diff_entries):
+                                    if i < len(diff_values):
+                                        diff_edit.setText(diff_values[i])
+                                            
+                                # Set additional amount
                                 self.additional_amount_input.setText(get_csv_value(row, "Added Amount", "0"))
                                 found_main = True
 
@@ -1917,11 +2295,22 @@ class MeterCalculationApp(QMainWindow):
                             if room_name_csv and room_name_csv.upper() != "N/A":
                                  # Check if room_entries is initialized and has enough space
                                 if hasattr(self, 'room_entries'):
-                                    room_data_for_month.append({
-                                        "name": room_name_csv, # Already processed by get_csv_value
-                                        "present": get_csv_value(row, "Present Unit", ""),
-                                        "previous": get_csv_value(row, "Previous Unit", "")
-                                    })
+                                    # Check for duplicates before adding
+                                    is_duplicate = False
+                                    for existing_room in room_data_for_month:
+                                        if (existing_room["name"] == room_name_csv and
+                                            existing_room["present"] == get_csv_value(row, "Present Unit", "") and
+                                            existing_room["previous"] == get_csv_value(row, "Previous Unit", "")):
+                                            is_duplicate = True
+                                            break
+                                    
+                                    # Only add if not a duplicate
+                                    if not is_duplicate:
+                                        room_data_for_month.append({
+                                            "name": room_name_csv, # Already processed by get_csv_value
+                                            "present": get_csv_value(row, "Present Unit", ""),
+                                            "previous": get_csv_value(row, "Previous Unit", "")
+                                        })
                 
                 if not found_main:
                     QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month_year} in {filename}.")
@@ -1929,36 +2318,53 @@ class MeterCalculationApp(QMainWindow):
 
                 # Populate room inputs if data was found
                 if room_data_for_month and hasattr(self, 'room_entries'):
+                    # Remove duplicate room entries by creating a set of unique rooms
+                    unique_room_data = []
+                    room_keys_seen = set()
+                    
+                    for room in room_data_for_month:
+                        # Create a key that uniquely identifies this room's data
+                        room_key = (room["name"], room["present"], room["previous"])
+                        if room_key not in room_keys_seen:
+                            room_keys_seen.add(room_key)
+                            unique_room_data.append(room)
+                    
+                    # Use only the unique room data
+                    room_data_for_month = unique_room_data
                     num_rooms_to_load = len(room_data_for_month)
                     # Check if num_rooms_spinbox exists before setting value
                     if hasattr(self, 'num_rooms_spinbox'):
-                         self.num_rooms_spinbox.setValue(num_rooms_to_load) 
-                         QApplication.processEvents() # Ensure UI updates from setValue
-
-                         for i, room_csv_data in enumerate(room_data_for_month):
-                             if i < len(self.room_entries): # Check bounds
-                                 present_entry, previous_entry = self.room_entries[i]
-                                 # Find the corresponding group box to set the title (room name)
-                                 room_group_widget = self.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
-                                 if isinstance(room_group_widget, QGroupBox):
-                                     room_group_widget.setTitle(room_csv_data["name"]) # name is already stripped
-                                 present_entry.setText(room_csv_data["present"]) # present is already stripped
-                                 previous_entry.setText(room_csv_data["previous"]) # previous is already stripped
+                        # Block signals to prevent update_room_inputs from being called twice
+                        self.num_rooms_spinbox.blockSignals(True)
+                        self.num_rooms_spinbox.setValue(num_rooms_to_load)
+                        self.num_rooms_spinbox.blockSignals(False)
+                        
+                        # Manually update room inputs to create the correct number of widgets
+                        self.update_room_inputs()
+                        
+                        # Now populate the room data
+                        for i, room_csv_data in enumerate(room_data_for_month):
+                            if i < len(self.room_entries): # Check bounds
+                                present_entry, previous_entry = self.room_entries[i]
+                                # Find the corresponding group box to set the title (room name)
+                                room_group_widget = self.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                                if isinstance(room_group_widget, QGroupBox):
+                                    room_group_widget.setTitle(room_csv_data["name"]) # name is already stripped
+                                present_entry.setText(room_csv_data["present"]) # present is already stripped
+                                previous_entry.setText(room_csv_data["previous"]) # previous is already stripped
                     else:
-                         print("Warning: num_rooms_spinbox not found during CSV load.")
+                        print("Warning: num_rooms_spinbox not found during CSV load.")
 
                 elif hasattr(self, 'num_rooms_spinbox'): # If no room data found, reset to 1 room
-                    self.num_rooms_spinbox.setValue(1) 
-                    QApplication.processEvents()
-                    # Clear any existing room entries if no specific room data was loaded
-                    if hasattr(self, 'room_entries'):
-                        for index, entry_set in enumerate(self.room_entries):
-                             present_entry, previous_entry = entry_set
-                             present_entry.clear()
-                             previous_entry.clear()
-                             # Also reset group title if needed
-                             room_group_widget = self.rooms_scroll_layout.itemAtPosition(index // 3, index % 3).widget()
-                             if isinstance(room_group_widget, QGroupBox): room_group_widget.setTitle(f"Room {index+1}")
+                    # Block signals to prevent update_room_inputs from being called twice
+                    self.num_rooms_spinbox.blockSignals(True)
+                    self.num_rooms_spinbox.setValue(1)
+                    self.num_rooms_spinbox.blockSignals(False)
+                    
+                    # Manually update room inputs to create the correct number of widgets
+                    self.update_room_inputs()
+                    
+                    # No need to clear entries as update_room_inputs already created fresh ones
 
 
                 QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year} loaded into input fields.")
@@ -2000,12 +2406,69 @@ class MeterCalculationApp(QMainWindow):
             self.month_combo.setCurrentText(main_data.get("month", selected_month))
             self.year_spinbox.setValue(main_data.get("year", selected_year))
             
-            self.meter_entries[0].setText(str(main_data.get("meter1_reading", "") or ""))
-            self.meter_entries[1].setText(str(main_data.get("meter2_reading", "") or ""))
-            self.meter_entries[2].setText(str(main_data.get("meter3_reading", "") or ""))
-            self.diff_entries[0].setText(str(main_data.get("diff1", "") or ""))
-            self.diff_entries[1].setText(str(main_data.get("diff2", "") or ""))
-            self.diff_entries[2].setText(str(main_data.get("diff3", "") or ""))
+            # Get the default and additional meter/difference values
+            meter_values = [
+                main_data.get("meter1_reading", "") or "",
+                main_data.get("meter2_reading", "") or "",
+                main_data.get("meter3_reading", "") or ""
+            ]
+            diff_values = [
+                main_data.get("diff1", "") or "",
+                main_data.get("diff2", "") or "",
+                main_data.get("diff3", "") or ""
+            ]
+            
+            # Check for extra meter readings and diff readings (added in JSON format)
+            extra_meter_readings = main_data.get("extra_meter_readings", None)
+            extra_diff_readings = main_data.get("extra_diff_readings", None)
+            
+            # Parse extra values if they exist
+            if extra_meter_readings:
+                try:
+                    extra_meters = json.loads(extra_meter_readings)
+                    if isinstance(extra_meters, list):
+                        meter_values.extend(extra_meters)
+                except Exception as e:
+                    print(f"Error parsing extra meter readings: {e}")
+            
+            if extra_diff_readings:
+                try:
+                    extra_diffs = json.loads(extra_diff_readings)
+                    if isinstance(extra_diffs, list):
+                        diff_values.extend(extra_diffs)
+                except Exception as e:
+                    print(f"Error parsing extra diff readings: {e}")
+            
+            # Set the spinbox values to match the number of meter/diff entries
+            # Ensure we don't exceed spinbox maximum values
+            num_meters = min(len(meter_values), self.meter_count_spinbox.maximum())
+            num_diffs = min(len(diff_values), self.diff_count_spinbox.maximum())
+            
+            # Update meter spinbox without triggering value change handler
+            self.meter_count_spinbox.blockSignals(True)
+            self.meter_count_spinbox.setValue(num_meters)
+            self.meter_count_spinbox.blockSignals(False)
+            
+            # Update diff spinbox without triggering value change handler
+            self.diff_count_spinbox.blockSignals(True)
+            self.diff_count_spinbox.setValue(num_diffs)
+            self.diff_count_spinbox.blockSignals(False)
+            
+            # Manually update the meter and diff inputs
+            self.update_meter_inputs(num_meters)
+            self.update_diff_inputs(num_diffs)
+            
+            # Set the values for each meter entry
+            for i, meter_edit in enumerate(self.meter_entries):
+                if i < len(meter_values):
+                    meter_edit.setText(str(meter_values[i]))
+            
+            # Set the values for each diff entry
+            for i, diff_edit in enumerate(self.diff_entries):
+                if i < len(diff_values):
+                    diff_edit.setText(str(diff_values[i]))
+            
+            # Set the additional amount
             self.additional_amount_input.setText(str(main_data.get("additional_amount", "") or ""))
 
             # Fetch related room calculation data
@@ -2025,10 +2488,32 @@ class MeterCalculationApp(QMainWindow):
 
             # Populate room inputs using DB column names
             if room_data_list and hasattr(self, 'room_entries') and hasattr(self, 'num_rooms_spinbox'):
+                # Remove duplicate room entries by creating a set of unique rooms
+                unique_room_data = []
+                room_keys_seen = set()
+                
+                for room in room_data_list:
+                    # Create a key that uniquely identifies this room's data
+                    room_key = (room.get("room_name", ""), 
+                               str(room.get("present_reading_room", "")), 
+                               str(room.get("previous_reading_room", "")))
+                    if room_key not in room_keys_seen:
+                        room_keys_seen.add(room_key)
+                        unique_room_data.append(room)
+                
+                # Use only the unique room data
+                room_data_list = unique_room_data
                 num_rooms_to_load = len(room_data_list)
+                
+                # Block signals to prevent update_room_inputs from being called twice
+                self.num_rooms_spinbox.blockSignals(True)
                 self.num_rooms_spinbox.setValue(num_rooms_to_load)
-                QApplication.processEvents() # Allow UI to update
-
+                self.num_rooms_spinbox.blockSignals(False)
+                
+                # Manually update room inputs to create the correct number of widgets
+                self.update_room_inputs()
+                
+                # Now populate the room data
                 for i, room_db_data in enumerate(room_data_list):
                     if i < len(self.room_entries):
                         present_entry, previous_entry = self.room_entries[i]
@@ -2040,15 +2525,15 @@ class MeterCalculationApp(QMainWindow):
                         previous_entry.setText(str(room_db_data.get("previous_reading_room", "") or "")) # Use DB name
             
             elif hasattr(self, 'num_rooms_spinbox'): # If no room data found, reset to 1 room
+                # Block signals to prevent update_room_inputs from being called twice
+                self.num_rooms_spinbox.blockSignals(True)
                 self.num_rooms_spinbox.setValue(1)
-                QApplication.processEvents()
-                if hasattr(self, 'room_entries'):
-                    for index, entry_set in enumerate(self.room_entries):
-                        present_entry, previous_entry = entry_set
-                        present_entry.clear()
-                        previous_entry.clear()
-                        room_group_widget = self.rooms_scroll_layout.itemAtPosition(index // 3, index % 3).widget()
-                        if isinstance(room_group_widget, QGroupBox): room_group_widget.setTitle(f"Room {index+1}")
+                self.num_rooms_spinbox.blockSignals(False)
+                
+                # Manually update room inputs to create the correct number of widgets
+                self.update_room_inputs()
+                
+                # No need to clear entries as update_room_inputs already created fresh ones
 
             QMessageBox.information(self, "Load Successful", f"Data for {selected_month} {selected_year} loaded from Cloud.")
 
@@ -2130,17 +2615,30 @@ class MeterCalculationApp(QMainWindow):
                 # If current_row_month_year_key is present, it's a potential main entry row
                 if current_row_month_year_key:
                     if current_row_month_year_key not in main_history_dict:
-                        main_data_for_table = row[:12]
-                        while len(main_data_for_table) < 12:
+                        # Determine where the room columns actually start
+                        ROOM_NAME_IDX = header.index("Room Name") if "Room Name" in header else 12
+                        
+                        # Slice main row up to, but not including, the room columns
+                        main_data_for_table = row[:ROOM_NAME_IDX]
+                        while len(main_data_for_table) < ROOM_NAME_IDX:
                             main_data_for_table.append("")
-                        main_history_dict[current_row_month_year_key] = main_data_for_table[:12]
+                        main_history_dict[current_row_month_year_key] = main_data_for_table[:ROOM_NAME_IDX]
                     last_main_month_year_key = current_row_month_year_key # Update last seen main key
 
                 # Check for room data in this row
-                # Room Name (index 12), Present (13), Previous (14), Real Unit (15), Unit Bill (16)
-                is_room_row_candidate = False
-                if len(row) > 12 and row[12] and row[12].strip() and row[12].strip().lower() != "n/a":
-                    is_room_row_candidate = True
+                # Get the Room Name column index
+                ROOM_NAME_IDX = header.index("Room Name") if "Room Name" in header else 12
+                
+                # Get room name value if it exists
+                room_name_csv = row[ROOM_NAME_IDX] if len(row) > ROOM_NAME_IDX else ""
+                
+                # Check if this row contains room data
+                is_room_row_candidate = (
+                    len(row) > ROOM_NAME_IDX
+                    and room_name_csv
+                    and room_name_csv.strip() 
+                    and room_name_csv.strip().lower() != "n/a"
+                )
 
                 if is_room_row_candidate:
                     # Determine the effective month_year_key for this room
@@ -2150,8 +2648,9 @@ class MeterCalculationApp(QMainWindow):
                     if effective_month_year_for_room:
                         # Room table expects: Month-Year, Room Name, Present, Previous, Units, Cost
                         room_data_to_add = [effective_month_year_for_room]
-                        # Room details are from index 12 (Room Name) to 16 (Unit Bill)
-                        room_details_from_csv = row[12:17] if len(row) >= 17 else row[12:]
+                        # Room details start from Room Name index
+                        ROOM_END_IDX = ROOM_NAME_IDX + 5  # Room Name + Present + Previous + Units + Cost = 5 columns
+                        room_details_from_csv = row[ROOM_NAME_IDX:ROOM_END_IDX] if len(row) >= ROOM_END_IDX else row[ROOM_NAME_IDX:]
                         room_data_to_add.extend(room_details_from_csv)
                         
                         # Ensure room_data_to_add has exactly 6 columns for the table
@@ -2420,11 +2919,14 @@ class MeterCalculationApp(QMainWindow):
         elements.append(Spacer(1, 0.1*inch))  # Add some space before the main meter info
         elements.append(create_cell("Main Meter Info", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))  # Add the main meter info headline
 
-        # Main Meter Info Content - Use correct label splitting
-        meter_info_left = [  # Create a list for the left side of the main meter info
-            [Paragraph("Meter-1 Unit:", normal_style), Paragraph(f"{self.meter_entries[0].text() or 'N/A'}", normal_style)],
-            [Paragraph("Meter-2 Unit:", normal_style), Paragraph(f"{self.meter_entries[1].text() or 'N/A'}", normal_style)],
-            [Paragraph("Meter-3 Unit:", normal_style), Paragraph(f"{self.meter_entries[2].text() or 'N/A'}", normal_style)],
+        # Main Meter Info Content - Handle dynamic number of meter entries
+        meter_info_left = [
+            # One row per existing meter entry (no hard cap)
+            *[
+                [Paragraph(f"Meter-{i+1} Unit:", normal_style),
+                 Paragraph(self.meter_entries[i].text() or '0', normal_style)]
+                for i in range(len(self.meter_entries))
+            ],
             [Paragraph("Total Difference:", normal_style), Paragraph(f"{self.total_diff_value_label.text() or 'N/A'}", normal_style)],
         ]
 
@@ -2435,10 +2937,19 @@ class MeterCalculationApp(QMainWindow):
             [Paragraph("In Total Amount:", normal_style), Paragraph(f"{self.in_total_value_label.text() or 'N/A'}", normal_style)],
         ]
 
+        # Ensure left and right tables have the same number of rows
+        max_rows = max(len(meter_info_left), len(meter_info_right))
+        while len(meter_info_left) < max_rows:
+            meter_info_left.append([Paragraph("", normal_style), Paragraph("", normal_style)])
+        while len(meter_info_right) < max_rows:
+            meter_info_right.append([Paragraph("", normal_style), Paragraph("", normal_style)])
+        
+        # Use the actual number of rows based on the number of meter entries
+        num_rows = len(meter_info_left)
         main_meter_table = Table(  # Create a table for the main meter info
-            [meter_info_left[i] + meter_info_right[i] for i in range(4)],  # Combine left and right info
+            [meter_info_left[i] + meter_info_right[i] for i in range(num_rows)],  # Combine left and right info
             colWidths=[2.5*inch, 1.25*inch, 2.5*inch, 1.25*inch],  # Set column widths
-            rowHeights=[0.2*inch] * 4  # Set row heights
+            rowHeights=[0.2*inch] * num_rows  # Set row heights
         )
 
         main_meter_table.setStyle(TableStyle([  # Set the style for the main meter table
@@ -2718,51 +3229,63 @@ class MeterCalculationApp(QMainWindow):
     def setup_navigation(self):
         # --- Main Calculation Tab Navigation ---
         # Ensure all widgets are created before calling this
-        if hasattr(self, 'meter_entries') and len(self.meter_entries) == 3 and \
-           hasattr(self, 'diff_entries') and len(self.diff_entries) == 3 and \
+        if hasattr(self, 'meter_entries') and hasattr(self, 'diff_entries') and \
            hasattr(self, 'additional_amount_input') and hasattr(self, 'main_calculate_button'):
 
-            main_tab_fields_in_order = [
-                self.meter_entries[0], self.diff_entries[0],
-                self.meter_entries[1], self.diff_entries[1],
-                self.meter_entries[2], self.diff_entries[2],
-                self.additional_amount_input
-            ]
+            # Build a flat sequence of all input fields for navigation
+            main_tab_fields_in_order = []
+            
+            # First add all meter inputs
+            for meter_edit in self.meter_entries:
+                main_tab_fields_in_order.append(meter_edit)
+                
+            # Then add all diff inputs
+            for diff_edit in self.diff_entries:
+                main_tab_fields_in_order.append(diff_edit)
+            
+            # Then add the additional amount input
+            main_tab_fields_in_order.append(self.additional_amount_input)
 
             if main_tab_fields_in_order and isinstance(self.main_calculate_button, CustomNavButton):
-                m1, d1, m2, d2, m3, d3, aa = main_tab_fields_in_order
                 calc_btn = self.main_calculate_button
 
                 # Clear existing links for all fields involved
-                all_main_tab_line_edits = [m1, d1, m2, d2, m3, d3, aa]
+                all_main_tab_line_edits = main_tab_fields_in_order.copy()
                 for widget in all_main_tab_line_edits:
-                    widget.next_widget_on_enter = None; widget.up_widget = None; widget.down_widget = None; widget.left_widget = None; widget.right_widget = None
+                    widget.next_widget_on_enter = None
+                    widget.up_widget = None
+                    widget.down_widget = None
+                    widget.left_widget = None
+                    widget.right_widget = None
                 calc_btn.next_widget_on_enter = None
 
-                # Enter/Return Key Sequence (Field1 -> ... -> LastField -> Button -> Field1)
-                m1.next_widget_on_enter = d1; d1.next_widget_on_enter = m2
-                m2.next_widget_on_enter = d2; d2.next_widget_on_enter = m3
-                m3.next_widget_on_enter = d3; d3.next_widget_on_enter = aa
-                aa.next_widget_on_enter = calc_btn
-                calc_btn.next_widget_on_enter = m1
+                # Enter/Return Key Sequence (Field1 -> Field2 -> ... -> LastField -> Button -> Field1)
+                # Connect each field to the next one in sequence
+                for i, widget in enumerate(main_tab_fields_in_order):
+                    if i < len(main_tab_fields_in_order) - 1:
+                        widget.next_widget_on_enter = main_tab_fields_in_order[i+1]
+                    else:
+                        # Last widget connects to the calculate button
+                        widget.next_widget_on_enter = calc_btn
+                
+                # Calculate button loops back to the first input field
+                if main_tab_fields_in_order:
+                    calc_btn.next_widget_on_enter = main_tab_fields_in_order[0]
 
                 # Arrow Key Navigation (Up/Down Fields Only, in a single sequence)
-                # Sequence: m1 <-> m2 <-> m3 <-> d1 <-> d2 <-> d3 <-> aa
-                
-                up_down_sequence = [m1, m2, m3, d1, d2, d3, aa]
-
-                for i, widget in enumerate(up_down_sequence):
-                    # Down navigation
-                    if i < len(up_down_sequence) - 1:
-                        widget.down_widget = up_down_sequence[i+1]
-                    else: # Last widget (aa), loops to first (m1)
-                        widget.down_widget = up_down_sequence[0]
+                # Connect each field to the one above and below it
+                for i, widget in enumerate(main_tab_fields_in_order):
+                    # Down navigation (to next widget)
+                    if i < len(main_tab_fields_in_order) - 1:
+                        widget.down_widget = main_tab_fields_in_order[i+1]
+                    else: # Last widget, loops to first
+                        widget.down_widget = main_tab_fields_in_order[0]
                     
-                    # Up navigation
+                    # Up navigation (to previous widget)
                     if i > 0:
-                        widget.up_widget = up_down_sequence[i-1]
-                    else: # First widget (m1), loops to last (aa)
-                        widget.up_widget = up_down_sequence[-1]
+                        widget.up_widget = main_tab_fields_in_order[i-1]
+                    else: # First widget, loops to last
+                        widget.up_widget = main_tab_fields_in_order[-1]
 
                 # Ensure Left/Right are None for all these fields so CustomLineEdit uses super() for them
                 for widget_in_main_tab in all_main_tab_line_edits: # all_main_tab_line_edits defined earlier
@@ -2814,5 +3337,3 @@ if __name__ == '__main__':
     window = MeterCalculationApp()
     window.show() # Display the main window
     sys.exit(app.exec_()) # Start the application's event loop
-    window.show()
-    sys.exit(app.exec_())
