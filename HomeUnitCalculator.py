@@ -18,12 +18,12 @@ from reportlab.lib.enums import TA_CENTER
 import csv
 import os
 import traceback # Added for detailed error logging
-from supabase import create_client, Client # Added for Supabase
-from postgrest.exceptions import APIError # Added for specific Supabase error handling
-from dotenv import load_dotenv # Added to load .env file
-
-load_dotenv() # Load environment variables from .env file
+from supabase import create_client, Client
+from postgrest.exceptions import APIError
 from datetime import datetime
+from db_manager import DBManager # Import DBManager
+from encryption_utils import EncryptionUtil # Import EncryptionUtil
+from key_manager import get_or_create_key # Import get_or_create_key
 from styles import (
     get_stylesheet, get_header_style, get_group_box_style,
     get_line_edit_style, get_button_style, get_results_group_style,
@@ -636,67 +636,88 @@ class MeterCalculationApp(QMainWindow):
         # Call the parent class constructor
         super().__init__()
 
-        # Set the window title
-        self.setWindowTitle("Meter Calculation Application")
-        
-        # Helper method for checking internet connectivity
-        def check_connectivity():
-            import socket
-            try:
-                # Try to establish a connection to Google's DNS server
-                socket.create_connection(("8.8.8.8", 53), timeout=3)
-                return True
-            except OSError:
-                return False
-                
-        self.check_internet_connectivity = check_connectivity
-        
-        # Set the window icon using the resource_path function to locate the icon file
-        self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
-        # Apply the stylesheet to the entire application
+        self.setWindowTitle("Home Unit Calculator")
+        self.setGeometry(100, 100, 1200, 800) # Increased width for better layout
         self.setStyleSheet(get_stylesheet())
-
-        # Set a minimum size for the window
-        self.setMinimumSize(1400, 900) # Set a reasonable minimum size
-
+        self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
+        
+        self.db_manager = DBManager()
+        self.encryption_util = EncryptionUtil()
+        self.supabase = None
+        self.supabase_url = None
+        self.supabase_key = None
+        
         # Initialize combo box for loading data source (used in Main and History tabs)
         self.load_info_source_combo = QComboBox()
         self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
-        self.load_info_source_combo.setStyleSheet(get_month_info_style()) # Reuse style
+        self.load_info_source_combo.setStyleSheet(get_month_info_style())
         
         # Initialize combo box for loading history source (used in History tab)
-        self.load_history_source_combo = QComboBox() # Instance variable
+        self.load_history_source_combo = QComboBox()
         self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
-        self.load_history_source_combo.setStyleSheet(get_month_info_style()) # Reuse style
+        self.load_history_source_combo.setStyleSheet(get_month_info_style())
 
-        # Initialize the user interface
-        self.init_ui()
-        # Set up the navigation for the application
-        self.setup_navigation()
+        self._initialize_supabase_client()
+        self.init_ui() # Initialize the user interface
+        self.setup_navigation() # Set up the navigation for the application
+        self.center_window() # Center the window on the screen
 
-        # Center the window on the screen
-        self.center_window()
-
-        # Initialize Supabase client
+    def check_internet_connectivity(self):
+        """Helper method for checking internet connectivity."""
+        import socket
         try:
-            url = os.environ.get("SUPABASE_URL")
-            key = os.environ.get("SUPABASE_ANON_KEY")
-            if not url or not key:
-                raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env file")
-            self.supabase: Client = create_client(url, key)
-            print("Supabase client initialized successfully.")
-        except Exception as e:
+            # Try to establish a connection to Google's DNS server
+            socket.create_connection(("8.8.8.8", 53), timeout=3)
+            return True
+        except OSError:
+            return False
+
+    def _initialize_supabase_client(self):
+        """Initializes the Supabase client using stored or newly entered credentials."""
+        config = self.db_manager.get_config()
+        self.supabase_url = config.get("SUPABASE_URL")
+        self.supabase_key = config.get("SUPABASE_KEY")
+
+        if self.supabase_url and self.supabase_key:
+            try:
+                self.supabase = create_client(self.supabase_url, self.supabase_key)
+                print("Supabase client initialized successfully from stored config.")
+            except Exception as e:
+                self.supabase = None
+                QMessageBox.critical(self, "Supabase Error", f"Failed to initialize Supabase client with stored credentials: {e}\nPlease re-enter your Supabase configuration.")
+        else:
             self.supabase = None
-            print(f"Failed to initialize Supabase client: {e}")
-            QMessageBox.warning(self, "Supabase Error", f"Failed to initialize Supabase client: {e}\nPlease check your .env file and internet connection.")
+            QMessageBox.information(self, "Supabase Configuration", "Supabase URL and Key not found. Please configure Supabase to enable cloud features.")
+
+        if self.supabase_url and self.supabase_key:
+            try:
+                self.supabase = create_client(self.supabase_url, self.supabase_key)
+                print("Supabase client initialized successfully from stored config.")
+            except Exception as e:
+                self.supabase = None
+                QMessageBox.critical(self, "Supabase Error", f"Failed to initialize Supabase client with stored credentials: {e}\nPlease re-enter your Supabase configuration.")
+        else:
+            self.supabase = None
+            QMessageBox.information(self, "Supabase Configuration", "Supabase URL and Key not found. Please configure Supabase to enable cloud features.")
+
+        if self.supabase_url and self.supabase_key:
+            try:
+                self.supabase = create_client(self.supabase_url, self.supabase_key)
+                print("Supabase client initialized successfully from stored config.")
+            except Exception as e:
+                self.supabase = None
+                QMessageBox.critical(self, "Supabase Error", f"Failed to initialize Supabase client with stored credentials: {e}\nPlease re-enter your Supabase configuration.")
+        else:
+            self.supabase = None
+            QMessageBox.information(self, "Supabase Configuration", "Supabase URL and Key not found. Please configure Supabase to enable cloud features.")
 
     def init_ui(self):
         # Initialize the main user interface
-        central_widget = QWidget(self)  # Create a central widget for the main window
-        self.setCentralWidget(central_widget)  # Set the central widget for the main window
-        main_layout = QVBoxLayout(central_widget)  # Create a vertical layout for the central widget
-        main_layout.setContentsMargins(0, 0, 0, 0) # Remove margins from the main layout
-        main_layout.setSpacing(0) # Remove spacing from the main layout
+        central_widget = QWidget(self)
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
         # Add header
         header = QLabel("Meter Calculation Application")  # Create a label for the header
@@ -704,11 +725,25 @@ class MeterCalculationApp(QMainWindow):
         main_layout.addWidget(header)  # Add the header to the main layout
 
         # Create and add tab widget
-        self.tab_widget = QTabWidget()  # Create a tab widget to hold different sections
-        self.tab_widget.addTab(self.create_main_tab(), "Main Calculation")  # Add the main calculation tab
-        self.tab_widget.addTab(self.create_rooms_tab(), "Room Calculations")  # Add the room calculations tab
-        self.tab_widget.addTab(self.create_history_tab(), "History")  # Add the history tab
-        main_layout.addWidget(self.tab_widget)  # Add the tab widget to the main layout
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("QTabWidget::pane { border: 0; }") # Remove border around tabs
+
+        # Create tabs
+        main_tab = self.create_main_tab()
+        rooms_tab = self.create_rooms_tab()
+        history_tab = self.create_history_tab()
+        supabase_config_tab = self.create_supabase_config_tab() # New Supabase config tab
+
+        # Add tabs to the tab widget
+        self.tab_widget.addTab(main_tab, "Main Calculation")
+        self.tab_widget.addTab(rooms_tab, "Room Calculations")
+        self.tab_widget.addTab(history_tab, "Calculation History")
+        self.tab_widget.addTab(supabase_config_tab, "Supabase Config") # Add new tab
+        
+        # Connect tab change signal to a slot for focus management
+        self.tab_widget.currentChanged.connect(self.set_focus_on_tab_change)
+
+        main_layout.addWidget(self.tab_widget)
 
         # Create a horizontal layout for the save buttons
         save_buttons_layout = QHBoxLayout()
@@ -1683,16 +1718,121 @@ class MeterCalculationApp(QMainWindow):
 
         return history_tab
 
+    def create_supabase_config_tab(self):
+        config_tab = QWidget()
+        layout = QVBoxLayout(config_tab)
+        layout.setContentsMargins(50, 50, 50, 50)
+        layout.setSpacing(20)
+
+        header_label = QLabel("Supabase Configuration")
+        header_label.setStyleSheet(get_header_style())
+        header_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(header_label)
+
+        config_group = QGroupBox("Supabase Credentials")
+        config_group.setStyleSheet(get_group_box_style())
+        config_layout = QFormLayout(config_group)
+        config_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+
+        # Supabase URL Input
+        url_input_layout = QHBoxLayout()
+        self.supabase_url_input = QLineEdit()
+        self.supabase_url_input.setPlaceholderText("Enter your Supabase Project URL")
+        self.supabase_url_input.setStyleSheet(get_line_edit_style())
+        self.supabase_url_input.setToolTip("e.g., https://your-project-ref.supabase.co")
+        self.supabase_url_input.setEchoMode(QLineEdit.Password) # Mask input
+        url_input_layout.addWidget(self.supabase_url_input)
+
+        self.toggle_url_visibility_button = QPushButton("Show")
+        self.toggle_url_visibility_button.setCheckable(True)
+        self.toggle_url_visibility_button.setFixedWidth(60)
+        self.toggle_url_visibility_button.setStyleSheet("QPushButton { background-color: #555; color: white; border: none; border-radius: 4px; padding: 5px; } QPushButton:checked { background-color: #007bff; }")
+        self.toggle_url_visibility_button.clicked.connect(lambda: self._toggle_password_visibility(self.supabase_url_input, self.toggle_url_visibility_button))
+        url_input_layout.addWidget(self.toggle_url_visibility_button)
+        config_layout.addRow("Supabase URL:", url_input_layout)
+
+        # Supabase Key Input
+        key_input_layout = QHBoxLayout()
+        self.supabase_key_input = QLineEdit()
+        self.supabase_key_input.setPlaceholderText("Enter your Supabase Anon Key")
+        self.supabase_key_input.setStyleSheet(get_line_edit_style())
+        self.supabase_key_input.setToolTip("e.g., eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+        self.supabase_key_input.setEchoMode(QLineEdit.Password) # Mask input
+        key_input_layout.addWidget(self.supabase_key_input)
+
+        self.toggle_key_visibility_button = QPushButton("Show")
+        self.toggle_key_visibility_button.setCheckable(True)
+        self.toggle_key_visibility_button.setFixedWidth(60)
+        self.toggle_key_visibility_button.setStyleSheet("QPushButton { background-color: #555; color: white; border: none; border-radius: 4px; padding: 5px; } QPushButton:checked { background-color: #007bff; }")
+        self.toggle_key_visibility_button.clicked.connect(lambda: self._toggle_password_visibility(self.supabase_key_input, self.toggle_key_visibility_button))
+        key_input_layout.addWidget(self.toggle_key_visibility_button)
+        config_layout.addRow("Supabase Anon Key:", key_input_layout)
+
+        layout.addWidget(config_group)
+
+        self.save_supabase_config_button = QPushButton("Save Supabase Configuration")
+        self.save_supabase_config_button.setStyleSheet(get_button_style())
+        self.save_supabase_config_button.setFixedHeight(40)
+        self.save_supabase_config_button.clicked.connect(self.save_supabase_config)
+        layout.addWidget(self.save_supabase_config_button)
+
+        layout.addStretch(1) # Push content to the top
+
+        self._load_supabase_config_to_ui() # Load existing config on tab creation
+
+        return config_tab
+
+    def _toggle_password_visibility(self, line_edit, button):
+        """Toggles the echo mode of a QLineEdit between Normal and Password."""
+        if button.isChecked():
+            line_edit.setEchoMode(QLineEdit.Normal)
+            button.setText("Hide")
+        else:
+            line_edit.setEchoMode(QLineEdit.Password)
+            button.setText("Show")
+
+    def _load_supabase_config_to_ui(self):
+        """Loads existing Supabase config from DB and populates UI fields."""
+        config = self.db_manager.get_config()
+        if config:
+            self.supabase_url_input.setText(config.get("SUPABASE_URL", ""))
+            self.supabase_key_input.setText(config.get("SUPABASE_KEY", ""))
+            print("Loaded Supabase config into UI.")
+        else:
+            self.supabase_url_input.clear()
+            self.supabase_key_input.clear()
+            print("No Supabase config found in DB to load into UI.")
+
+    def save_supabase_config(self):
+        """Saves the Supabase URL and Key to the database."""
+        url = self.supabase_url_input.text().strip()
+        key = self.supabase_key_input.text().strip()
+
+        if not url or not key:
+            QMessageBox.warning(self, "Input Error", "Supabase URL and Key cannot be empty.")
+            return
+
+        try:
+            self.db_manager.save_config(url, key)
+            QMessageBox.information(self, "Success", "Supabase configuration saved and encrypted successfully!")
+            self._initialize_supabase_client() # Re-initialize client with new config
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save Supabase configuration: {e}")
+            print(f"Error saving Supabase config: {e}")
+
     def load_info_to_inputs(self):
         # Determine source (CSV or Supabase)
         source = self.load_info_source_combo.currentText()
-        selected_month = self.load_month_combo.currentText() # Month from the "Load Data Options"
-        selected_year = self.load_year_spinbox.value()    # Year from the "Load Data Options"
+        selected_month = self.load_month_combo.currentText()
+        selected_year = self.load_year_spinbox.value()
 
         if source == "Load from PC (CSV)":
             self.load_info_to_inputs_from_csv(selected_month, selected_year)
         elif source == "Load from Cloud":
-            self.load_info_to_inputs_from_supabase(selected_month, selected_year) # Call the new method
+            if self.supabase:
+                self.load_info_to_inputs_from_supabase(selected_month, selected_year)
+            else:
+                QMessageBox.warning(self, "Supabase Not Configured", "Supabase is not configured. Please go to the 'Supabase Config' tab to set up your credentials.")
         else:
             QMessageBox.warning(self, "Unknown Source", "Please select a valid source to load data from.")
 
@@ -1860,9 +2000,9 @@ class MeterCalculationApp(QMainWindow):
             self.month_combo.setCurrentText(main_data.get("month", selected_month))
             self.year_spinbox.setValue(main_data.get("year", selected_year))
             
-            self.meter_entries[0].setText(str(main_data.get("meter1_reading", "") or "")) # Use DB name
-            self.meter_entries[1].setText(str(main_data.get("meter2_reading", "") or "")) # Use DB name
-            self.meter_entries[2].setText(str(main_data.get("meter3_reading", "") or "")) # Use DB name
+            self.meter_entries[0].setText(str(main_data.get("meter1_reading", "") or ""))
+            self.meter_entries[1].setText(str(main_data.get("meter2_reading", "") or ""))
+            self.meter_entries[2].setText(str(main_data.get("meter3_reading", "") or ""))
             self.diff_entries[0].setText(str(main_data.get("diff1", "") or ""))
             self.diff_entries[1].setText(str(main_data.get("diff2", "") or ""))
             self.diff_entries[2].setText(str(main_data.get("diff3", "") or ""))
@@ -1921,20 +2061,22 @@ class MeterCalculationApp(QMainWindow):
 
 
     def load_history(self):
-        # This method now populates the history tables, not the input fields
-        selected_month = self.history_month_combo.currentText() # Month from history tab filter
-        selected_year_val = self.history_year_spinbox.value()   # Year from history tab filter
-        source = self.load_history_source_combo.currentText() # Source from history tab
-
         try:
+            selected_month = self.history_month_combo.currentText()
+            selected_year_val = self.history_year_spinbox.value()
+            source = self.load_history_source_combo.currentText()
+
             if source == "Load from PC (CSV)":
                 self.load_history_tables_from_csv(selected_month, selected_year_val)
             elif source == "Load from Cloud":
-                self.load_history_tables_from_supabase(selected_month, selected_year_val) # Call the new method
+                if self.supabase:
+                    self.load_history_tables_from_supabase(selected_month, selected_year_val)
+                else:
+                    QMessageBox.warning(self, "Supabase Not Configured", "Supabase is not configured. Please go to the 'Supabase Config' tab to set up your credentials.")
             else:
-                QMessageBox.warning(self, "Unknown Source", "Please select a valid source for history.")
+                QMessageBox.warning(self, "Unknown Source", "Please select a valid source to load history from.")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred while loading history: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Load History Error", f"An error occurred while loading history: {e}\n{traceback.format_exc()}")
 
 
     def load_history_tables_from_csv(self, selected_month, selected_year_val):
@@ -2670,5 +2812,7 @@ class MeterCalculationApp(QMainWindow):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = MeterCalculationApp()
+    window.show() # Display the main window
+    sys.exit(app.exec_()) # Start the application's event loop
     window.show()
     sys.exit(app.exec_())
