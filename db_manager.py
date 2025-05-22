@@ -1,0 +1,183 @@
+import os
+import sqlite3
+import json
+from encryption_utils import EncryptionUtil
+
+class DBManager:
+    def __init__(self, db_name="app_config.db"):
+        self.db_name = db_name
+        self.conn = None
+        self.cursor = None
+        self.encryption_util = EncryptionUtil()
+        self._connect()
+        self._create_table()
+
+    def _connect(self):
+        """Establishes a connection to the SQLite database."""
+        try:
+            self.conn = sqlite3.connect(self.db_name)
+            self.cursor = self.conn.cursor()
+        except sqlite3.Error as e:
+            print(f"Database connection error: {e}")
+            raise
+
+    def _create_table(self):
+        """Creates the app_config table if it doesn't exist."""
+        try:
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_config (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT UNIQUE,
+                    value BLOB
+                )
+            """)
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error creating table: {e}")
+            raise
+
+    def save_config(self, supabase_url: str, supabase_key: str):
+        """
+        Encrypts and saves Supabase URL and Key to the database.
+        Overwrites existing configuration if present.
+        """
+        try:
+            encrypted_url = self.encryption_util.encrypt_data(supabase_url)
+            encrypted_key = self.encryption_util.encrypt_data(supabase_key)
+
+            # Store as JSON string to keep both values associated with one entry if needed,
+            # or as separate entries. For simplicity, let's store them as separate keys.
+            # Alternatively, you could store a JSON blob of all config.
+            
+            # Using separate keys for clarity and easy retrieval
+            self.cursor.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
+                                ("SUPABASE_URL", encrypted_url))
+            self.cursor.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
+                                ("SUPABASE_KEY", encrypted_key))
+            self.conn.commit()
+            print("Supabase configuration saved successfully.")
+        except sqlite3.Error as e:
+            print(f"Error saving configuration: {e}")
+            self.conn.rollback()
+            raise
+        except Exception as e:
+            print(f"Encryption/decryption error during save: {e}")
+            raise
+
+    def get_config(self) -> dict:
+        """
+        Retrieves and decrypts Supabase URL and Key from the database.
+        Returns a dictionary with 'SUPABASE_URL' and 'SUPABASE_KEY'.
+        Returns empty dict if not found.
+        """
+        config = {}
+        try:
+            self.cursor.execute("SELECT key, value FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')")
+            rows = self.cursor.fetchall()
+            
+            for key, encrypted_value in rows:
+                try:
+                    decrypted_value = self.encryption_util.decrypt_data(encrypted_value)
+                    config[key] = decrypted_value
+                except Exception as e:
+                    print(f"Error decrypting value for key {key}: {e}")
+                    # Continue to try decrypting other values
+            
+            if "SUPABASE_URL" not in config or "SUPABASE_KEY" not in config:
+                print("Supabase configuration not found or incomplete in database.")
+                return {}
+
+        except sqlite3.Error as e:
+            print(f"Error retrieving configuration: {e}")
+            return {}
+        except Exception as e:
+            print(f"Encryption/decryption error during retrieval: {e}")
+            return {}
+        return config
+
+    def config_exists(self) -> bool:
+        """Checks if Supabase configuration exists in the database."""
+        try:
+            self.cursor.execute("SELECT COUNT(*) FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')")
+            count = self.cursor.fetchone()[0]
+            return count == 2 # Both URL and Key must be present
+        except sqlite3.Error as e:
+            print(f"Error checking config existence: {e}")
+            return False
+
+    def close(self):
+        """Closes the database connection."""
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+            self.cursor = None
+            print("Database connection closed.")
+
+if __name__ == "__main__":
+    # Example usage and testing
+    print("Testing db_manager.py...")
+    test_db_name = "test_app_config.db"
+    
+    # Clean up previous test database if it exists
+    if os.path.exists(test_db_name):
+        os.remove(test_db_name)
+        print(f"Removed existing test database: {test_db_name}")
+
+    db_manager = None
+    try:
+        db_manager = DBManager(db_name=test_db_name)
+        
+        # Test saving config
+        test_url = "https://test.supabase.co"
+        test_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiY2RlZmdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NzgyMzU2MDAsImV4cCI6MTk5MzgxMTYwMH0.some_random_key_here"
+        
+        print("\nSaving test configuration...")
+        db_manager.save_config(test_url, test_key)
+        
+        # Test config_exists
+        exists = db_manager.config_exists()
+        print(f"Config exists after saving: {exists}")
+        assert exists == True
+
+        # Test retrieving config
+        print("\nRetrieving test configuration...")
+        retrieved_config = db_manager.get_config()
+        print(f"Retrieved URL: {retrieved_config.get('SUPABASE_URL')}")
+        print(f"Retrieved Key: {retrieved_config.get('SUPABASE_KEY')}")
+        assert retrieved_config.get("SUPABASE_URL") == test_url
+        assert retrieved_config.get("SUPABASE_KEY") == test_key
+        print("Configuration retrieval successful and matches original.")
+
+        # Test overwriting config
+        new_test_url = "https://new.supabase.co"
+        new_test_key = "new_key_12345"
+        print("\nSaving new configuration (overwriting)...")
+        db_manager.save_config(new_test_url, new_test_key)
+        
+        retrieved_new_config = db_manager.get_config()
+        print(f"Retrieved New URL: {retrieved_new_config.get('SUPABASE_URL')}")
+        print(f"Retrieved New Key: {retrieved_new_config.get('SUPABASE_KEY')}")
+        assert retrieved_new_config.get("SUPABASE_URL") == new_test_url
+        assert retrieved_new_config.get("SUPABASE_KEY") == new_test_key
+        print("Configuration overwrite successful.")
+
+        # Test with no config
+        db_manager.cursor.execute("DELETE FROM app_config")
+        db_manager.conn.commit()
+        print("\nDeleted all config entries.")
+        exists_after_delete = db_manager.config_exists()
+        print(f"Config exists after deleting: {exists_after_delete}")
+        assert exists_after_delete == False
+        
+        empty_config = db_manager.get_config()
+        print(f"Retrieved config after deleting: {empty_config}")
+        assert empty_config == {}
+
+    except Exception as e:
+        print(f"An error occurred during testing: {e}")
+    finally:
+        if db_manager:
+            db_manager.close()
+        if os.path.exists(test_db_name):
+            os.remove(test_db_name)
+            print(f"Cleaned up test database: {test_db_name}")
