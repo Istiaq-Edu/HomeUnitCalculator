@@ -5,7 +5,9 @@ from typing import Mapping
 # Import the resource_path function from the utils module
 from utils import resource_path
 
-_COLOR_VARS_RW = {
+# Populate a *temporary* dict and immediately freeze it so no
+# mutable handle escapes the module's boundary.
+_color_vars_tmp: dict[str, str] = {
     "bg_primary":      "#EFF6FF",
     "bg_secondary":    "#E0F2FE",
     "accent_primary":  "#3B82F6",
@@ -26,8 +28,11 @@ _COLOR_VARS_RW = {
     "disabled_text": "#9CA3AF",
 }
 
-# Expose as immutable mapping
-COLOR_VARS: Mapping[str, str] = MappingProxyType(_COLOR_VARS_RW)
+# Expose as immutable, mutation-proof mapping
+COLOR_VARS: Mapping[str, str] = MappingProxyType(_color_vars_tmp.copy())
+
+# Delete the temporary RW dict to avoid accidental use
+del _color_vars_tmp
 
 @functools.lru_cache(maxsize=None)
 def get_stylesheet():
