@@ -112,7 +112,7 @@ class MeterCalculationApp(QMainWindow):
         self.tab_widget.addTab(self.history_tab_instance, "Calculation History")
         self.tab_widget.addTab(self.supabase_config_tab_instance, "Supabase Config")
         
-        self.tab_widget.currentChanged.connect(self.set_focus_on_tab_change)
+        # Connection is done in setup_navigation() with guard
         main_layout.addWidget(self.tab_widget)
 
         save_buttons_layout = QHBoxLayout()
@@ -316,8 +316,13 @@ class MeterCalculationApp(QMainWindow):
             month = self.main_tab_instance.month_combo.currentText()
             year = self.main_tab_instance.year_spinbox.value()
             def _s_int(v, default=0): 
-                try: return int(v) if v and v.strip() else default
-                except ValueError: return default
+                try: 
+                    if not v or not v.strip():
+                        return default
+                    # Handle decimal strings by converting to float first, then int
+                    return int(float(v.strip()))
+                except (ValueError, TypeError): 
+                    return default
             def _s_float(v, default=0.0): 
                 try: return float(v) if v and v.strip() else default
                 except ValueError: return default
@@ -359,6 +364,25 @@ class MeterCalculationApp(QMainWindow):
                 print(f"Main calculation data inserted for {month} {year} with ID: {main_calc_id}")
 
             if main_calc_id and self.rooms_tab_instance.room_entries:
+                # Check for incomplete room calculations before saving
+                incomplete_rooms = []
+                for i, room_entry_tuple in enumerate(self.rooms_tab_instance.room_entries):
+                    present_entry, previous_entry = room_entry_tuple
+                    real_unit_label, unit_bill_label = self.rooms_tab_instance.room_results[i]
+                    room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                    room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
+                    
+                    if real_unit_label.text() == "Incomplete" or unit_bill_label.text() == "Incomplete":
+                        incomplete_rooms.append(room_name)
+                
+                if incomplete_rooms:
+                    reply = QMessageBox.question(self, "Incomplete Data", 
+                                               f"Some rooms have incomplete calculations: {', '.join(incomplete_rooms)}\n\n"
+                                               f"Do you want to save anyway? (Incomplete rooms will be skipped)",
+                                               QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                    if reply == QMessageBox.No:
+                        return
+                
                 self.supabase.table("room_calculations").delete().eq("main_calculation_id", main_calc_id).execute()
                 room_data_list = []
                 for i, room_entry_tuple in enumerate(self.rooms_tab_instance.room_entries):
@@ -366,11 +390,20 @@ class MeterCalculationApp(QMainWindow):
                     real_unit_label, unit_bill_label = self.rooms_tab_instance.room_results[i]
                     room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
                     room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
-                    room_data_list.append({"main_calculation_id": main_calc_id, "room_name": room_name,
-                                           "present_reading_room": _s_int(present_entry.text()),
-                                           "previous_reading_room": _s_int(previous_entry.text()),
-                                           "units_consumed_room": _s_int(real_unit_label.text()),
-                                           "cost_room": _s_float(unit_bill_label.text().replace(" TK", ""))})
+                    
+                    # Handle incomplete rooms - save with special markers
+                    if real_unit_label.text() == "Incomplete" or unit_bill_label.text() == "Incomplete":
+                        room_data_list.append({"main_calculation_id": main_calc_id, "room_name": room_name,
+                                               "present_reading_room": _s_int(present_entry.text()),
+                                               "previous_reading_room": _s_int(previous_entry.text()),
+                                               "units_consumed_room": None,  # NULL indicates incomplete
+                                               "cost_room": None})           # NULL indicates incomplete
+                    else:
+                        room_data_list.append({"main_calculation_id": main_calc_id, "room_name": room_name,
+                                               "present_reading_room": _s_int(present_entry.text()),
+                                               "previous_reading_room": _s_int(previous_entry.text()),
+                                               "units_consumed_room": _s_int(real_unit_label.text()),
+                                               "cost_room": _s_float(unit_bill_label.text().replace(" TK", ""))})
                 if room_data_list: self.supabase.table("room_calculations").insert(room_data_list).execute()
             
             QMessageBox.information(self, "Save Successful", "Data saved to Cloud successfully.")

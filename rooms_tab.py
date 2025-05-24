@@ -1,9 +1,12 @@
 import sys
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon
+import traceback
+
+from PyQt5.QtCore import QRegExp
+from PyQt5.QtGui import QIcon, QRegExpValidator
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QGridLayout, 
-    QGroupBox, QFormLayout, QMessageBox, QSpinBox, QScrollArea, QSizePolicy
+    QApplication,
+    QWidget, QVBoxLayout, QLabel, QGridLayout,
+    QGroupBox, QFormLayout, QMessageBox, QSizePolicy
 )
 
 # Assuming these modules are in the same directory or accessible in PYTHONPATH
@@ -100,8 +103,17 @@ class RoomsTab(QWidget):
 
             present_entry = CustomLineEdit()
             present_entry.setObjectName(f"room_{i}_present")
+            present_entry.setPlaceholderText("Enter present reading")
+            
             previous_entry = CustomLineEdit()
             previous_entry.setObjectName(f"room_{i}_previous")
+            previous_entry.setPlaceholderText("Enter previous reading")
+            
+            # Add numeric validators (only digits allowed)
+            numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))
+            present_entry.setValidator(numeric_validator)
+            previous_entry.setValidator(numeric_validator)
+            
             real_unit_label = QLabel("N/A")
             unit_bill_label = QLabel("N/A")
 
@@ -124,8 +136,8 @@ class RoomsTab(QWidget):
             for col in range(self.rooms_scroll_layout.columnCount()):
                  self.rooms_scroll_layout.setColumnStretch(col, 1)
         
-        self.rooms_scroll_widget.setLayout(self.rooms_scroll_layout)
-        self.rooms_scroll_area.setWidget(self.rooms_scroll_widget)
+        # These calls are redundant – the layout and scroll widget were
+        # attached during initialisation (lines 75-76).
         
         # Setup navigation for room entries (simplified from original for brevity)
         # This would typically call self.main_window.setup_navigation() if it handles cross-tab nav,
@@ -155,18 +167,28 @@ class RoomsTab(QWidget):
             
             per_unit_cost = float(cleaned_value_text)
 
-            for (present_entry, previous_entry), (real_unit_label, unit_bill_label) in zip(self.room_entries, self.room_results):
-                present_text = present_entry.text()
-                previous_text = previous_entry.text()
+            for i, ((present_entry, previous_entry), (real_unit_label, unit_bill_label)) in enumerate(zip(self.room_entries, self.room_results)):
+                present_text = present_entry.text().strip()
+                previous_text = previous_entry.text().strip()
 
                 if present_text and previous_text:
-                    present_unit = int(present_text)
-                    previous_unit = int(previous_text)
+                    try:
+                        present_unit = int(present_text)
+                        previous_unit = int(previous_text)
+                    except ValueError:
+                        raise ValueError(f"Non-numeric input in Room {i+1}. Present: '{present_text}', Previous: '{previous_text}'")
+
+                    if present_unit < 0 or previous_unit < 0:
+                        raise ValueError(f"Negative readings not allowed in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
+                    
+                    if present_unit < previous_unit:
+                        raise ValueError(f"Present reading cannot be less than previous reading in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
+
                     real_unit = present_unit - previous_unit
-                    unit_bill = int(round(real_unit * per_unit_cost))
+                    unit_bill = round(real_unit * per_unit_cost, 2)
 
                     real_unit_label.setText(f"{real_unit}")
-                    unit_bill_label.setText(f"{unit_bill} TK")
+                    unit_bill_label.setText(f"{unit_bill:.2f} TK")
                 else:
                     real_unit_label.setText("Incomplete")
                     unit_bill_label.setText("Incomplete")

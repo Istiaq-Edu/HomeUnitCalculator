@@ -176,8 +176,11 @@ class AutoScrollArea(QScrollArea):
         if self.widget():
             # Get the current size of the widget
             current_size = self.widget().size()
-            # Calculate the new size by multiplying the current size with the zoom factor
-            new_size = current_size * factor
+            # QSize cannot be multiplied directly; build a new instance instead
+            new_size = QSize(
+                int(current_size.width() * factor),
+                int(current_size.height() * factor),
+            )
             # Resize the widget to the new size
             self.widget().resize(new_size)
 
@@ -231,6 +234,8 @@ class CustomSpinBox(QSpinBox):
                 self.stepUp()
             else:
                 self.stepDown()
+            event.accept()
+            return
         else:
             super().mousePressEvent(event)
 

@@ -1,29 +1,24 @@
 import sys
 import json
-from datetime import datetime as dt_class, datetime
-import functools # Added import
+import contextlib
 import os
 import csv
 import traceback
+from datetime import datetime
 
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
-from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
+from PyQt5.QtCore import Qt, QRegExp
+from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QGridLayout, 
-    QGroupBox, QFormLayout, QFileDialog, QMessageBox, QSpinBox, QScrollArea, 
-    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QFrame, QShortcut,
-    QAbstractSpinBox, QStyleOptionSpinBox, QStyle, QDesktopWidget, QSizePolicy,
-    QDialog, QAbstractItemView # Added QDialog, QAbstractItemView
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QGroupBox, QFormLayout, QMessageBox, QSpinBox, QScrollArea,
+    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QSizePolicy,
+    QDialog, QAbstractItemView
 )
 from postgrest.exceptions import APIError
 
-# Assuming these modules are in the same directory or accessible in PYTHONPATH
 from styles import (
-    get_stylesheet, get_header_style, get_group_box_style,
-    get_line_edit_style, get_button_style, get_results_group_style,
-    get_room_group_style, get_month_info_style, get_table_style, get_label_style,
-    get_custom_spinbox_style, get_room_selection_style, get_result_title_style, 
-    get_result_value_style
+    get_stylesheet, get_group_box_style, get_line_edit_style, get_button_style,
+    get_room_group_style, get_month_info_style, get_table_style, get_label_style
 )
 from utils import resource_path # For icons
 from custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
@@ -82,16 +77,16 @@ class EditRecordDialog(QDialog):
         extra_diff_readings = main_data.get("extra_diff_readings", None)
         
         if extra_meter_readings:
-            try:
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
                 extra_meters = json.loads(extra_meter_readings)
-                if isinstance(extra_meters, list): meter_values.extend(extra_meters)
-            except Exception as e: print(f"Error parsing extra meter readings in dialog: {e}")
+                if isinstance(extra_meters, list): 
+                    meter_values.extend(extra_meters)
         
         if extra_diff_readings:
-            try:
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
                 extra_diffs = json.loads(extra_diff_readings)
-                if isinstance(extra_diffs, list): diff_values.extend(extra_diffs)
-            except Exception as e: print(f"Error parsing extra diff readings in dialog: {e}")
+                if isinstance(extra_diffs, list): 
+                    diff_values.extend(extra_diffs)
         
         num_pairs = max(3, len(meter_values), len(diff_values)) # Ensure at least 3 pairs for backward compatibility
                                                                 # or if extra readings make it longer.
@@ -216,11 +211,11 @@ class EditRecordDialog(QDialog):
         ]
         
         if main_data.get("extra_meter_readings"):
-            try: meter_values.extend(json.loads(main_data["extra_meter_readings"]))
-            except: pass # ignore errors
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                meter_values.extend(json.loads(main_data["extra_meter_readings"]))
         if main_data.get("extra_diff_readings"):
-            try: diff_values.extend(json.loads(main_data["extra_diff_readings"]))
-            except: pass # ignore errors
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                diff_values.extend(json.loads(main_data["extra_diff_readings"]))
 
         for i, pair_widgets in enumerate(self.meter_diff_edit_widgets):
             if i < len(meter_values) and pair_widgets['meter_edit']: pair_widgets['meter_edit'].setText(str(meter_values[i]))
@@ -235,8 +230,19 @@ class EditRecordDialog(QDialog):
                 room_widget_set["previous_edit"].setText(str(room_data.get("previous_reading_room", "") or ""))
 
     def save_changes(self):
-        def _s_int(v_str, default=0): return int(v_str) if v_str else default
-        def _s_float(v_str, default=0.0): return float(v_str) if v_str else default
+        def _s_int(v_str, default=0): 
+            try:
+                if not v_str or not v_str.strip():
+                    return default
+                # Handle decimal strings by converting to float first, then int
+                return int(float(v_str.strip()))
+            except (ValueError, TypeError):
+                return default
+        def _s_float(v_str, default=0.0): 
+            try: 
+                return float(v_str) if v_str and v_str.strip() else default
+            except (ValueError, TypeError): 
+                return default
 
         try:
             meter_vals = [_s_int(pair['meter_edit'].text()) for pair in self.meter_diff_edit_widgets]
@@ -414,7 +420,7 @@ class HistoryTab(QWidget):
     def load_history(self):
         try:
             selected_month = self.history_month_combo.currentText()
-            selected_year_val = self.history_year_spinbox.value()
+            selected_year_val = None if self.history_year_spinbox.specialValueText() and self.history_year_spinbox.value() == self.history_year_spinbox.minimum() else self.history_year_spinbox.value()
             source = self.main_window.load_history_source_combo.currentText() # From main_window
 
             if source == "Load from PC (CSV)":
@@ -436,8 +442,8 @@ class HistoryTab(QWidget):
         # (Logic from HomeUnitCalculator.py, adapted for self and self.main_window)
         # ... This is a substantial piece of code. For brevity here, I'll assume it's moved.
         # Key changes: self.main_history_table, self.room_history_table are now self's attributes.
-        # self.history_year_spinbox.minimum() and .specialValueText() are used.
-        QMessageBox.information(self, "CSV Load", "CSV history loading to be fully implemented here.")
+        # selected_year_val can be None (when "All" years selected) - filter accordingly
+        QMessageBox.information(self, "CSV Load", f"CSV history loading to be fully implemented here.\nFilters: Month={selected_month}, Year={'All' if selected_year_val is None else selected_year_val}")
         self.main_history_table.setRowCount(0) # Clear placeholder
         self.room_history_table.setRowCount(0) # Clear placeholder
 
@@ -445,7 +451,8 @@ class HistoryTab(QWidget):
         # (Logic from HomeUnitCalculator.py, adapted for self and self.main_window)
         # ... This is also substantial.
         # Key changes: Uses self.main_window.supabase, self.main_history_table, etc.
-        QMessageBox.information(self, "Supabase Load", "Supabase history loading to be fully implemented here.")
+        # selected_year_val can be None (when "All" years selected) - skip year filtering
+        QMessageBox.information(self, "Supabase Load", f"Supabase history loading to be fully implemented here.\nFilters: Month={selected_month}, Year={'All' if selected_year_val is None else selected_year_val}")
         self.main_history_table.setRowCount(0) # Clear placeholder
         self.room_history_table.setRowCount(0) # Clear placeholder
 

@@ -1,8 +1,9 @@
 import sys
+import re
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, 
-    QLineEdit, QPushButton, QMessageBox
+    QLineEdit, QPushButton, QMessageBox, QApplication
 )
 
 # Assuming these modules are in the same directory or accessible in PYTHONPATH
@@ -113,11 +114,24 @@ class SupabaseConfigTab(QWidget):
 
     def save_supabase_config(self):
         """Saves the Supabase URL and Key to the database."""
+        from urllib.parse import urlparse
+
         url = self.supabase_url_input.text().strip()
         key = self.supabase_key_input.text().strip()
 
         if not url or not key:
             QMessageBox.warning(self, "Input Error", "Supabase URL and Key cannot be empty.")
+            return
+
+        parsed = urlparse(url)
+        url_ok = parsed.scheme in {"http", "https"} and parsed.netloc
+        key_ok = re.fullmatch(r'^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$', key) is not None
+
+        if not (url_ok and key_ok):
+            QMessageBox.warning(
+                self, "Input Error",
+                "Please enter a valid Supabase URL (https://…) and a valid Anon key."
+            )
             return
 
         try:

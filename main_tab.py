@@ -1,25 +1,20 @@
 import sys
 import json
-from datetime import datetime as dt_class, datetime
-import functools
 import os
 import csv
 import traceback
+from datetime import datetime
 
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
-from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
+from PyQt5.QtCore import QRegExp
+from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QGridLayout, 
-    QGroupBox, QFormLayout, QFileDialog, QMessageBox, QSpinBox, QScrollArea, 
-    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QFrame, QShortcut,
-    QAbstractSpinBox, QStyleOptionSpinBox, QStyle, QDesktopWidget, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QGroupBox, QFormLayout, QMessageBox, QSpinBox, QComboBox, QSizePolicy
 )
 
 from styles import (
-    get_stylesheet, get_header_style, get_group_box_style,
-    get_line_edit_style, get_button_style, get_results_group_style,
-    get_room_group_style, get_month_info_style, get_table_style, get_label_style,
-    get_custom_spinbox_style, get_room_selection_style, get_result_title_style, 
+    get_group_box_style, get_line_edit_style, get_button_style,
+    get_month_info_style, get_label_style, get_result_title_style, 
     get_result_value_style
 )
 from utils import resource_path
@@ -437,7 +432,7 @@ class MainTab(QWidget):
                     # Basic parsing:
                     # This parsing needs to be robust as in the original file.
                     # For now, a simplified check.
-                    if selected_month_year_str_ui in csv_month_year_str : # Simple check
+                    if csv_month_year_str.strip().lower() == selected_month_year_str_ui.lower():
                         if not found_main:
                             self.month_combo.setCurrentText(selected_month)
                             self.year_spinbox.setValue(selected_year)
@@ -456,8 +451,14 @@ class MainTab(QWidget):
                                 num_diffs -=1
                             num_diffs = max(1, num_diffs)
 
-                            self.meter_count_spinbox.setValue(num_meters) # This will trigger update_meter_inputs
-                            self.diff_count_spinbox.setValue(num_diffs)   # This will trigger update_diff_inputs
+                            max_meters = self.meter_count_spinbox.maximum()
+                            max_diffs  = self.diff_count_spinbox.maximum()
+                            if num_meters > max_meters or num_diffs > max_diffs:
+                                QMessageBox.warning(self, "Data Truncated",
+                                                    "Incoming data contains more readings than the UI "
+                                                    "can display. Extra values will be ignored.")
+                            self.meter_count_spinbox.setValue(min(num_meters, max_meters))
+                            self.diff_count_spinbox.setValue(min(num_diffs,  max_diffs))
 
                             for i, val_str in enumerate(meter_values_csv[:num_meters]):
                                 if i < len(self.meter_entries): self.meter_entries[i].setText(val_str)
@@ -524,8 +525,14 @@ class MainTab(QWidget):
             num_meters = len(meter_values_db)
             num_diffs = len(diff_values_db)
 
-            self.meter_count_spinbox.setValue(num_meters)
-            self.diff_count_spinbox.setValue(num_diffs)
+            max_meters = self.meter_count_spinbox.maximum()
+            max_diffs  = self.diff_count_spinbox.maximum()
+            if num_meters > max_meters or num_diffs > max_diffs:
+                QMessageBox.warning(self, "Data Truncated",
+                                    "Incoming data contains more readings than the UI "
+                                    "can display. Extra values will be ignored.")
+            self.meter_count_spinbox.setValue(min(num_meters, max_meters))
+            self.diff_count_spinbox.setValue(min(num_diffs,  max_diffs))
 
             for i, val_str in enumerate(meter_values_db):
                 if i < len(self.meter_entries): self.meter_entries[i].setText(val_str)
