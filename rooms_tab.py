@@ -142,8 +142,7 @@ class RoomsTab(QWidget):
         # Setup navigation for room entries (simplified from original for brevity)
         # This would typically call self.main_window.setup_navigation() if it handles cross-tab nav,
         # or a more localized navigation setup if only within this tab.
-        if hasattr(self.main_window, 'setup_navigation') and callable(self.main_window.setup_navigation):
-            self.main_window.setup_navigation()
+        # Navigation setup will be handled by main window after all tabs are created
 
 
     def calculate_rooms(self):

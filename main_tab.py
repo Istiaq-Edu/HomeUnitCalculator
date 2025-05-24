@@ -331,8 +331,7 @@ class MainTab(QWidget):
                 meter_edit.setText(current_values[i])
             self.meter_entries.append(meter_edit)
         
-        if hasattr(self.main_window, 'setup_navigation') and callable(self.main_window.setup_navigation):
-             self.main_window.setup_navigation()
+        # Navigation setup will be handled by main window after all tabs are created
 
     def update_diff_inputs(self, value=None):
         num_diffs = value if value is not None else self.diff_count_spinbox.value()
@@ -350,8 +349,7 @@ class MainTab(QWidget):
                 diff_edit.setText(current_values[i])
             self.diff_entries.append(diff_edit)
         
-        if hasattr(self.main_window, 'setup_navigation') and callable(self.main_window.setup_navigation):
-             self.main_window.setup_navigation()
+        # Navigation setup will be handled by main window after all tabs are created
         
     def _clear_layout(self, layout):
         if layout is not None:
