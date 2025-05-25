@@ -23,7 +23,7 @@ from styles import (
 )
 from utils import resource_path, _clear_layout
 from custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
-from rental_info_tab import RentalRecordDialog # Re-use the dialog
+from dialogs import RentalRecordDialog # Move to shared dialogs module
 
 class ArchivedInfoTab(QWidget):
     def __init__(self, main_window_ref):
@@ -60,48 +60,23 @@ class ArchivedInfoTab(QWidget):
         self.setLayout(main_layout)
 
     def setup_db_table(self):
-        # This will ensure the 'rentals' table exists and has 'is_archived' column
-        # The actual table creation/alteration logic is in RentalInfoTab's setup_db_table
-        # We just need to call it to make sure it's set up.
+        # Ensure the 'rentals' table exists and has all necessary columns
         try:
-            # This is a bit of a hack, but ensures the table is set up if this tab is loaded first
-            # A better approach might be a central DB setup function in DBManager or main app
-            self.db_manager.create_table("""
-                CREATE TABLE IF NOT EXISTS rentals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tenant_name TEXT NOT NULL,
-                    room_number TEXT NOT NULL,
-                    advanced_paid REAL,
-                    photo_path TEXT,
-                    nid_front_path TEXT,
-                    nid_back_path TEXT,
-                    police_form_path TEXT,
-                    created_at TEXT,
-                    updated_at TEXT,
-                    is_archived INTEGER DEFAULT 0
-                )
-            """)
-            # Add is_archived column if it doesn't exist (for backward compatibility)
-            self.db_manager.execute_query("""
-                PRAGMA table_info(rentals);
-            """)
-            columns = self.db_manager.cursor.fetchall()
-            column_names = [col[1] for col in columns]
-            if 'is_archived' not in column_names:
-                self.db_manager.execute_query("""
-                    ALTER TABLE rentals ADD COLUMN is_archived INTEGER DEFAULT 0;
-                """)
-                print("Added 'is_archived' column to rentals table from ArchivedInfoTab.")
-            print("Rentals table ensured from ArchivedInfoTab.")
+            self.db_manager.bootstrap_rentals_table()
         except Exception as e:
             print(f"Database Error: Failed to ensure rentals table from ArchivedInfoTab: {e}\n{traceback.format_exc()}")
-            # QMessageBox.critical(self, "Database Error", f"Failed to ensure rentals table from ArchivedInfoTab: {e}")
-            # traceback.print_exc()
+            QMessageBox.warning(self, "Database Warning", "Unable to initialize database table. Some features may not work correctly.")
 
     def load_archived_records(self):
         try:
+            # Reset table to pristine state
+            self.archived_records_table.clearContents()
+            self.archived_records_table.setRowCount(0)
             # Select only records where is_archived is 1
-            records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = 1 ORDER BY updated_at DESC", fetch_all=True)
+            records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = ? ORDER BY updated_at DESC", (1,), fetch_all=True)
+            if not records:
+                return          # nothing to show or DB error already warned
+
             self.archived_records_table.setRowCount(len(records))
             for row_idx, record in enumerate(records):
                 for col_idx, data in enumerate(record[:6]): # Display first 6 columns in table
@@ -111,12 +86,16 @@ class ArchivedInfoTab(QWidget):
                 self.archived_records_table.item(row_idx, 0).setData(Qt.UserRole, record) # Store full record in ID item
         except Exception as e:
             print(f"Database Error: Failed to load archived rental records: {e}\n{traceback.format_exc()}")
-            # QMessageBox.critical(self, "Database Error", f"Failed to load archived rental records: {e}")
-            # traceback.print_exc()
+            QMessageBox.warning(self, "Load Error", "Unable to load archived records. Please check the database connection.")
 
     def show_record_details_dialog(self, index):
         selected_row = index.row()
-        record = self.archived_records_table.item(selected_row, 0).data(Qt.UserRole)
+        item = self.archived_records_table.item(selected_row, 0)
+        if not item:
+            return  # click on an empty area
+        record = item.data(Qt.UserRole)
+        if not record:
+            return
         
         if record:
             # Pass is_archived status to the dialog

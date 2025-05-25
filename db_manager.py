@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+import re
 from encryption_utils import EncryptionUtil
 
 class DBManager:
@@ -35,6 +36,40 @@ class DBManager:
             print(f"Error creating app_config table: {e}")
             raise
 
+    def bootstrap_rentals_table(self):
+        """Creates the rentals table and ensures all necessary columns exist."""
+        try:
+            self.create_table("""
+                CREATE TABLE IF NOT EXISTS rentals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_name TEXT NOT NULL,
+                    room_number TEXT NOT NULL,
+                    advanced_paid REAL,
+                    photo_path TEXT,
+                    nid_front_path TEXT,
+                    nid_back_path TEXT,
+                    police_form_path TEXT,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    is_archived INTEGER DEFAULT 0
+                )
+            """)
+            # Add is_archived column if it doesn't exist (for backward compatibility)
+            columns = self.execute_query(
+                "PRAGMA table_info(rentals);",
+                fetch_all=True
+            )
+            column_names = [col[1] for col in columns]
+            if 'is_archived' not in column_names:
+                self.execute_query("""
+                    ALTER TABLE rentals ADD COLUMN is_archived INTEGER DEFAULT 0;
+                """)
+                print("Added 'is_archived' column to rentals table.")
+            print("Rentals table bootstrap completed.")
+        except Exception as e:
+            print(f"Database Error: Failed to bootstrap rentals table: {e}")
+            raise
+
     def execute_query(self, query: str, params: tuple = None, fetch_one: bool = False, fetch_all: bool = False):
         """
         Executes a SQL query with optional parameters.
@@ -42,23 +77,18 @@ class DBManager:
         Fetches results for SELECT queries based on fetch_one or fetch_all.
         """
         try:
-            if params:
-                self.cursor.execute(query, params)
-            else:
-                self.cursor.execute(query)
+            # execute once with empty tuple if params is None
+            self.cursor.execute(query, params or ())
             
-            if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER")):
-                self.conn.commit()
-                return self.cursor.lastrowid if query.strip().upper().startswith("INSERT") else None
-            elif query.strip().upper().startswith("SELECT"):
+            # If the statement produced a result-set, fetch it; otherwise commit.
+            if self.cursor.description is not None:          # any SELECT / PRAGMA / WITH … SELECT …
                 if fetch_one:
                     return self.cursor.fetchone()
-                elif fetch_all:
-                    return self.cursor.fetchall()
-                else:
-                    # Default to fetchall for SELECT if neither is specified
-                    return self.cursor.fetchall()
-            return None
+                return self.cursor.fetchall() if fetch_all or not fetch_one else None
+
+            # No result-set → it's a write or DDL
+            self.conn.commit()
+            return self.cursor.lastrowid if query.lstrip().upper().startswith("INSERT") else None
         except sqlite3.Error as e:
             print(f"Database query error: {e}\nQuery: {query}\nParams: {params}")
             self.conn.rollback()

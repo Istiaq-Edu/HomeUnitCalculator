@@ -2,6 +2,7 @@ import sys
 import json
 from datetime import datetime as dt_class
 import functools
+import logging
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
 from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
 from PyQt5.QtWidgets import (
@@ -469,10 +470,15 @@ class MeterCalculationApp(QMainWindow):
 
     def refresh_all_rental_tabs(self):
         """Refreshes both active and archived rental records tabs."""
-        if self.rental_info_tab_instance:
-            self.rental_info_tab_instance.load_rental_records()
-        if self.archived_info_tab_instance:
-            self.archived_info_tab_instance.load_archived_records()
+        for tab, loader in (
+            (self.rental_info_tab_instance, "load_rental_records"),
+            (self.archived_info_tab_instance, "load_archived_records"),
+        ):
+            if tab and hasattr(tab, loader):
+                try:
+                    getattr(tab, loader)()
+                except Exception:
+                    logging.exception("Failed refreshing %s", loader)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

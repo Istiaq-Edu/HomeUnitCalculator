@@ -23,225 +23,7 @@ from styles import (
 )
 from utils import resource_path, _clear_layout
 from custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
-
-class RentalRecordDialog(QDialog):
-    def __init__(self, parent=None, record_data=None, db_manager=None, is_archived_record=False, main_window_ref=None):
-        super().__init__(parent)
-        self.setWindowTitle("Rental Record Details")
-        self.setGeometry(200, 200, 800, 600)
-        self.db_manager = db_manager
-        self.record_data = record_data # Full record data including paths
-        self.is_archived_record = is_archived_record
-        self.main_window = main_window_ref # Store reference to main window
-
-        self.init_ui()
-        if self.record_data:
-            self.display_record_details()
-
-    def init_ui(self):
-        main_layout = QVBoxLayout(self)
-        
-        # Display Area for Details
-        details_group = QGroupBox("Record Information")
-        details_group.setStyleSheet(get_room_selection_style())
-        details_layout = QFormLayout(details_group)
-        
-        self.tenant_name_label = QLabel()
-        self.room_number_label = QLabel()
-        self.advanced_paid_label = QLabel()
-        self.created_at_label = QLabel()
-        self.updated_at_label = QLabel()
-
-        details_layout.addRow("Tenant Name:", self.tenant_name_label)
-        details_layout.addRow("Room Number:", self.room_number_label)
-        details_layout.addRow("Advanced Paid:", self.advanced_paid_label)
-        details_layout.addRow("Created At:", self.created_at_label)
-        details_layout.addRow("Updated At:", self.updated_at_label)
-        
-        main_layout.addWidget(details_group)
-
-        # Image Previews
-        image_preview_group = QGroupBox("Document Previews")
-        image_preview_group.setStyleSheet(get_room_selection_style())
-        image_preview_layout = QGridLayout(image_preview_group)
-        image_preview_layout.setContentsMargins(20, 20, 20, 20)
-        image_preview_layout.setSpacing(10)
-
-        self.photo_preview_label = QLabel("No Photo")
-        self.photo_preview_label.setAlignment(Qt.AlignCenter)
-        self.photo_preview_label.setFixedSize(120, 120)
-        self.photo_preview_label.setStyleSheet("border: 1px solid #ccc;")
-        image_preview_layout.addWidget(self.photo_preview_label, 0, 0)
-
-        self.nid_front_preview_label = QLabel("No NID Front")
-        self.nid_front_preview_label.setAlignment(Qt.AlignCenter)
-        self.nid_front_preview_label.setFixedSize(120, 120)
-        self.nid_front_preview_label.setStyleSheet("border: 1px solid #ccc;")
-        image_preview_layout.addWidget(self.nid_front_preview_label, 0, 1)
-
-        self.nid_back_preview_label = QLabel("No NID Back")
-        self.nid_back_preview_label.setAlignment(Qt.AlignCenter)
-        self.nid_back_preview_label.setFixedSize(120, 120)
-        self.nid_back_preview_label.setStyleSheet("border: 1px solid #ccc;")
-        image_preview_layout.addWidget(self.nid_back_preview_label, 1, 0)
-
-        self.police_form_preview_label = QLabel("No Police Form")
-        self.police_form_preview_label.setAlignment(Qt.AlignCenter)
-        self.police_form_preview_label.setFixedSize(120, 120)
-        self.police_form_preview_label.setStyleSheet("border: 1px solid #ccc;")
-        image_preview_layout.addWidget(self.police_form_preview_label, 1, 1)
-        
-        main_layout.addWidget(image_preview_group)
-
-        # PDF Link Display
-        pdf_link_group = QGroupBox("Generated PDF")
-        pdf_link_group.setStyleSheet(get_room_selection_style())
-        pdf_link_layout = QVBoxLayout(pdf_link_group)
-        
-        self.pdf_path_label = QLabel("No PDF generated yet.")
-        self.pdf_path_label.setOpenExternalLinks(True) # Make link clickable
-        self.pdf_path_label.setStyleSheet("color: blue; text-decoration: underline;")
-        pdf_link_layout.addWidget(self.pdf_path_label)
-
-        main_layout.addWidget(pdf_link_group)
-
-        # Action Buttons for the dialog
-        dialog_buttons_layout = QHBoxLayout()
-        
-        self.dialog_save_pdf_btn = CustomNavButton("Save PDF")
-        self.dialog_save_pdf_btn.setStyleSheet(get_button_style())
-        self.dialog_save_pdf_btn.clicked.connect(self.generate_pdf_from_dialog)
-        dialog_buttons_layout.addWidget(self.dialog_save_pdf_btn)
-
-        self.dialog_edit_btn = CustomNavButton("Edit")
-        self.dialog_edit_btn.setStyleSheet(get_button_style())
-        self.dialog_edit_btn.clicked.connect(self.edit_record)
-        dialog_buttons_layout.addWidget(self.dialog_edit_btn)
-
-        self.dialog_archive_btn = CustomNavButton("Archive")
-        self.dialog_archive_btn.setStyleSheet(get_button_style())
-        self.dialog_archive_btn.clicked.connect(self.toggle_archive_status)
-        dialog_buttons_layout.addWidget(self.dialog_archive_btn)
-
-        self.dialog_delete_btn = CustomNavButton("Delete")
-        self.dialog_delete_btn.setStyleSheet(get_button_style())
-        self.dialog_delete_btn.clicked.connect(self.delete_record)
-        dialog_buttons_layout.addWidget(self.dialog_delete_btn)
-
-        main_layout.addLayout(dialog_buttons_layout)
-
-    def display_record_details(self):
-        # record_data: id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived
-        self.tenant_name_label.setText(self.record_data[1])
-        self.room_number_label.setText(self.record_data[2])
-        self.advanced_paid_label.setText(f"{self.record_data[3]:.2f} TK")
-        self.created_at_label.setText(self.record_data[4])
-        self.updated_at_label.setText(self.record_data[5])
-
-        # Adjust archive button text and visibility
-        if self.is_archived_record:
-            self.dialog_archive_btn.setText("Unarchive")
-            self.dialog_edit_btn.hide() # Typically, archived records are not edited directly
-        else:
-            self.dialog_archive_btn.setText("Archive")
-            self.dialog_edit_btn.show()
-        self.dialog_archive_btn.setEnabled(True) # Enable the button
-
-        # Display image previews
-        image_labels = {
-            "photo": self.photo_preview_label,
-            "nid_front": self.nid_front_preview_label,
-            "nid_back": self.nid_back_preview_label,
-            "police_form": self.police_form_preview_label
-        }
-        image_paths = {
-            "photo": self.record_data[6],
-            "nid_front": self.record_data[7],
-            "nid_back": self.record_data[8],
-            "police_form": self.record_data[9]
-        }
-
-        for img_type, label in image_labels.items():
-            path = image_paths[img_type]
-            if path and os.path.exists(path):
-                pixmap = QPixmap(path)
-                if not pixmap.isNull():
-                    label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                    label.setText("") # Clear "No Photo" text
-                else:
-                    label.setText(f"Invalid {img_type.replace('_', ' ').title()}")
-            else:
-                label.setText(f"No {img_type.replace('_', ' ').title()}")
-
-        # Set PDF link (assuming PDF is generated and path is stored somewhere, or will be generated on demand)
-        # For now, we'll set it to a placeholder or clear it if no PDF is associated
-        # The actual PDF path will be set after generation via generate_pdf_from_dialog
-        self.pdf_path_label.setText("No PDF generated yet for this record.")
-        self.pdf_path_label.setToolTip("Click 'Save PDF' to generate and and view.")
-
-    def generate_pdf_from_dialog(self):
-        # Re-use the PDF generation logic from RentalInfoTab
-        # Pass the record_data to the main tab's PDF generation method
-        # Pass the record_data to the main window's rental_info_tab for PDF generation
-        if self.main_window and hasattr(self.main_window, 'rental_info_tab_instance') and hasattr(self.main_window.rental_info_tab_instance, 'generate_rental_pdf_from_data'):
-            pdf_path = self.main_window.rental_info_tab_instance.generate_rental_pdf_from_data(self.record_data)
-            if pdf_path:
-                self.pdf_path_label.setText(f"<a href='file:///{pdf_path}'>{os.path.basename(pdf_path)}</a>")
-                self.pdf_path_label.setToolTip(f"Click to open: {pdf_path}")
-            else:
-                self.pdf_path_label.setText("PDF generation cancelled or failed.")
-                self.pdf_path_label.setToolTip("No PDF generated.")
-        else:
-            QMessageBox.critical(self, "Error", "PDF generation function not accessible.")
-
-    def edit_record(self):
-        # Load data back into the main form for editing
-        if self.parent() and hasattr(self.parent(), 'load_record_into_form_for_edit'):
-            self.parent().load_record_into_form_for_edit(self.record_data)
-            self.accept() # Close the dialog
-        else:
-            QMessageBox.critical(self, "Error", "Edit function not accessible.")
-
-    def delete_record(self):
-        reply = QMessageBox.question(self, "Confirm Delete",
-                                     f"Are you sure you want to delete the record for '{self.record_data[1]}' (Room: {self.record_data[2]})?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            try:
-                self.db_manager.execute_query("DELETE FROM rentals WHERE id = ?", (self.record_data[0],))
-                QMessageBox.information(self, "Success", "Record deleted successfully.")
-                # Refresh all rental tabs via the main window
-                if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
-                    self.main_window.refresh_all_rental_tabs()
-                self.accept() # Close the dialog
-            except Exception as e:
-                QMessageBox.critical(self, "Database Error", f"Failed to delete record: {e}")
-                traceback.print_exc()
-
-
-    def toggle_archive_status(self):
-        record_id = self.record_data[0]
-        current_status = self.record_data[10] # is_archived column is at index 10
-        
-        new_status = 1 if current_status == 0 else 0
-        action_text = "archive" if new_status == 1 else "unarchive"
-        
-        reply = QMessageBox.question(self, f"Confirm {action_text.capitalize()}",
-                                     f"Are you sure you want to {action_text} the record for '{self.record_data[1]}' (Room: {self.record_data[2]})?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            try:
-                self.db_manager.execute_query("UPDATE rentals SET is_archived = ?, updated_at = ? WHERE id = ?",
-                                             (new_status, datetime.now().isoformat(), record_id))
-                QMessageBox.information(self, "Success", f"Record {action_text}d successfully.")
-                
-                # Refresh all rental tabs via the main window
-                if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
-                    self.main_window.refresh_all_rental_tabs()
-                self.accept() # Close the dialog
-            except Exception as e:
-                QMessageBox.critical(self, "Database Error", f"Failed to {action_text} record: {e}")
-                traceback.print_exc()
+from dialogs import RentalRecordDialog
 
 
 class RentalInfoTab(QWidget):
@@ -396,33 +178,7 @@ class RentalInfoTab(QWidget):
 
     def setup_db_table(self):
         try:
-            self.db_manager.create_table("""
-                CREATE TABLE IF NOT EXISTS rentals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tenant_name TEXT NOT NULL,
-                    room_number TEXT NOT NULL,
-                    advanced_paid REAL,
-                    photo_path TEXT,
-                    nid_front_path TEXT,
-                    nid_back_path TEXT,
-                    police_form_path TEXT,
-                    created_at TEXT,
-                    updated_at TEXT,
-                    is_archived INTEGER DEFAULT 0
-                )
-            """)
-            # Add is_archived column if it doesn't exist (for backward compatibility)
-            self.db_manager.execute_query("""
-                PRAGMA table_info(rentals);
-            """)
-            columns = self.db_manager.cursor.fetchall()
-            column_names = [col[1] for col in columns]
-            if 'is_archived' not in column_names:
-                self.db_manager.execute_query("""
-                    ALTER TABLE rentals ADD COLUMN is_archived INTEGER DEFAULT 0;
-                """)
-                print("Added 'is_archived' column to rentals table.")
-            print("Rentals table ensured.")
+            self.db_manager.bootstrap_rentals_table()
         except Exception as e:
             print(f"Database Error: Failed to create rentals table: {e}\n{traceback.format_exc()}")
             # QMessageBox.critical(self, "Database Error", f"Failed to create rentals table: {e}")
@@ -433,6 +189,11 @@ class RentalInfoTab(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, f"Select {image_type.replace('_', ' ').title()} Image", "",
                                                    "Image Files (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)", options=options)
         if file_path:
+            # Validate file is actually an image
+            if not self._validate_image_file(file_path):
+                QMessageBox.warning(self, "Invalid File", "The selected file is not a valid image.")
+                return
+                
             if image_type == "photo":
                 self.photo_path_label.setText(file_path)
             elif image_type == "nid_front":
@@ -547,6 +308,8 @@ class RentalInfoTab(QWidget):
         self.nid_front_path_label.setText("No file selected")
         self.nid_back_path_label.setText("No file selected")
         self.police_form_path_label.setText("No file selected")
+        self.current_rental_id = None
+        self.save_record_btn.setText("Save Record")
 
     def _handle_enter_pressed(self, current_index):
         """Handles Enter key press for sequential focus movement."""
@@ -575,11 +338,56 @@ class RentalInfoTab(QWidget):
                         self.input_fields[current_index - 1].selectAll()
                     return True # Event handled
         return super().eventFilter(obj, event)
-        self.current_rental_id = None
-        self.save_record_btn.setText("Save Record")
+
+    def _is_safe_path(self, file_path):
+        """Validate that the file path is safe to access"""
+        if not file_path:
+            return False
+        
+        try:
+            # Convert to absolute path and resolve any symbolic links
+            abs_path = os.path.abspath(os.path.realpath(file_path))
+            
+            # Get the application's working directory as the safe base
+            app_dir = os.path.abspath(os.getcwd())
+            
+            # Security checks:
+            # 1. Must be within app directory or common safe directories
+            safe_dirs = [
+                app_dir,
+                os.path.expanduser("~/Documents"),
+                os.path.expanduser("~/Desktop"),
+                os.path.expanduser("~/Downloads")
+            ]
+            
+            # Check if path is within any safe directory
+            is_in_safe_dir = any(
+                os.path.commonpath([abs_path, os.path.abspath(safe_dir)]) == os.path.abspath(safe_dir)
+                for safe_dir in safe_dirs
+            )
+            
+            # 2. Prevent directory traversal attacks
+            has_traversal = ".." in file_path or abs_path != os.path.normpath(abs_path)
+            
+            # 3. Prevent access to system directories
+            forbidden_dirs = ["/etc", "/sys", "/proc", "C:\\Windows", "C:\\System32"]
+            in_forbidden_dir = any(abs_path.startswith(forbidden) for forbidden in forbidden_dirs)
+            
+            return is_in_safe_dir and not has_traversal and not in_forbidden_dir
+            
+        except (OSError, ValueError):
+            return False
+
+    def _validate_image_file(self, file_path):
+        """Validate that the file is actually an image"""
+        try:
+            pixmap = QPixmap(file_path)
+            return not pixmap.isNull()
+        except Exception:
+            return False
 
     def _scale_image(self, image_path, max_width, max_height):
-        if not image_path or not os.path.exists(image_path):
+        if not image_path or not self._is_safe_path(image_path) or not os.path.exists(image_path):
             return None
         try:
             # Create a temporary Image object to get original dimensions
@@ -656,12 +464,11 @@ class RentalInfoTab(QWidget):
                 ('FONTSIZE', (0, 1), (-1, -1), 10),
             ]))
             elements.append(table)
-            elements.append(PageBreak()) # End of Page 1
-
             # Page 2: Photo, NID Front, NID Back (top-down)
             # Page 2: Photo, NID Front (top-down)
             # Page 2: Photo, NID Front, NID Back (top-down, no bordering)
-            elements.append(NextPageTemplate('ImagePage')) # Switch to the custom page template for images
+            elements.append(NextPageTemplate('ImagePage')) # Template for upcoming page
+            elements.append(PageBreak()) # End of Page 1
             
             image_paths_page2 = [
                 photo_path,
@@ -676,7 +483,7 @@ class RentalInfoTab(QWidget):
             max_img_height_page2 = (letter[1] - 1.0 * inch) / len(image_paths_page2) - (0.2 * inch * (len(image_paths_page2) - 1)) # Distribute height
 
             for path in image_paths_page2:
-                if path and os.path.exists(path):
+                if path and self._is_safe_path(path) and os.path.exists(path):
                     scaled_dims = self._scale_image(path, max_img_width_page2, max_img_height_page2)
                     if scaled_dims:
                         img_width, img_height = scaled_dims
@@ -687,14 +494,16 @@ class RentalInfoTab(QWidget):
                     else:
                         elements.append(Paragraph(f"<i>(Could not load image from {path})</i>", normal_style))
                 else:
-                    elements.append(Paragraph(f"<i>No file provided for {path.split('/')[-1] if path else 'image'}</i>", normal_style))
-                elements.append(Spacer(1, 0.1*inch))
+                    missing_name = os.path.basename(path) if path else 'image'
+                    elements.append(Paragraph(f"<i>No file provided for {missing_name}</i>", normal_style))
+                    elements.append(Spacer(1, 0.1*inch))
             # Removed PageBreak() here to prevent blank page before Police Form
 
             # Page 3: Police Form (full page utilization, no bordering)
             elements.append(NextPageTemplate('FullPageImage')) # Switch to the custom page template for full page image
+            elements.append(PageBreak())
 
-            if police_form_path and os.path.exists(police_form_path):
+            if police_form_path and self._is_safe_path(police_form_path) and os.path.exists(police_form_path):
                 # Scale to fit entire page, maintaining aspect ratio
                 # Use the full page dimensions for scaling, as margins are now zero for this template
                 max_frame_width = letter[0] # Full width of the page
