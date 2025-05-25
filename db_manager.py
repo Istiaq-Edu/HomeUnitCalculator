@@ -24,13 +24,55 @@ class DBManager:
     def _create_table(self):
         """Creates the app_config table if it doesn't exist."""
         try:
-            self.cursor.execute("""
+            self.create_table("""
                 CREATE TABLE IF NOT EXISTS app_config (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     key TEXT UNIQUE,
                     value BLOB
                 )
             """)
+        except sqlite3.Error as e:
+            print(f"Error creating app_config table: {e}")
+            raise
+
+    def execute_query(self, query: str, params: tuple = None, fetch_one: bool = False, fetch_all: bool = False):
+        """
+        Executes a SQL query with optional parameters.
+        Commits changes for INSERT, UPDATE, DELETE.
+        Fetches results for SELECT queries based on fetch_one or fetch_all.
+        """
+        try:
+            if params:
+                self.cursor.execute(query, params)
+            else:
+                self.cursor.execute(query)
+            
+            if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER")):
+                self.conn.commit()
+                return self.cursor.lastrowid if query.strip().upper().startswith("INSERT") else None
+            elif query.strip().upper().startswith("SELECT"):
+                if fetch_one:
+                    return self.cursor.fetchone()
+                elif fetch_all:
+                    return self.cursor.fetchall()
+                else:
+                    # Default to fetchall for SELECT if neither is specified
+                    return self.cursor.fetchall()
+            return None
+        except sqlite3.Error as e:
+            print(f"Database query error: {e}\nQuery: {query}\nParams: {params}")
+            self.conn.rollback()
+            raise
+        except Exception as e:
+            print(f"An unexpected error occurred during query execution: {e}")
+            raise
+
+    def create_table(self, query: str):
+        """
+        Executes a CREATE TABLE query.
+        """
+        try:
+            self.cursor.execute(query)
             self.conn.commit()
         except sqlite3.Error as e:
             print(f"Error creating table: {e}")
@@ -127,6 +169,43 @@ if __name__ == "__main__":
     try:
         db_manager = DBManager(db_name=test_db_name)
         
+        # Test create_table
+        print("\nTesting create_table...")
+        db_manager.create_table("""
+            CREATE TABLE IF NOT EXISTS test_table (
+                id INTEGER PRIMARY KEY,
+                name TEXT
+            )
+        """)
+        print("test_table created successfully.")
+
+        # Test execute_query (INSERT)
+        print("\nTesting execute_query (INSERT)...")
+        last_id = db_manager.execute_query("INSERT INTO test_table (name) VALUES (?)", ("Test Name 1",))
+        print(f"Inserted record with ID: {last_id}")
+        assert last_id is not None
+
+        # Test execute_query (SELECT)
+        print("\nTesting execute_query (SELECT)...")
+        rows = db_manager.execute_query("SELECT * FROM test_table", fetch_all=True)
+        print(f"Retrieved rows: {rows}")
+        assert len(rows) == 1
+        assert rows[0][1] == "Test Name 1"
+
+        # Test execute_query (UPDATE)
+        print("\nTesting execute_query (UPDATE)...")
+        db_manager.execute_query("UPDATE test_table SET name = ? WHERE id = ?", ("Updated Name", 1))
+        updated_row = db_manager.execute_query("SELECT * FROM test_table WHERE id = ?", (1,), fetch_one=True)
+        print(f"Updated row: {updated_row}")
+        assert updated_row[1] == "Updated Name"
+
+        # Test execute_query (DELETE)
+        print("\nTesting execute_query (DELETE)...")
+        db_manager.execute_query("DELETE FROM test_table WHERE id = ?", (1,))
+        deleted_row = db_manager.execute_query("SELECT * FROM test_table WHERE id = ?", (1,), fetch_one=True)
+        print(f"Deleted row: {deleted_row}")
+        assert deleted_row is None
+
         # Test saving config
         test_url = "https://test.supabase.co"
         test_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiY2RlZmdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NzgyMzU2MDAsImV4cCI6MTk5MzgxMTYwMH0.some_random_key_here"
@@ -162,8 +241,7 @@ if __name__ == "__main__":
         print("Configuration overwrite successful.")
 
         # Test with no config
-        db_manager.cursor.execute("DELETE FROM app_config")
-        db_manager.conn.commit()
+        db_manager.execute_query("DELETE FROM app_config")
         print("\nDeleted all config entries.")
         exists_after_delete = db_manager.config_exists()
         print(f"Config exists after deleting: {exists_after_delete}")

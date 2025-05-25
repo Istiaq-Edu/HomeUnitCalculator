@@ -21,3 +21,18 @@ def resource_path(relative_path):
         print(f"Warning: Resource not found: {full_path}")
     # Return the full path, regardless of whether it exists or not
     return full_path
+
+def _clear_layout(layout):
+    """
+    Recursively clears all widgets and layouts from a given layout.
+    Useful for dynamically updating UI elements.
+    """
+    if layout is not None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout() is not None:
+                _clear_layout(item.layout()) # Recursively clear sub-layouts

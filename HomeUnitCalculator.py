@@ -37,6 +37,8 @@ from main_tab import MainTab
 from rooms_tab import RoomsTab
 from history_tab import HistoryTab, EditRecordDialog # EditRecordDialog is imported from history_tab
 from supabase_config_tab import SupabaseConfigTab
+from rental_info_tab import RentalInfoTab
+from archived_info_tab import ArchivedInfoTab
 
 class MeterCalculationApp(QMainWindow):
     def __init__(self):
@@ -61,9 +63,11 @@ class MeterCalculationApp(QMainWindow):
         self.load_history_source_combo.setStyleSheet(get_month_info_style())
 
         self.main_tab_instance = MainTab(self)
-        self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self) 
+        self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self)
         self.history_tab_instance = HistoryTab(self)
         self.supabase_config_tab_instance = SupabaseConfigTab(self)
+        self.rental_info_tab_instance = RentalInfoTab(self)
+        self.archived_info_tab_instance = ArchivedInfoTab(self)
 
         self._initialize_supabase_client()
         self.init_ui()
@@ -111,30 +115,54 @@ class MeterCalculationApp(QMainWindow):
         self.tab_widget.addTab(self.rooms_tab_instance, "Room Calculations")
         self.tab_widget.addTab(self.history_tab_instance, "Calculation History")
         self.tab_widget.addTab(self.supabase_config_tab_instance, "Supabase Config")
+        self.tab_widget.addTab(self.rental_info_tab_instance, "Rental Info")
+        self.tab_widget.addTab(self.archived_info_tab_instance, "Archived Info")
         
         # Connection is done in setup_navigation() with guard
         main_layout.addWidget(self.tab_widget)
 
-        save_buttons_layout = QHBoxLayout()
-        save_pdf_button = QPushButton("Save as PDF")
-        save_pdf_button.setObjectName("savePdfButton")
-        save_pdf_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
-        save_pdf_button.clicked.connect(self.save_to_pdf)
-        save_buttons_layout.addWidget(save_pdf_button)
+        # Create buttons but don't add them to the main layout yet
+        self.save_pdf_button = QPushButton("Save as PDF")
+        self.save_pdf_button.setObjectName("savePdfButton")
+        self.save_pdf_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
+        self.save_pdf_button.clicked.connect(self.save_to_pdf)
 
-        save_csv_button = QPushButton("Save as CSV")
-        save_csv_button.setObjectName("saveCsvButton")
-        save_csv_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
-        save_csv_button.clicked.connect(self.save_calculation_to_csv)
-        save_buttons_layout.addWidget(save_csv_button)
+        self.save_csv_button = QPushButton("Save as CSV")
+        self.save_csv_button.setObjectName("saveCsvButton")
+        self.save_csv_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
+        self.save_csv_button.clicked.connect(self.save_calculation_to_csv)
 
-        save_cloud_button = QPushButton("Save to Cloud")
-        save_cloud_button.setObjectName("saveCloudButton")
-        save_cloud_button.setIcon(QIcon(resource_path("icons/database_icon.png")))
-        save_cloud_button.clicked.connect(self.save_calculation_to_supabase)
-        save_buttons_layout.addWidget(save_cloud_button)
+        self.save_cloud_button = QPushButton("Save to Cloud")
+        self.save_cloud_button.setObjectName("saveCloudButton")
+        self.save_cloud_button.setIcon(QIcon(resource_path("icons/database_icon.png")))
+        self.save_cloud_button.clicked.connect(self.save_calculation_to_supabase)
+
+        # Create a layout for these buttons
+        self.save_buttons_layout = QHBoxLayout()
+        self.save_buttons_layout.addWidget(self.save_pdf_button)
+        self.save_buttons_layout.addWidget(self.save_csv_button)
+        self.save_buttons_layout.addWidget(self.save_cloud_button)
         
-        main_layout.addLayout(save_buttons_layout)
+        # Add the button layout to the main layout
+        main_layout.addLayout(self.save_buttons_layout)
+
+        # Connect tab change signal to update button visibility
+        self.tab_widget.currentChanged.connect(self.update_save_buttons_visibility)
+        self.update_save_buttons_visibility(self.tab_widget.currentIndex()) # Set initial visibility
+
+    def update_save_buttons_visibility(self, index):
+        # Get the name of the current tab
+        current_tab_name = self.tab_widget.tabText(index)
+        
+        # Define which tabs should show the buttons
+        if current_tab_name in ["Main Calculation", "Room Calculations"]:
+            self.save_pdf_button.show()
+            self.save_csv_button.show()
+            self.save_cloud_button.show()
+        else:
+            self.save_pdf_button.hide()
+            self.save_csv_button.hide()
+            self.save_cloud_button.hide()
 
     def save_to_pdf(self):
         month_name = self.main_tab_instance.month_combo.currentText()
@@ -147,7 +175,7 @@ class MeterCalculationApp(QMainWindow):
                 QMessageBox.information(self, "PDF Saved", f"Report saved to {path}")
                 return True
             except PermissionError:
-                QMessageBox.warning(self, "Permission Denied", 
+                QMessageBox.warning(self, "Permission Denied",
                                   f"Cannot save to {path}\n\nThe file may be open in another program or you don't have write permission to this location. Please close any programs using this file and try again or select a different location.")
                 return False
             except Exception as e:
@@ -207,7 +235,7 @@ class MeterCalculationApp(QMainWindow):
         main_meter_table_data = [meter_info_left_data[i] + meter_info_right_data[i] for i in range(max_rows)]
         main_meter_table = Table(main_meter_table_data, colWidths=[2.5*inch, 1.25*inch, 2.5*inch, 1.25*inch], rowHeights=[0.2*inch] * max_rows)
         main_meter_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), colors.white), ('BOX', (0,0), (-1,-1), 1, colors.darkblue), 
+            ('BACKGROUND', (0,0), (-1,-1), colors.white), ('BOX', (0,0), (-1,-1), 1, colors.darkblue),
             ('LINEABOVE', (0,0), (-1,-1), 1, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('LEFTPADDING', (0,0), (-1,-1), 6),
             ('RIGHTPADDING', (0,0), (-1,-1), 6), ('TOPPADDING', (0,0), (-1,-1), 2),
@@ -235,7 +263,7 @@ class MeterCalculationApp(QMainWindow):
                         bold_unit_bill_style_pdf = ParagraphStyle('BoldUnitBillStylePdf', parent=styles['Normal'], fontSize=11, textColor=colors.black, spaceAfter=2, fontName='Helvetica-Bold')
                         header_style_left_pdf = ParagraphStyle('HeaderStyleLeftPdf', parent=room_header_style_pdf, alignment=0)
                         header_style_right_gray_pdf = ParagraphStyle('HeaderStyleRightGrayPdf', parent=room_header_style_pdf, alignment=2, textColor=colors.gray)
-
+ 
                         header_row_pdf = [Paragraph(f"{room_name}", header_style_left_pdf), Paragraph(f"Created: {next_month_name}", header_style_right_gray_pdf)]
                         room_info_data = [ header_row_pdf,
                             [Paragraph("Month:", label_style), Paragraph(month_year, normal_style)],
@@ -274,7 +302,7 @@ class MeterCalculationApp(QMainWindow):
                 if not file_exists or os.path.getsize(filename) == 0:
                     header = ["Month"] + [f"Meter-{i+1}" for i in range(10)] + \
                                [f"Diff-{i+1}" for i in range(10)] + \
-                               ["Total Unit", "Total Diff", "Per Unit Cost", "Added Amount", "In Total", 
+                               ["Total Unit", "Total Diff", "Per Unit Cost", "Added Amount", "In Total",
                                 "Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill"]
                     writer.writerow(header)
                 main_data_row = [month_name]
@@ -298,9 +326,9 @@ class MeterCalculationApp(QMainWindow):
                             real_unit_label.text() if real_unit_label.text() != "Incomplete" else "N/A",
                             unit_bill_label.text().replace(" TK", "") if unit_bill_label.text() != "Incomplete" else "N/A"
                         ]
-                        if i == 0: 
+                        if i == 0:
                             writer.writerow(main_data_row + room_csv_data_parts)
-                        else: 
+                        else:
                              writer.writerow([month_name] + [""]*(len(main_data_row)-1) + room_csv_data_parts)
                 else:
                     writer.writerow(main_data_row + ["N/A"] * 5)
@@ -315,15 +343,15 @@ class MeterCalculationApp(QMainWindow):
         try:
             month = self.main_tab_instance.month_combo.currentText()
             year = self.main_tab_instance.year_spinbox.value()
-            def _s_int(v, default=0): 
-                try: 
+            def _s_int(v, default=0):
+                try:
                     if not v or not v.strip():
                         return default
                     # Handle decimal strings by converting to float first, then int
                     return int(float(v.strip()))
-                except (ValueError, TypeError): 
+                except (ValueError, TypeError):
                     return default
-            def _s_float(v, default=0.0): 
+            def _s_float(v, default=0.0):
                 try: return float(v) if v and v.strip() else default
                 except ValueError: return default
 
@@ -376,7 +404,7 @@ class MeterCalculationApp(QMainWindow):
                         incomplete_rooms.append(room_name)
                 
                 if incomplete_rooms:
-                    reply = QMessageBox.question(self, "Incomplete Data", 
+                    reply = QMessageBox.question(self, "Incomplete Data",
                                                f"Some rooms have incomplete calculations: {', '.join(incomplete_rooms)}\n\n"
                                                f"Do you want to save anyway? (Incomplete rooms will be skipped)",
                                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
@@ -426,7 +454,7 @@ class MeterCalculationApp(QMainWindow):
         if current_tab_widget:
             if hasattr(current_tab_widget, 'set_initial_focus'):
                 current_tab_widget.set_initial_focus()
-            else: 
+            else:
                 first_input = current_tab_widget.findChild(CustomLineEdit)
                 if not first_input: first_input = current_tab_widget.findChild(QSpinBox)
                 if first_input:
@@ -438,6 +466,13 @@ class MeterCalculationApp(QMainWindow):
         cp = QDesktopWidget().availableGeometry().center()
         qr.moveCenter(cp)
         self.move(qr.topLeft())
+
+    def refresh_all_rental_tabs(self):
+        """Refreshes both active and archived rental records tabs."""
+        if self.rental_info_tab_instance:
+            self.rental_info_tab_instance.load_rental_records()
+        if self.archived_info_tab_instance:
+            self.archived_info_tab_instance.load_archived_records()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
