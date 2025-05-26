@@ -28,8 +28,7 @@ class RoomsTab(QWidget):
         self.rooms_scroll_area = None
         self.rooms_scroll_widget = None
         self.rooms_scroll_layout = None
-        self.room_entries = []  # List of tuples: (present_entry, previous_entry)
-        self.room_results = []  # List of tuples: (real_unit_label, unit_bill_label)
+        self.room_entries = []  # List of dictionaries for all room-related entries and results
         self.calculate_rooms_button = None
         
         self.init_ui()
@@ -79,7 +78,6 @@ class RoomsTab(QWidget):
 
         num_rooms = self.num_rooms_spinbox.value()
         self.room_entries = []
-        self.room_results = []
 
         for i in range(num_rooms):
             room_group = QGroupBox(f"Room {i+1}")
@@ -106,13 +104,46 @@ class RoomsTab(QWidget):
             present_entry.setStyleSheet(get_line_edit_style())
             previous_entry.setStyleSheet(get_line_edit_style())
 
+            gas_bill_entry = CustomLineEdit()
+            gas_bill_entry.setObjectName(f"room_{i}_gas_bill")
+            gas_bill_entry.setPlaceholderText("Enter Gas Bill")
+            gas_bill_entry.setValidator(numeric_validator)
+            gas_bill_entry.setStyleSheet(get_line_edit_style())
+
+            water_bill_entry = CustomLineEdit()
+            water_bill_entry.setObjectName(f"room_{i}_water_bill")
+            water_bill_entry.setPlaceholderText("Enter Water Bill")
+            water_bill_entry.setValidator(numeric_validator)
+            water_bill_entry.setStyleSheet(get_line_edit_style())
+
+            house_rent_entry = CustomLineEdit()
+            house_rent_entry.setObjectName(f"room_{i}_house_rent")
+            house_rent_entry.setPlaceholderText("Enter House Rent")
+            house_rent_entry.setValidator(numeric_validator)
+            house_rent_entry.setStyleSheet(get_line_edit_style())
+
+            grand_total_label = QLabel("N/A")
+            grand_total_label.setStyleSheet("font-weight: bold;") # Bold style for grand total
+
             room_layout.addRow("Present Unit:", present_entry)
             room_layout.addRow("Previous Unit:", previous_entry)
+            room_layout.addRow("Gas Bill:", gas_bill_entry)
+            room_layout.addRow("Water Bill:", water_bill_entry)
+            room_layout.addRow("House Rent:", house_rent_entry)
             room_layout.addRow("Real Unit:", real_unit_label)
             room_layout.addRow("Unit Bill:", unit_bill_label)
+            room_layout.addRow("Grand Total:", grand_total_label)
 
-            self.room_entries.append((present_entry, previous_entry))
-            self.room_results.append((real_unit_label, unit_bill_label))
+            self.room_entries.append({
+                'present_entry': present_entry,
+                'previous_entry': previous_entry,
+                'gas_bill_entry': gas_bill_entry,
+                'water_bill_entry': water_bill_entry,
+                'house_rent_entry': house_rent_entry,
+                'real_unit_label': real_unit_label,
+                'unit_bill_label': unit_bill_label,
+                'grand_total_label': grand_total_label
+            })
             
             # Add to grid layout
             row, col = divmod(i, 3) # Arrange in 3 columns
@@ -152,16 +183,23 @@ class RoomsTab(QWidget):
             
             per_unit_cost = float(cleaned_value_text)
 
-            for i, ((present_entry, previous_entry), (real_unit_label, unit_bill_label)) in enumerate(zip(self.room_entries, self.room_results)):
-                present_text = present_entry.text().strip()
-                previous_text = previous_entry.text().strip()
+            for i, room_data in enumerate(self.room_entries):
+                present_text = room_data['present_entry'].text().strip()
+                previous_text = room_data['previous_entry'].text().strip()
+                gas_bill_text = room_data['gas_bill_entry'].text().strip()
+                water_bill_text = room_data['water_bill_entry'].text().strip()
+                house_rent_text = room_data['house_rent_entry'].text().strip()
+
+                real_unit_label = room_data['real_unit_label']
+                unit_bill_label = room_data['unit_bill_label']
+                grand_total_label = room_data['grand_total_label']
 
                 if present_text and previous_text:
                     try:
                         present_unit = int(present_text)
                         previous_unit = int(previous_text)
                     except ValueError:
-                        raise ValueError(f"Non-numeric input in Room {i+1}. Present: '{present_text}', Previous: '{previous_text}'")
+                        raise ValueError(f"Non-numeric input in Room {i+1}. Present: '{present_text}', Previous: '{previous_unit}'")
 
                     if present_unit < 0 or previous_unit < 0:
                         raise ValueError(f"Negative readings not allowed in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
@@ -172,15 +210,110 @@ class RoomsTab(QWidget):
                     real_unit = present_unit - previous_unit
                     unit_bill = round(real_unit * per_unit_cost, 2)
 
+                    gas_bill = float(gas_bill_text) if gas_bill_text else 0.0
+                    water_bill = float(water_bill_text) if water_bill_text else 0.0
+                    house_rent = float(house_rent_text) if house_rent_text else 0.0
+
+                    grand_total = unit_bill + gas_bill + water_bill + house_rent
+
                     real_unit_label.setText(f"{real_unit}")
                     unit_bill_label.setText(f"{unit_bill:.2f} TK")
+                    grand_total_label.setText(f"{grand_total:.2f} TK")
                 else:
                     real_unit_label.setText("Incomplete")
                     unit_bill_label.setText("Incomplete")
+                    grand_total_label.setText("Incomplete")
         except ValueError as ve:
             QMessageBox.warning(self, "Calculation Error", f"Error in room calculation: {ve}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An unexpected error occurred during room calculation: {e}\n{traceback.format_exc()}")
+
+    def load_room_data_from_csv_row(self, row, room_index):
+        """
+        Loads room-specific data from a CSV row (dictionary) into the corresponding room inputs.
+        Assumes the row dictionary contains keys like 'Room Name', 'Present Unit', etc.
+        """
+        if room_index >= len(self.room_entries):
+            # This can happen if the CSV has more rooms than currently displayed in UI
+            # For now, we'll just log and skip, or could dynamically add rooms if needed.
+            print(f"Warning: CSV row has data for room {room_index+1}, but only {len(self.room_entries)} rooms are displayed. Skipping.")
+            return
+
+        room_data = self.room_entries[room_index]
+
+        def get_csv_value(row_dict, key_name, default_if_missing_or_empty):
+            for k_original, v_original in row_dict.items():
+                if k_original.strip().lower() == key_name.strip().lower():
+                    stripped_v = v_original.strip() if isinstance(v_original, str) else ""
+                    return stripped_v if stripped_v else default_if_missing_or_empty
+            return default_if_missing_or_empty
+
+        try:
+            # Extract values from CSV row
+            present_unit_csv = get_csv_value(row, "Present Unit", "0")
+            previous_unit_csv = get_csv_value(row, "Previous Unit", "0")
+            gas_bill_csv = get_csv_value(row, "Gas Bill", "0.00")
+            water_bill_csv = get_csv_value(row, "Water Bill", "0.00")
+            house_rent_csv = get_csv_value(row, "House Rent", "0.00")
+            
+            # Note: Real Unit, Unit Bill, Grand Total are calculated, not directly loaded
+            # from CSV for input fields, but we can set their labels if needed for display.
+            # However, the calculate_rooms method will re-calculate them.
+            # So, we only load the input fields.
+
+            # Set text for input fields
+            room_data['present_entry'].setText(present_unit_csv)
+            room_data['previous_entry'].setText(previous_unit_csv)
+            room_data['gas_bill_entry'].setText(gas_bill_csv)
+            room_data['water_bill_entry'].setText(water_bill_csv)
+            room_data['house_rent_entry'].setText(house_rent_csv)
+
+            # After loading, trigger calculation for this room or all rooms
+            # It's safer to trigger calculate_rooms() for all rooms after all data is loaded
+            # in the main_tab.py, to ensure per_unit_cost is correctly set.
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Load Room Data Error", f"Failed to load room data for room {room_index+1}: {e}\n{traceback.format_exc()}")
+
+    def get_all_room_bill_totals(self):
+        """
+        Calculates and returns the total House Rent, Water Bill, Gas Bill, and Room Unit Bill
+        across all rooms.
+        """
+        total_house_rent = 0.0
+        total_water_bill = 0.0
+        total_gas_bill = 0.0
+        total_room_unit_bill = 0.0
+
+        for room_data in self.room_entries:
+            try:
+                # Safely get values, defaulting to 0.0 if "N/A" or empty
+                house_rent = float(room_data['house_rent_entry'].text() or '0.0')
+                water_bill = float(room_data['water_bill_entry'].text() or '0.0')
+                gas_bill = float(room_data['gas_bill_entry'].text() or '0.0')
+                
+                # Unit Bill might be "Incomplete" or "N/A", handle it
+                unit_bill_text = room_data['unit_bill_label'].text()
+                if unit_bill_text and unit_bill_text not in ["N/A", "Incomplete"]:
+                    unit_bill = float(unit_bill_text.replace(" TK", "").strip())
+                else:
+                    unit_bill = 0.0
+
+                total_house_rent += house_rent
+                total_water_bill += water_bill
+                total_gas_bill += gas_bill
+                total_room_unit_bill += unit_bill
+            except ValueError as ve:
+                print(f"Warning: Could not convert room bill value to float. Skipping this room's contribution. Error: {ve}")
+            except Exception as e:
+                print(f"An unexpected error occurred while summing room bills: {e}")
+
+        return {
+            "total_house_rent": total_house_rent,
+            "total_water_bill": total_water_bill,
+            "total_gas_bill": total_gas_bill,
+            "total_room_unit_bill": total_room_unit_bill
+        }
 
 if __name__ == '__main__':
     # This part is for testing the RoomsTab independently if needed
