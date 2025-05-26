@@ -3,6 +3,7 @@ import traceback
 
 from PyQt5.QtCore import QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator
+from postgrest.exceptions import APIError
 from PyQt5.QtWidgets import (
     QApplication,
     QWidget, QVBoxLayout, QLabel, QGridLayout,
@@ -199,7 +200,10 @@ class RoomsTab(QWidget):
                         present_unit = int(present_text)
                         previous_unit = int(previous_text)
                     except ValueError:
-                        raise ValueError(f"Non-numeric input in Room {i+1}. Present: '{present_text}', Previous: '{previous_unit}'")
+                        raise ValueError(
+                            f"Non-numeric input in Room {i+1}. "
+                            f"Present: '{present_text}', Previous: '{previous_text}'"
+                        )
 
                     if present_unit < 0 or previous_unit < 0:
                         raise ValueError(f"Negative readings not allowed in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
