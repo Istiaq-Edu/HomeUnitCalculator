@@ -14,22 +14,8 @@ from styles import (
     get_room_selection_style, get_room_group_style, get_line_edit_style, 
     get_button_style
 )
-from utils import resource_path # For icons
+from utils import resource_path, _clear_layout # For icons and layout clearing
 from custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
-
-# --- Copied _clear_layout ---
-# Ideally, this would be in utils.py, but due to tool issues, it's copied here.
-def _clear_layout(layout):
-    if layout is not None:
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
-            elif item.layout() is not None:
-                _clear_layout(item.layout()) # Recursively clear sub-layouts
-# --- End of Copied _clear_layout ---
 
 class RoomsTab(QWidget):
     def __init__(self, main_tab_ref, main_window_ref):

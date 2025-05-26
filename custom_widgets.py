@@ -14,12 +14,13 @@ class CustomLineEdit(QLineEdit):
     def __init__(self, *args, **kwargs):
         # Call the parent class constructor
         super().__init__(*args, **kwargs)
-        # Set validator to only allow integer input
-        self.setValidator(QRegExpValidator(QRegExp(r'^\d*$')))
+        # Remove default validator to allow any input by default
+        # Validators should be set explicitly where needed (e.g., for numeric inputs)
+        # self.setValidator(QRegExpValidator(QRegExp(r'^\d*$'))) # Removed
         # Set placeholder text for the input field
-        self.setPlaceholderText("Enter a number")
+        # self.setPlaceholderText("Enter a number") # Removed default placeholder
         # Set tooltip for the input field
-        self.setToolTip("Input only integer values")
+        # self.setToolTip("Input only integer values") # Removed default tooltip
         # Set size policy to expanding horizontally
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         # Initialize next and previous widget references
