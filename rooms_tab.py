@@ -3,7 +3,6 @@ import traceback
 
 from PyQt5.QtCore import QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator
-from postgrest.exceptions import APIError
 from PyQt5.QtWidgets import (
     QApplication,
     QWidget, QVBoxLayout, QLabel, QGridLayout,
@@ -214,9 +213,20 @@ class RoomsTab(QWidget):
                     real_unit = present_unit - previous_unit
                     unit_bill = round(real_unit * per_unit_cost, 2)
 
-                    gas_bill = float(gas_bill_text) if gas_bill_text else 0.0
-                    water_bill = float(water_bill_text) if water_bill_text else 0.0
-                    house_rent = float(house_rent_text) if house_rent_text else 0.0
+                    def _to_amount(txt, field_name):
+                        if not txt:
+                            return 0.0
+                        try:
+                            value = float(txt)
+                        except ValueError:
+                            raise ValueError(f"{field_name} must be a number in Room {i+1}: '{txt}'") from None
+                        if value < 0:
+                            raise ValueError(f"{field_name} cannot be negative in Room {i+1}: {value}")
+                        return value
+
+                    gas_bill   = _to_amount(gas_bill_text,   "Gas Bill")
+                    water_bill = _to_amount(water_bill_text, "Water Bill")
+                    house_rent = _to_amount(house_rent_text, "House Rent")
 
                     grand_total = unit_bill + gas_bill + water_bill + house_rent
 
