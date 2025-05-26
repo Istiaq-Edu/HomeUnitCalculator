@@ -528,13 +528,13 @@ class MeterCalculationApp(QMainWindow):
             if self.rooms_tab_instance.room_entries:
                 self.rooms_tab_instance.room_entries[0]['present_entry'].setFocus()
         elif isinstance(current_tab, HistoryTab):
-            self.history_tab_instance.history_table.setFocus()
+            self.history_tab_instance.main_history_table.setFocus()
         elif isinstance(current_tab, SupabaseConfigTab):
             self.supabase_config_tab_instance.supabase_url_input.setFocus()
         elif isinstance(current_tab, RentalInfoTab):
-            self.rental_info_tab_instance.rental_info_table.setFocus()
+            self.rental_info_tab_instance.rental_records_table.setFocus()
         elif isinstance(current_tab, ArchivedInfoTab):
-            self.archived_info_tab_instance.archived_info_table.setFocus()
+            self.archived_info_tab_instance.archived_records_table.setFocus()
 
     def center_window(self):
         qr = self.frameGeometry()
