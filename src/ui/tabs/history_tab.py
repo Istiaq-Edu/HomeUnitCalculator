@@ -326,7 +326,19 @@ class HistoryTab(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        # Create main layout for the tab
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create AutoScrollArea for full page scrolling (same as rooms tab)
+        scroll_area = AutoScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Create content widget that will be scrollable
+        content_widget = QWidget()
+        layout = QVBoxLayout(content_widget)
         layout.setSpacing(20)
         layout.setContentsMargins(20, 20, 20, 20)
 
@@ -394,45 +406,120 @@ class HistoryTab(QWidget):
 
         main_calc_group = QGroupBox("Main Calculation Info")
         main_calc_group.setStyleSheet(get_group_box_style())
-        main_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         main_calc_layout = QVBoxLayout(main_calc_group)
         self.main_history_table = QTableWidget()
-        self.main_history_table.setColumnCount(12)
-        self.main_history_table.setHorizontalHeaderLabels(["Month", "Meter-1", "Meter-2", "Meter-3", "Diff-1", "Diff-2", "Diff-3", "Total Unit Cost", "Total Diff Units", "Per Unit Cost", "Added Amount", "Grand Total"])
-        header = self.main_history_table.horizontalHeader()
-        for i in range(self.main_history_table.columnCount()): header.setSectionResizeMode(i, QHeaderView.Stretch)
+        # Disable internal scrollbars since we're using full page scrolling
+        self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.main_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.main_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.main_history_table.setAlternatingRowColors(True)
         self.main_history_table.setStyleSheet(get_table_style())
-        table_header_height = self.main_history_table.horizontalHeader().height()
-        estimated_row_height = 30
-        num_data_rows_main_table = 2
-        table_content_height = (num_data_rows_main_table * estimated_row_height)
-        table_total_height = table_header_height + table_content_height + 10
-        self.main_history_table.setFixedHeight(table_total_height)
+        # Initially set columns to minimum required, will update dynamically on data load
+        self.set_main_history_table_columns(3)  # default 3 meters/diffs
+        # Remove all height restrictions and let table grow naturally
+        self.main_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        # Resize table to content height and adjust table height to show all rows
+        self.main_history_table.resizeRowsToContents()
+        self.resize_table_to_content(self.main_history_table)
         main_calc_layout.addWidget(self.main_history_table)
-        group_box_margins = main_calc_group.layout().contentsMargins()
-        group_box_chrome_and_internal_padding = 40
-        overall_buffer = 5
-        fixed_group_height = table_total_height + group_box_margins.top() + group_box_margins.bottom() + group_box_chrome_and_internal_padding + overall_buffer
-        main_calc_group.setFixedHeight(fixed_group_height)
-        layout.addWidget(main_calc_group, 0)
+        layout.addWidget(main_calc_group)  # No stretch factor - let it size naturally
 
         room_calc_group = QGroupBox("Room Calculation Info")
         room_calc_group.setStyleSheet(get_group_box_style())
-        room_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         room_calc_layout = QVBoxLayout(room_calc_group)
         self.room_history_table = QTableWidget()
-        self.room_history_table.setColumnCount(6)
-        self.room_history_table.setHorizontalHeaderLabels(["Month", "Room", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill"])
+        self.room_history_table.setColumnCount(10)
+        self.room_history_table.setHorizontalHeaderLabels([
+            "Month", "Room Number", "Present Unit", "Previous Unit", "Real Unit", 
+            "Unit Bill", "Gas Bill", "Water Bill", "House Rent", "Grand Total"
+        ])
         self.room_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch) 
         self.room_history_table.setAlternatingRowColors(True)
         self.room_history_table.setStyleSheet(get_table_style())
+        # Disable internal scrollbars since we're using full page scrolling
+        self.room_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.room_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.room_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        # Remove all height restrictions and let table grow naturally
+        self.room_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        # Resize table to content height and adjust table height to show all rows
+        self.room_history_table.resizeRowsToContents()
+        self.resize_table_to_content(self.room_history_table)
         room_calc_layout.addWidget(self.room_history_table)
-        layout.addWidget(room_calc_group)
+        layout.addWidget(room_calc_group)  # No stretch factor - let it size naturally
+
+        # Add new totals section
+        totals_group = QGroupBox("Total Summary")
+        totals_group.setStyleSheet(get_group_box_style())
+        totals_layout = QVBoxLayout(totals_group)
+        self.totals_table = QTableWidget()
+        self.totals_table.setColumnCount(5)
+        self.totals_table.setHorizontalHeaderLabels([
+            "Month", "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"
+        ])
+        self.totals_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.totals_table.setAlternatingRowColors(True)
+        self.totals_table.setStyleSheet(get_table_style())
+        # Remove all height restrictions and let table grow naturally
+        self.totals_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        # Disable scrollbars for totals table since we're using full page scrolling
+        self.totals_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.totals_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Resize table to content height and adjust table height to show all rows
+        self.totals_table.resizeRowsToContents()
+        self.resize_table_to_content(self.totals_table)
+        totals_layout.addWidget(self.totals_table)
+        layout.addWidget(totals_group)  # No stretch factor - let it size naturally
         
-        self.setLayout(layout)
+        # Set the content widget to the scroll area and add scroll area to main layout
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
+        self.setLayout(main_layout)
+
+    def resize_table_to_content(self, table):
+        """Resize table height to fit all rows without scrolling"""
+        if table.rowCount() == 0:
+            table.setFixedHeight(table.horizontalHeader().height() + 10)
+            return
+        
+        # Calculate total height needed
+        header_height = table.horizontalHeader().height()
+        row_height = 0
+        
+        # Get the height of all rows
+        for row in range(table.rowCount()):
+            row_height += table.rowHeight(row)
+        
+        # Add some padding for borders and margins
+        total_height = header_height + row_height + 10
+        
+        # Set the table to this exact height
+        table.setFixedHeight(total_height)
+        table.setMaximumHeight(total_height)
+        table.setMinimumHeight(total_height)
+
+    def set_main_history_table_columns(self, num_meters):
+        # num_meters: number of meter/diff pairs to show, max 10
+        num_meters = min(max(num_meters, 3), 10)  # clamp between 3 and 10
+        # Fixed columns before meters/diffs
+        fixed_columns = ["Month"]
+        # Dynamic meter columns
+        meter_columns = [f"Meter-{i+1}" for i in range(num_meters)]
+        diff_columns = [f"Diff-{i+1}" for i in range(num_meters)]
+        # Fixed columns after meters/diffs
+        fixed_after_columns = ["Total Unit Cost", "Total Diff Units", "Per Unit Cost", "Added Amount", "Grand Total"]
+        all_columns = fixed_columns + meter_columns + diff_columns + fixed_after_columns
+        self.main_history_table.setColumnCount(len(all_columns))
+        self.main_history_table.setHorizontalHeaderLabels(all_columns)
+        header = self.main_history_table.horizontalHeader()
+        # Set resize mode: stretch for fixed columns, resize to contents for meters/diffs
+        for i in range(len(all_columns)):
+            if i == 0 or i >= (1 + num_meters*2):
+                header.setSectionResizeMode(i, QHeaderView.Stretch)
+            else:
+                header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
 
     def load_history(self):
         try:
@@ -458,11 +545,192 @@ class HistoryTab(QWidget):
 
 
     def load_history_tables_from_csv(self, selected_month, selected_year_val):
-        # (Logic from HomeUnitCalculator.py, adapted for self and self.main_window)
-        # ... This is a substantial piece of code. For brevity here, I'll assume it's moved.
-        # Key changes: self.main_history_table, self.room_history_table are now self's attributes.
-        # selected_year_val can be None (when "All" years selected) - filter accordingly
-        self.room_history_table.setRowCount(0) # Clear placeholder
+        filename = "meter_calculation_history.csv"
+        
+        if not os.path.exists(filename):
+            QMessageBox.warning(self, "File Not Found", f"{filename} does not exist.")
+            return
+
+        try:
+            with open(filename, mode='r', newline='', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                all_rows = list(reader)
+                
+                def get_csv_value(row_dict, key_name, default_if_missing_or_empty):
+                    for k_original, v_original in row_dict.items():
+                        if k_original.strip().lower() == key_name.strip().lower():
+                            stripped_v = v_original.strip() if isinstance(v_original, str) else ""
+                            return stripped_v if stripped_v else default_if_missing_or_empty
+                    return default_if_missing_or_empty
+
+                # Filter rows based on selected filters
+                filtered_main_rows = []
+                all_room_rows = []
+                
+                i = 0
+                while i < len(all_rows):
+                    row = all_rows[i]
+                    csv_month_year_str = get_csv_value(row, "Month", "")
+                    
+                    if csv_month_year_str.strip():  # This is a main calculation row
+                        # Parse month and year from CSV
+                        try:
+                            parts = csv_month_year_str.strip().split()
+                            if len(parts) >= 2:
+                                csv_month = parts[0]
+                                csv_year = int(parts[1])
+                                
+                                # Apply filters
+                                month_matches = (selected_month == "All" or csv_month == selected_month)
+                                year_matches = (selected_year_val is None or csv_year == selected_year_val)
+                                
+                                if month_matches and year_matches:
+                                    main_row_data = {
+                                        'csv_row': row,
+                                        'month': csv_month,
+                                        'year': csv_year,
+                                        'room_rows': []
+                                    }
+                                    
+                                    # If this row also contains room data, add it
+                                    if get_csv_value(row, "Room Name", ""):
+                                        main_row_data['room_rows'].append(row)
+                                    
+                                    # Collect subsequent room-only rows
+                                    j = i + 1
+                                    while j < len(all_rows):
+                                        next_row = all_rows[j]
+                                        next_month_val = get_csv_value(next_row, "Month", "")
+                                        if not next_month_val.strip():  # Empty month = room-only row
+                                            main_row_data['room_rows'].append(next_row)
+                                            j += 1
+                                        else:
+                                            break
+                                    
+                                    filtered_main_rows.append(main_row_data)
+                                    # all_room_rows.extend(main_row_data['room_rows']) # Defer populating all_room_rows
+                                    i = j - 1  # Skip the room rows we just processed
+                        except (ValueError, IndexError):
+                            pass  # Skip malformed rows
+                    i += 1
+
+                # Sort filtered_main_rows chronologically (most recent first)
+                filtered_main_rows.sort(key=lambda x: (x['year'], self.MONTH_ORDER.get(x['month'], 0)), reverse=True)
+
+                # Clear existing data
+                self.main_history_table.setRowCount(0)
+                self.room_history_table.setRowCount(0)
+
+                # Prepare chronologically ordered room entries
+                all_room_rows_sorted_with_context = []
+                if filtered_main_rows:
+                    for main_row_data_sorted in filtered_main_rows:
+                        parent_month = main_row_data_sorted['month']
+                        parent_year = main_row_data_sorted['year']
+                        for room_csv_row_data in main_row_data_sorted['room_rows']:
+                            all_room_rows_sorted_with_context.append({
+                                'csv_row': room_csv_row_data,
+                                'month': parent_month,
+                                'year': parent_year
+                            })
+
+                if filtered_main_rows:
+                    # Determine max number of meters/diffs dynamically (skip zeros)
+                    max_meters = 3
+                    for main_row_data in filtered_main_rows:
+                        row = main_row_data['csv_row']
+                        for i in range(10):  # Check up to 10 meters/diffs
+                            meter_val = get_csv_value(row, f"Meter-{i+1}", "0")
+                            diff_val = get_csv_value(row, f"Diff-{i+1}", "0")
+                            # Only count if meter or diff is not 0 or empty
+                            if (meter_val not in ["0", "", "0.0"]) or (diff_val not in ["0", "", "0.0"]):
+                                max_meters = max(max_meters, i + 1)
+                    max_meters = min(max_meters, 10)  # Clamp to 10
+
+                    self.set_main_history_table_columns(max_meters)
+                    self.main_history_table.setRowCount(len(filtered_main_rows))
+                    
+                    for row_idx, main_row_data in enumerate(filtered_main_rows):
+                        row = main_row_data['csv_row']
+                        
+                        # Set month column
+                        month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
+                        self.main_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
+                        
+                        # Set meter columns dynamically (skip zeros)
+                        for i in range(max_meters):
+                            meter_val = get_csv_value(row, f"Meter-{i+1}", "0")
+                            # Only show non-zero values
+                            display_val = meter_val if meter_val not in ["0", "", "0.0"] else ""
+                            self.main_history_table.setItem(row_idx, 1 + i, QTableWidgetItem(display_val))
+                        
+                        # Set diff columns dynamically (skip zeros)
+                        for i in range(max_meters):
+                            diff_val = get_csv_value(row, f"Diff-{i+1}", "0")
+                            # Only show non-zero values
+                            display_val = diff_val if diff_val not in ["0", "", "0.0"] else ""
+                            self.main_history_table.setItem(row_idx, 1 + max_meters + i, QTableWidgetItem(display_val))
+                        
+                        # Set fixed columns after meters/diffs
+                        base_col = 1 + max_meters * 2
+                        # Handle column name variations between CSV and expected names
+                        total_unit_cost = get_csv_value(row, "Total Unit Cost", "") or get_csv_value(row, "Total Unit", "0")
+                        total_diff_units = get_csv_value(row, "Total Diff Units", "") or get_csv_value(row, "Total Diff", "0")
+                        per_unit_cost = get_csv_value(row, "Per Unit Cost", "0")
+                        added_amount = get_csv_value(row, "Added Amount", "0")
+                        # Use "In Total" specifically for the main table's grand total
+                        grand_total = get_csv_value(row, "In Total", "0") 
+                        
+                        self.main_history_table.setItem(row_idx, base_col + 0, QTableWidgetItem(total_unit_cost))
+                        self.main_history_table.setItem(row_idx, base_col + 1, QTableWidgetItem(total_diff_units))
+                        self.main_history_table.setItem(row_idx, base_col + 2, QTableWidgetItem(per_unit_cost))
+                        self.main_history_table.setItem(row_idx, base_col + 3, QTableWidgetItem(added_amount))
+                        self.main_history_table.setItem(row_idx, base_col + 4, QTableWidgetItem(grand_total))
+
+                # Load room history data using the chronologically prepared list
+                if all_room_rows_sorted_with_context:
+                    self.room_history_table.setRowCount(len(all_room_rows_sorted_with_context))
+                    
+                    for row_idx, room_entry in enumerate(all_room_rows_sorted_with_context):
+                        room_csv_data = room_entry['csv_row']
+                        month_year_str = f"{room_entry['month']} {room_entry['year']}"
+                        
+                        room_name = get_csv_value(room_csv_data, "Room Name", "")
+                        present_unit = get_csv_value(room_csv_data, "Present Unit", "0")
+                        previous_unit = get_csv_value(room_csv_data, "Previous Unit", "0")
+                        real_unit = get_csv_value(room_csv_data, "Real Unit", "0")
+                        unit_bill = get_csv_value(room_csv_data, "Unit Bill", "0")
+                        gas_bill = get_csv_value(room_csv_data, "Gas Bill", "0")
+                        water_bill = get_csv_value(room_csv_data, "Water Bill", "0")
+                        house_rent = get_csv_value(room_csv_data, "House Rent", "0")
+                        grand_total = get_csv_value(room_csv_data, "Grand Total", "0")
+                        
+                        self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
+                        self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(room_name))
+                        self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(present_unit))
+                        self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(previous_unit))
+                        self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(real_unit))
+                        self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(unit_bill))
+                        self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(gas_bill))
+                        self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(water_bill))
+                        self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(house_rent))
+                        self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(grand_total))
+
+                # Calculate and display totals using the filtered main rows instead of all room rows
+                self.calculate_and_display_totals_from_main_rows(filtered_main_rows, get_csv_value)
+
+                # Resize tables to fit content after loading data
+                self.resize_table_to_content(self.main_history_table)
+                self.resize_table_to_content(self.room_history_table)
+                self.resize_table_to_content(self.totals_table)
+
+                if not filtered_main_rows:
+                    QMessageBox.information(self, "No Data", "No records found for the selected filters in CSV.")
+                else:
+                    QMessageBox.information(self, "Load Successful", f"Loaded {len(filtered_main_rows)} main records and {len(all_room_rows_sorted_with_context)} room records from CSV.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Load History Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
 
     def load_history_tables_from_supabase(self, month_filter, year_filter):
         if not self.main_window.supabase or not self.main_window.check_internet_connectivity():
@@ -507,27 +775,91 @@ class HistoryTab(QWidget):
             room_resp = room_query.execute()
             room_records = room_resp.data if room_resp.data else []
 
-            # Sort room_records by main_calculation_id and then room_name for consistent display
-            room_records.sort(key=lambda x: (x["main_calculation_id"], x.get("room_name", "")))
+            # Debug: Print main records order
+            print("DEBUG: Main records order:")
+            for idx, record in enumerate(main_records):
+                print(f"  {idx}: ID={record['id']}, {record['month']} {record['year']}")
+            
+            # Create a mapping of main_calculation_id to chronological order
+            main_calc_order = {record["id"]: idx for idx, record in enumerate(main_records)}
+            
+            # Debug: Print room records before sorting
+            print("DEBUG: Room records before sorting:")
+            for idx, record in enumerate(room_records[:10]):  # Show first 10
+                print(f"  {idx}: main_calc_id={record['main_calculation_id']}, room={record.get('room_name', '')}")
+            
+            # Sort room_records chronologically by main calculation order, then by room_name
+            room_records.sort(key=lambda x: (
+                main_calc_order.get(x["main_calculation_id"], 999999),  # Use high number for missing IDs
+                x.get("room_name", "")
+            ))
+            
+            # Debug: Print room records after sorting
+            print("DEBUG: Room records after sorting:")
+            for idx, record in enumerate(room_records[:10]):  # Show first 10
+                print(f"  {idx}: main_calc_id={record['main_calculation_id']}, room={record.get('room_name', '')}")
 
             self.main_history_table.setRowCount(0)
             self.room_history_table.setRowCount(0)
 
             if main_records:
+                # Determine max number of meters/diffs dynamically
+                max_meters = 3
+                for record in main_records:
+                    extra_meters = []
+                    extra_diffs = []
+                    if record.get("extra_meter_readings"):
+                        with contextlib.suppress(json.JSONDecodeError, TypeError):
+                            extra_meters = json.loads(record["extra_meter_readings"])
+                    if record.get("extra_diff_readings"):
+                        with contextlib.suppress(json.JSONDecodeError, TypeError):
+                            extra_diffs = json.loads(record["extra_diff_readings"])
+                    max_meters = max(max_meters, len(extra_meters) + 3, len(extra_diffs) + 3)
+                max_meters = min(max_meters, 10)  # Clamp max to 10
+
+                self.set_main_history_table_columns(max_meters)
                 self.main_history_table.setRowCount(len(main_records))
                 for row_idx, record in enumerate(main_records):
                     self.main_history_table.setItem(row_idx, 0, QTableWidgetItem(record.get("month", "")))
-                    self.main_history_table.setItem(row_idx, 1, QTableWidgetItem(str(record.get("meter1_reading", ""))))
-                    self.main_history_table.setItem(row_idx, 2, QTableWidgetItem(str(record.get("meter2_reading", ""))))
-                    self.main_history_table.setItem(row_idx, 3, QTableWidgetItem(str(record.get("meter3_reading", ""))))
-                    self.main_history_table.setItem(row_idx, 4, QTableWidgetItem(str(record.get("diff1", ""))))
-                    self.main_history_table.setItem(row_idx, 5, QTableWidgetItem(str(record.get("diff2", ""))))
-                    self.main_history_table.setItem(row_idx, 6, QTableWidgetItem(str(record.get("diff3", ""))))
-                    self.main_history_table.setItem(row_idx, 7, QTableWidgetItem(f"{record.get('total_unit_cost', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, 8, QTableWidgetItem(f"{record.get('total_diff_units', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, 9, QTableWidgetItem(f"{record.get('per_unit_cost_calculated', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, 10, QTableWidgetItem(f"{record.get('additional_amount', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, 11, QTableWidgetItem(f"{record.get('grand_total_bill', 0):.2f}"))
+                    # Set meter columns dynamically
+                    for i in range(max_meters):
+                        if i == 0:
+                            val = str(record.get("meter1_reading", ""))
+                        elif i == 1:
+                            val = str(record.get("meter2_reading", ""))
+                        elif i == 2:
+                            val = str(record.get("meter3_reading", ""))
+                        else:
+                            val = ""
+                        if i >= 3 and record.get("extra_meter_readings"):
+                            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                                extra_meters = json.loads(record["extra_meter_readings"])
+                                if i - 3 < len(extra_meters):
+                                    val = str(extra_meters[i - 3])
+                        self.main_history_table.setItem(row_idx, 1 + i, QTableWidgetItem(val))
+                    # Set diff columns dynamically
+                    for i in range(max_meters):
+                        if i == 0:
+                            val = str(record.get("diff1", ""))
+                        elif i == 1:
+                            val = str(record.get("diff2", ""))
+                        elif i == 2:
+                            val = str(record.get("diff3", ""))
+                        else:
+                            val = ""
+                        if i >= 3 and record.get("extra_diff_readings"):
+                            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                                extra_diffs = json.loads(record["extra_diff_readings"])
+                                if i - 3 < len(extra_diffs):
+                                    val = str(extra_diffs[i - 3])
+                        self.main_history_table.setItem(row_idx, 1 + max_meters + i, QTableWidgetItem(val))
+                    # Set fixed columns after meters/diffs
+                    base_col = 1 + max_meters * 2
+                    self.main_history_table.setItem(row_idx, base_col + 0, QTableWidgetItem(f"{record.get('total_unit_cost', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, base_col + 1, QTableWidgetItem(f"{record.get('total_diff_units', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, base_col + 2, QTableWidgetItem(f"{record.get('per_unit_cost_calculated', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, base_col + 3, QTableWidgetItem(f"{record.get('additional_amount', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, base_col + 4, QTableWidgetItem(f"{record.get('grand_total_bill', 0):.2f}"))
                     self.main_history_table.item(row_idx, 0).setData(Qt.UserRole, record.get("id")) # Store ID for editing/deleting
 
             if room_records:
@@ -537,13 +869,54 @@ class HistoryTab(QWidget):
                     main_calc = next((m for m in main_records if m["id"] == record["main_calculation_id"]), None)
                     month_year_str = f"{main_calc['month']} {main_calc['year']}" if main_calc else "N/A"
 
+                    # Populate all 10 columns consistently
                     self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
                     self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(record.get("room_name", "")))
-                    self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(record.get("present_reading_room", ""))))
-                    self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(record.get("previous_reading_room", ""))))
-                    self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(record.get("units_consumed_room", ""))))
+                    self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(record.get("present_reading_room", "") or "")))
+                    self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(record.get("previous_reading_room", "") or "")))
+                    self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(record.get("units_consumed_room", "") or "")))
+                    
+                    # Unit Bill (cost_room)
                     cost_room_value = record.get('cost_room')
-                    self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(f"{cost_room_value:.2f}" if cost_room_value is not None else "N/A"))
+                    unit_bill_str = f"{cost_room_value:.2f}" if cost_room_value is not None else "0.00"
+                    self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(unit_bill_str))
+                    
+                    # Gas Bill
+                    gas_bill_value = record.get('gas_bill')
+                    gas_bill_str = f"{gas_bill_value:.2f}" if gas_bill_value is not None else "0.00"
+                    self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(gas_bill_str))
+                    
+                    # Water Bill
+                    water_bill_value = record.get('water_bill')
+                    water_bill_str = f"{water_bill_value:.2f}" if water_bill_value is not None else "0.00"
+                    self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(water_bill_str))
+                    
+                    # House Rent
+                    house_rent_value = record.get('house_rent')
+                    house_rent_str = f"{house_rent_value:.2f}" if house_rent_value is not None else "0.00"
+                    self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(house_rent_str))
+                    
+                    # Grand Total (calculate if not available)
+                    grand_total_value = record.get('grand_total')
+                    if grand_total_value is not None:
+                        grand_total_str = f"{grand_total_value:.2f}"
+                    else:
+                        # Calculate grand total from available components
+                        unit_bill = cost_room_value or 0
+                        gas_bill = gas_bill_value or 0
+                        water_bill = water_bill_value or 0
+                        house_rent = house_rent_value or 0
+                        calculated_total = unit_bill + gas_bill + water_bill + house_rent
+                        grand_total_str = f"{calculated_total:.2f}"
+                    self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(grand_total_str))
+
+            # Calculate and display totals for Supabase data
+            self.calculate_and_display_totals_supabase(room_records)
+
+            # Resize tables to fit content after loading data
+            self.resize_table_to_content(self.main_history_table)
+            self.resize_table_to_content(self.room_history_table)
+            self.resize_table_to_content(self.totals_table)
 
             if not main_records and not room_records:
                 QMessageBox.information(self, "No Data", "No records found for the selected filters.")
@@ -608,17 +981,150 @@ class HistoryTab(QWidget):
         reply = QMessageBox.question(self, 'Confirm Delete', "Are you sure you want to delete this record?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
-                with self.main_window.supabase.postgrest.transaction() as trx:
-                    # Delete associated room_calculations first (or rely on ON DELETE CASCADE if defined in DB)
-                    # For robustness, explicitly deleting within the transaction is safer if CASCADE isn't guaranteed.
-                    trx.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
-                    trx.table("main_calculations").delete().eq("id", record_id).execute()
+                # Delete associated room_calculations first (or rely on ON DELETE CASCADE if defined in DB)
+                # For robustness, explicitly deleting room calculations first is safer if CASCADE isn't guaranteed.
+                self.main_window.supabase.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
+                self.main_window.supabase.table("main_calculations").delete().eq("id", record_id).execute()
                 QMessageBox.information(self, "Success", "Record deleted successfully.")
                 self.load_history() # Refresh the table
             except APIError as e:
                 QMessageBox.critical(self, "Supabase API Error", f"Failed to delete: {e.message}\n{e.details}")
             except Exception as e:
                 QMessageBox.critical(self, "Delete Error", f"Error: {e}\n{traceback.format_exc()}")
+
+    def calculate_and_display_totals(self, room_rows, get_csv_value):
+        """Calculate and display totals for house rent, water bill, gas bill, and unit bill"""
+        try:
+            total_house_rent = 0.0
+            total_water_bill = 0.0
+            total_gas_bill = 0.0
+            total_unit_bill = 0.0
+            
+            # The CSV structure has pre-calculated totals in the main calculation rows
+            # We need to extract these from the main rows, not calculate from individual rooms
+            processed_main_rows = set()  # To avoid double counting
+            
+            for room_row in room_rows:
+                # Check if this row has totals data (main calculation row)
+                csv_total_house_rent = get_csv_value(room_row, "Total House Rent", "")
+                csv_total_water_bill = get_csv_value(room_row, "Total Water Bill", "")
+                csv_total_gas_bill = get_csv_value(room_row, "Total Gas Bill", "")
+                csv_total_unit_bill = get_csv_value(room_row, "Total Room Unit Bill", "")
+                
+                # If this row has totals data and we haven't processed it yet
+                if csv_total_house_rent and csv_total_house_rent.strip():
+                    # Create a unique identifier for this main row to avoid duplicates
+                    month_val = get_csv_value(room_row, "Month", "")
+                    meter1_val = get_csv_value(room_row, "Meter-1", "")
+                    row_id = f"{month_val}_{meter1_val}"
+                    
+                    if row_id not in processed_main_rows:
+                        processed_main_rows.add(row_id)
+                        
+                        # Add the pre-calculated totals from this main row
+                        try:
+                            total_house_rent += float(csv_total_house_rent or "0")
+                            total_water_bill += float(csv_total_water_bill or "0")
+                            total_gas_bill += float(csv_total_gas_bill or "0")
+                            total_unit_bill += float(csv_total_unit_bill or "0")
+                        except (ValueError, TypeError):
+                            # If conversion fails, skip this row
+                            continue
+            
+            # Clear existing totals and add new row
+            self.totals_table.setRowCount(1)
+            self.totals_table.setItem(0, 0, QTableWidgetItem(f"{total_house_rent:.2f}"))
+            self.totals_table.setItem(0, 1, QTableWidgetItem(f"{total_water_bill:.2f}"))
+            self.totals_table.setItem(0, 2, QTableWidgetItem(f"{total_gas_bill:.2f}"))
+            self.totals_table.setItem(0, 3, QTableWidgetItem(f"{total_unit_bill:.2f}"))
+            
+        except Exception as e:
+            # If there's an error calculating totals, just clear the table
+            self.totals_table.setRowCount(0)
+            print(f"Error calculating totals: {e}")
+
+    def calculate_and_display_totals_from_main_rows(self, filtered_main_rows, get_csv_value):
+        """Calculate and display totals from filtered main calculation rows"""
+        try:
+            # Clear existing totals
+            self.totals_table.setRowCount(0)
+            
+            if not filtered_main_rows:
+                return
+            
+            # Set the number of rows to match the number of filtered main rows
+            self.totals_table.setRowCount(len(filtered_main_rows))
+            
+            # Add totals for each main calculation row
+            for row_idx, main_row_data in enumerate(filtered_main_rows):
+                row = main_row_data['csv_row']
+                
+                # Set the month/year in the first column
+                month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
+                self.totals_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
+                
+                # Extract pre-calculated totals from the main calculation row
+                csv_total_house_rent = get_csv_value(row, "Total House Rent", "0")
+                csv_total_water_bill = get_csv_value(row, "Total Water Bill", "0")
+                csv_total_gas_bill = get_csv_value(row, "Total Gas Bill", "0")
+                csv_total_unit_bill = get_csv_value(row, "Total Room Unit Bill", "0")
+                
+                # Set the totals for this row (shifted by 1 column due to month column)
+                try:
+                    house_rent = float(csv_total_house_rent or "0")
+                    water_bill = float(csv_total_water_bill or "0")
+                    gas_bill = float(csv_total_gas_bill or "0")
+                    unit_bill = float(csv_total_unit_bill or "0")
+                    
+                    self.totals_table.setItem(row_idx, 1, QTableWidgetItem(f"{house_rent:.2f}"))
+                    self.totals_table.setItem(row_idx, 2, QTableWidgetItem(f"{water_bill:.2f}"))
+                    self.totals_table.setItem(row_idx, 3, QTableWidgetItem(f"{gas_bill:.2f}"))
+                    self.totals_table.setItem(row_idx, 4, QTableWidgetItem(f"{unit_bill:.2f}"))
+                except (ValueError, TypeError):
+                    # If conversion fails, set zeros for this row
+                    self.totals_table.setItem(row_idx, 1, QTableWidgetItem("0.00"))
+                    self.totals_table.setItem(row_idx, 2, QTableWidgetItem("0.00"))
+                    self.totals_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
+                    self.totals_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
+            
+        except Exception as e:
+            # If there's an error calculating totals, just clear the table
+            self.totals_table.setRowCount(0)
+            print(f"Error calculating totals from main rows: {e}")
+
+    def calculate_and_display_totals_supabase(self, room_records):
+        """Calculate and display totals for Supabase room records"""
+        try:
+            total_house_rent = 0.0
+            total_water_bill = 0.0
+            total_gas_bill = 0.0
+            total_unit_bill = 0.0
+            
+            for record in room_records:
+                # Get values from Supabase records, defaulting to 0 if not found or None
+                # Note: Supabase data structure might be different from CSV
+                # For now, we'll use cost_room as unit_bill since that's what's available
+                house_rent = float(record.get("house_rent", 0) or 0)
+                water_bill = float(record.get("water_bill", 0) or 0)
+                gas_bill = float(record.get("gas_bill", 0) or 0)
+                unit_bill = float(record.get("cost_room", 0) or 0)  # Using cost_room as unit bill
+                
+                total_house_rent += house_rent
+                total_water_bill += water_bill
+                total_gas_bill += gas_bill
+                total_unit_bill += unit_bill
+            
+            # Clear existing totals and add new row
+            self.totals_table.setRowCount(1)
+            self.totals_table.setItem(0, 0, QTableWidgetItem(f"{total_house_rent:.2f}"))
+            self.totals_table.setItem(0, 1, QTableWidgetItem(f"{total_water_bill:.2f}"))
+            self.totals_table.setItem(0, 2, QTableWidgetItem(f"{total_gas_bill:.2f}"))
+            self.totals_table.setItem(0, 3, QTableWidgetItem(f"{total_unit_bill:.2f}"))
+            
+        except Exception as e:
+            # If there's an error calculating totals, just clear the table
+            self.totals_table.setRowCount(0)
+            print(f"Error calculating totals for Supabase data: {e}")
 
 
 if __name__ == '__main__':
