@@ -2,6 +2,7 @@ import sys
 import traceback
 import os
 from datetime import datetime
+import logging
 
 from PyQt5.QtCore import Qt, QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap
@@ -17,13 +18,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 
-from styles import (
-    get_room_selection_style, get_room_group_style, get_line_edit_style,
-    get_button_style, get_table_style, get_label_style
+from src.ui.styles import (
+    get_room_selection_style, get_table_style
 )
-from utils import resource_path, _clear_layout
-from custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
-from dialogs import RentalRecordDialog # Move to shared dialogs module
+from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
 
 class ArchivedInfoTab(QWidget):
     def __init__(self, main_window_ref):
@@ -64,7 +62,7 @@ class ArchivedInfoTab(QWidget):
         try:
             self.db_manager.bootstrap_rentals_table()
         except Exception as e:
-            print(f"Database Error: Failed to ensure rentals table from ArchivedInfoTab: {e}\n{traceback.format_exc()}")
+            logging.error(f"Database Error: Failed to ensure rentals table from ArchivedInfoTab: {e}", exc_info=True)
             QMessageBox.warning(self, "Database Warning", "Unable to initialize database table. Some features may not work correctly.")
 
     def load_archived_records(self):
@@ -73,33 +71,64 @@ class ArchivedInfoTab(QWidget):
             self.archived_records_table.clearContents()
             self.archived_records_table.setRowCount(0)
             # Select only records where is_archived is 1
-            records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = ? ORDER BY updated_at DESC", (1,), fetch_all=True)
+            query = """
+                SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at,
+                       photo_path, nid_front_path, nid_back_path, police_form_path, is_archived
+                FROM rentals
+                WHERE is_archived = ?
+                ORDER BY updated_at DESC
+            """
+            records = self.db_manager.execute_query(query, (1,), fetch_all=True)
+            
             if not records:
+                logging.info("No archived records found")
                 return          # nothing to show or DB error already warned
 
             self.archived_records_table.setRowCount(len(records))
             for row_idx, record in enumerate(records):
                 for col_idx, data in enumerate(record[:6]): # Display first 6 columns in table
-                    item = QTableWidgetItem(str(data))
+                    # Handle None values appropriately
+                    display_data = str(data) if data is not None else ""
+                    item = QTableWidgetItem(display_data)
                     self.archived_records_table.setItem(row_idx, col_idx, item)
                 # Store full paths in item data for later retrieval
                 self.archived_records_table.item(row_idx, 0).setData(Qt.UserRole, record) # Store full record in ID item
         except Exception as e:
-            print(f"Database Error: Failed to load archived rental records: {e}\n{traceback.format_exc()}")
+            logging.error(f"Database Error: Failed to load archived rental records: {e}", exc_info=True)
             QMessageBox.warning(self, "Load Error", "Unable to load archived records. Please check the database connection.")
 
     def show_record_details_dialog(self, index):
+        if not index.isValid():
+            return
+            
         selected_row = index.row()
+        if selected_row < 0 or selected_row >= self.archived_records_table.rowCount():
+            return
+            
         item = self.archived_records_table.item(selected_row, 0)
         if not item:
-            return  # click on an empty area
+            logging.warning(f"No item found at row {selected_row}")
+            return
+            
         record = item.data(Qt.UserRole)
         if not record:
+            logging.warning(f"No record data found for row {selected_row}")
             return
         
-        if record:
-            # Pass is_archived status to the dialog
-            is_archived = record[10] if len(record) > 10 else False
+        try:
+            # Pass is_archived status to the dialog (is_archived is at index 10)
+            # Cast explicitly to int so that "0" and 0 are both handled correctly
+            is_archived = bool(int(record[10])) if len(record) > 10 else False
+            
             # Pass the main_window_ref to the dialog so it can access generate_rental_pdf_from_data
-            dialog = RentalRecordDialog(self, record_data=record, db_manager=self.db_manager, is_archived_record=bool(is_archived), main_window_ref=self.main_window)
+            dialog = RentalRecordDialog(
+                self,
+                record_data=record,
+                db_manager=self.db_manager,
+                is_archived_record=is_archived,
+                main_window_ref=self.main_window
+            )
             dialog.exec_() # Show as modal dialog
+        except Exception as e:
+            logging.error(f"Failed to open record details dialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Error", "Unable to open record details. Please try again.")

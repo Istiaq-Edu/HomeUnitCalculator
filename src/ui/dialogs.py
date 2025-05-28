@@ -2,6 +2,7 @@ import sys
 import traceback
 import os
 from datetime import datetime
+from collections import namedtuple
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
@@ -10,19 +11,31 @@ from PyQt5.QtWidgets import (
     QGridLayout
 )
 
-from styles import (
+from src.ui.styles import (
     get_room_selection_style, get_button_style
 )
-from custom_widgets import CustomNavButton
+from src.ui.custom_widgets import CustomNavButton
 
+# Define a namedtuple for rental records for clearer access
+RentalRecord = namedtuple('RentalRecord', [
+    'id', 'tenant_name', 'room_number', 'advanced_paid', 'created_at',
+    'updated_at', 'photo_path', 'nid_front_path', 'nid_back_path',
+    'police_form_path', 'is_archived'
+])
 
 class RentalRecordDialog(QDialog):
     def __init__(self, parent=None, record_data=None, db_manager=None, is_archived_record=False, main_window_ref=None):
         super().__init__(parent)
         self.setWindowTitle("Rental Record Details")
         self.setGeometry(200, 200, 800, 600)
+        if db_manager is None:
+            raise ValueError("db_manager is required for dialog operations")
+        if record_data is None:
+            raise ValueError("record_data is required to display record details")
+        
         self.db_manager = db_manager
-        self.record_data = record_data # Full record data including paths
+        # Convert record_data to namedtuple for clearer access
+        self.record_data = RentalRecord(*record_data) if record_data else None
         self.is_archived_record = is_archived_record
         self.main_window = main_window_ref # Store reference to main window
 
@@ -94,7 +107,7 @@ class RentalRecordDialog(QDialog):
         self.pdf_path_label.setOpenExternalLinks(True) # Make link clickable
         self.pdf_path_label.setStyleSheet("color: blue; text-decoration: underline;")
         pdf_link_layout.addWidget(self.pdf_path_label)
-
+ 
         main_layout.addWidget(pdf_link_group)
 
         # Action Buttons for the dialog
@@ -123,17 +136,17 @@ class RentalRecordDialog(QDialog):
         main_layout.addLayout(dialog_buttons_layout)
 
     def display_record_details(self):
-        # record_data: id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived
-        self.tenant_name_label.setText(self.record_data[1])
-        self.room_number_label.setText(self.record_data[2])
-        raw_adv = self.record_data[3]
+        # Access record data using named attributes
+        self.tenant_name_label.setText(self.record_data.tenant_name)
+        self.room_number_label.setText(self.record_data.room_number)
+        raw_adv = self.record_data.advanced_paid
         try:
             adv_val = float(raw_adv) if raw_adv is not None else None
         except (TypeError, ValueError):
             adv_val = None
         self.advanced_paid_label.setText(f"{adv_val:.2f} TK" if adv_val is not None else "N/A")
-        self.created_at_label.setText(self.record_data[4])
-        self.updated_at_label.setText(self.record_data[5])
+        self.created_at_label.setText(self.record_data.created_at)
+        self.updated_at_label.setText(self.record_data.updated_at)
 
         # Adjust archive button text and visibility
         if self.is_archived_record:
@@ -152,10 +165,10 @@ class RentalRecordDialog(QDialog):
             "police_form": self.police_form_preview_label
         }
         image_paths = {
-            "photo": self.record_data[6],
-            "nid_front": self.record_data[7],
-            "nid_back": self.record_data[8],
-            "police_form": self.record_data[9]
+            "photo": self.record_data.photo_path,
+            "nid_front": self.record_data.nid_front_path,
+            "nid_back": self.record_data.nid_back_path,
+            "police_form": self.record_data.police_form_path
         }
 
         for img_type, label in image_labels.items():
@@ -198,16 +211,25 @@ class RentalRecordDialog(QDialog):
             ]
             
             # Check if path is within any safe directory
-            is_in_safe_dir = any(abs_path.startswith(os.path.abspath(safe_dir)) for safe_dir in safe_dirs)
+            # Normalize paths for comparison, especially for Windows case-insensitivity
+            abs_path_lower = abs_path.lower() if os.name == 'nt' else abs_path
+            safe_dirs_abs_lower = [os.path.abspath(safe_dir).lower() if os.name == 'nt' else os.path.abspath(safe_dir) for safe_dir in safe_dirs]
+
+            # Check if path is within any safe directory using os.path.commonpath
+            is_in_safe_dir = any(
+                os.path.commonpath([abs_path_lower, safe_dir_abs_lower]) == safe_dir_abs_lower
+                for safe_dir_abs_lower in safe_dirs_abs_lower
+            )
             
             # 2. Prevent directory traversal attacks
-            has_traversal = ".." in file_path or abs_path != os.path.normpath(abs_path)
+            # `abs_path` is already canonicalised via realpath; check it instead
+            has_traversal_chars = ".." in abs_path
             
-            # 3. Prevent access to system directories
-            forbidden_dirs = ["/etc", "/sys", "/proc", "C:\\Windows", "C:\\System32"]
-            in_forbidden_dir = any(abs_path.startswith(forbidden) for forbidden in forbidden_dirs)
+            # 3. Prevent access to system directories (case-insensitive for Windows)
+            forbidden_dirs = ["/etc", "/sys", "/proc", "c:\\windows", "c:\\system32"]
+            in_forbidden_dir = any(abs_path_lower.startswith(forbidden.lower()) for forbidden in forbidden_dirs)
             
-            return is_in_safe_dir and not has_traversal and not in_forbidden_dir
+            return is_in_safe_dir and not in_forbidden_dir and not has_traversal_chars
             
         except (OSError, ValueError):
             return False
@@ -217,6 +239,7 @@ class RentalRecordDialog(QDialog):
         # Pass the record_data to the main tab's PDF generation method
         # Pass the record_data to the main window's rental_info_tab for PDF generation
         if self.main_window and hasattr(self.main_window, 'rental_info_tab_instance') and hasattr(self.main_window.rental_info_tab_instance, 'generate_rental_pdf_from_data'):
+            # Pass the namedtuple directly
             pdf_path = self.main_window.rental_info_tab_instance.generate_rental_pdf_from_data(self.record_data)
             if pdf_path:
                 self.pdf_path_label.setText(f"<a href='file:///{pdf_path}'>{os.path.basename(pdf_path)}</a>")
@@ -230,6 +253,7 @@ class RentalRecordDialog(QDialog):
     def edit_record(self):
         # Load data back into the main form for editing
         if self.parent() and hasattr(self.parent(), 'load_record_into_form_for_edit'):
+            # Pass the namedtuple directly
             self.parent().load_record_into_form_for_edit(self.record_data)
             self.accept() # Close the dialog
         else:
@@ -237,12 +261,32 @@ class RentalRecordDialog(QDialog):
 
     def delete_record(self):
         reply = QMessageBox.question(self, "Confirm Delete",
-                                     f"Are you sure you want to delete the record for '{self.record_data[1]}' (Room: {self.record_data[2]})?",
+                                     f"Are you sure you want to delete the record for '{self.record_data.tenant_name}' (Room: {self.record_data.room_number})?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
-                self.db_manager.execute_query("DELETE FROM rentals WHERE id = ?", (self.record_data[0],))
+                # Get file paths before deleting the record from DB
+                photo_path = self.record_data.photo_path
+                nid_front_path = self.record_data.nid_front_path
+                nid_back_path = self.record_data.nid_back_path
+                police_form_path = self.record_data.police_form_path
+
+                # Delete the record from the database
+                self.db_manager.execute_query("DELETE FROM rentals WHERE id = ?", (self.record_data.id,))
                 QMessageBox.information(self, "Success", "Record deleted successfully.")
+
+                # Attempt to delete associated files after successful database deletion
+                files_to_delete = [photo_path, nid_front_path, nid_back_path, police_form_path]
+                for f_path in files_to_delete:
+                    if f_path and os.path.exists(f_path) and self._is_safe_path(f_path):
+                        try:
+                            os.remove(f_path)
+                            print(f"Deleted associated file: {f_path}")
+                        except Exception as file_e:
+                            print(f"Warning: Failed to delete associated file {f_path}: {file_e}")
+                            # Log the error but do not re-raise, as the database record is already deleted.
+                            # This ensures the main operation completes even if file cleanup has issues.
+
                 # Refresh all rental tabs via the main window
                 if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
                     self.main_window.refresh_all_rental_tabs()
@@ -253,14 +297,14 @@ class RentalRecordDialog(QDialog):
 
 
     def toggle_archive_status(self):
-        record_id = self.record_data[0]
-        current_status = self.record_data[10] # is_archived column is at index 10
+        record_id = self.record_data.id
+        current_status = self.record_data.is_archived
         
         new_status = 1 if current_status == 0 else 0
         action_text = "archive" if new_status == 1 else "unarchive"
         
         reply = QMessageBox.question(self, f"Confirm {action_text.capitalize()}",
-                                     f"Are you sure you want to {action_text} the record for '{self.record_data[1]}' (Room: {self.record_data[2]})?",
+                                     f"Are you sure you want to {action_text} the record for '{self.record_data.tenant_name}' (Room: {self.record_data.room_number})?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:

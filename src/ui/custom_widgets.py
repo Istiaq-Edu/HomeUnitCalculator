@@ -1,13 +1,13 @@
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
-from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QPainter, QPixmap # QFont was not used by these specific widgets but good to have
+from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer
+from PyQt5.QtGui import QIcon, QPainter # QFont was not used by these specific widgets but good to have
 from PyQt5.QtWidgets import (
     QLineEdit, QSizePolicy, QScrollArea, QSpinBox, QAbstractSpinBox, 
     QStyleOptionSpinBox, QStyle, QPushButton
 )
 # Assuming styles.py and utils.py will be in the same directory or Python path
 # If they are in subdirectories, the import paths might need adjustment, e.g., from .styles import ...
-from styles import get_line_edit_style, get_custom_spinbox_style 
-from utils import resource_path
+from src.ui.styles import get_line_edit_style, get_custom_spinbox_style
+from src.core.utils import resource_path
 
 # Custom QLineEdit class for improved input handling and navigation
 class CustomLineEdit(QLineEdit):
@@ -86,76 +86,125 @@ class CustomLineEdit(QLineEdit):
                 print("No valid next widget found")  # Print a message indicating no valid next widget was found
 
     def findNextWidget(self, forward=True):
-        # Find all CustomLineEdit widgets in the parent
-        widgets = self.parent().findChildren(CustomLineEdit)
-        # Get the index of the current widget in the list of CustomLineEdit widgets
-        current_index = widgets.index(self)
-        # Calculate the next index, wrapping around if necessary
-        # If forward is True, add 1; if False, subtract 1
-        # Use modulo to wrap around to the beginning or end of the list
-        next_index = (current_index + (1 if forward else -1)) % len(widgets)
-        # Return the widget at the calculated next index
+        parent_widget = self.parentWidget()
+        if parent_widget is None:
+            return None
+        # Respect the visual / tab-order using QWidget::nextInFocusChain
+        widgets = []
+        w = parent_widget.focusProxy() or parent_widget
+        start = w
+        while True:
+            if isinstance(w, CustomLineEdit):
+                widgets.append(w)
+            w = w.nextInFocusChain()
+            if w is start:
+                break
+        
+        try:
+            current_index = widgets.index(self)
+        except ValueError:
+            return None
+        
+        if not widgets: # Handle case where no CustomLineEdit widgets are found
+            return None
+
+        if forward:
+            next_index = (current_index + 1) % len(widgets)
+        else:
+            next_index = (current_index - 1 + len(widgets)) % len(widgets)
+        
         return widgets[next_index]
 
 # Custom QScrollArea class with auto-scrolling functionality
 class AutoScrollArea(QScrollArea):
+    _MIN_SCALE = 0.2
+    _MAX_SCALE = 5.0
+    _SCROLL_INTERVAL_MS = 50  # Milliseconds between scroll updates
+    _SCROLL_SPEED_FACTOR = 0.1 # Adjust this for faster/slower scrolling based on distance
+
     def __init__(self, parent=None):
-        super().__init__(parent)  # Initialize the parent QScrollArea
-        self.scroll_speed = 1  # Set the default scroll speed
-        self.scroll_margin = 50  # Set the margin for triggering auto-scroll
-        self.setMouseTracking(True)  # Enable mouse tracking for the widget
-        self.verticalScrollBar().installEventFilter(self)  # Install event filter for vertical scrollbar
-        self.horizontalScrollBar().installEventFilter(self)  # Install event filter for horizontal scrollbar
-        self.setWidgetResizable(True)  # Allow the scroll area to resize its widget
+        super().__init__(parent)
+        self.scroll_margin = 50
+        self.setMouseTracking(True)
+        self.setWidgetResizable(True)
+        self._current_scale = 1.0
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.timeout.connect(self._perform_auto_scroll)
+        self._mouse_pos = QPoint() # Store last known mouse position
+        # Ensure the scroll area and its viewport receive mouse-move / leave events
+        self.viewport().installEventFilter(self)
+        self.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        # Define the event filter method to handle events for auto-scrolling
-        if obj in (self.verticalScrollBar(), self.horizontalScrollBar()) and event.type() == QEvent.MouseMove:
-            # Check if the event is a mouse move event on the scrollbars
+        if event.type() == QEvent.MouseMove:
             if hasattr(event, 'globalPos'):
-                # If the event has a 'globalPos' attribute, use it for mouse position
-                self.handleMouseMove(event.globalPos())
+                self._mouse_pos = event.globalPos()
             elif hasattr(event, 'globalPosition'):
-                # If the event has a 'globalPosition' attribute, convert it to a point and use it
-                self.handleMouseMove(event.globalPosition().toPoint())
-            else:
-                # If neither attribute is available, print an error message
-                print("Error: Unable to get mouse position from event")
-        # Call the parent class's eventFilter method and return its result
+                self._mouse_pos = event.globalPosition().toPoint()
+            
+            # Start timer if mouse is in margin and not already running
+            if self._is_mouse_in_margin(self._mouse_pos) and not self._scroll_timer.isActive():
+                self._scroll_timer.start(self._SCROLL_INTERVAL_MS)
+            # Stop timer if mouse is outside margin and running
+            elif not self._is_mouse_in_margin(self._mouse_pos) and self._scroll_timer.isActive():
+                self._scroll_timer.stop()
+        elif event.type() == QEvent.Leave:
+            # Stop timer if mouse leaves the widget
+            self._scroll_timer.stop()
+        
         return super().eventFilter(obj, event)
 
-    def handleMouseMove(self, global_pos):
-        # Handle mouse movement for auto-scrolling
-        local_pos = self.mapFromGlobal(global_pos)  # Convert global mouse position to local coordinates
-        rect = self.rect()  # Get the rectangle of the widget
-        v_bar = self.verticalScrollBar()  # Get the vertical scrollbar
-        h_bar = self.horizontalScrollBar()  # Get the horizontal scrollbar
+    def _is_mouse_in_margin(self, global_pos):
+        local_pos = self.mapFromGlobal(global_pos)
+        rect = self.rect()
+        return (local_pos.y() < self.scroll_margin or
+                local_pos.y() > rect.height() - self.scroll_margin or
+                local_pos.x() < self.scroll_margin or
+                local_pos.x() > rect.width() - self.scroll_margin)
+
+    def _perform_auto_scroll(self):
+        if not self.widget():
+            # No widget to scroll
+            return
+
+        local_pos = self.mapFromGlobal(self._mouse_pos)
+        rect = self.rect()
+        v_bar = self.verticalScrollBar()
+        h_bar = self.horizontalScrollBar()
 
         # Vertical scrolling
-        if local_pos.y() < self.scroll_margin:  # If mouse is near the top edge
-            v_bar.setValue(v_bar.value() - self.scroll_speed)  # Scroll up
-        elif local_pos.y() > rect.height() - self.scroll_margin:  # If mouse is near the bottom edge
-            v_bar.setValue(v_bar.value() + self.scroll_speed)  # Scroll down
+        if local_pos.y() < self.scroll_margin:
+            delta = max(1, int((self.scroll_margin - local_pos.y()) * self._SCROLL_SPEED_FACTOR))
+            v_bar.setValue(v_bar.value() - delta)
+        elif local_pos.y() > rect.height() - self.scroll_margin:
+            delta = max(1, int((local_pos.y() - (rect.height() - self.scroll_margin)) * self._SCROLL_SPEED_FACTOR))
+            v_bar.setValue(v_bar.value() + delta)
 
         # Horizontal scrolling
-        if local_pos.x() < self.scroll_margin:  # If mouse is near the left edge
-            h_bar.setValue(h_bar.value() - self.scroll_speed)  # Scroll left
-        elif local_pos.x() > rect.width() - self.scroll_margin:  # If mouse is near the right edge
-            h_bar.setValue(h_bar.value() + self.scroll_speed)  # Scroll right
+        if local_pos.x() < self.scroll_margin:
+            delta = max(1, int((self.scroll_margin - local_pos.x()) * self._SCROLL_SPEED_FACTOR))
+            h_bar.setValue(h_bar.value() - delta)
+        elif local_pos.x() > rect.width() - self.scroll_margin:
+            delta = max(1, int((local_pos.x() - (rect.width() - self.scroll_margin)) * self._SCROLL_SPEED_FACTOR))
+            h_bar.setValue(h_bar.value() + delta)
 
     def mouseMoveEvent(self, event):
-        # Handle mouse movement events
+        # Update stored mouse position and trigger event filter logic
         if hasattr(event, 'globalPos'):
-            # If the event has a 'globalPos' attribute, use it directly
-            self.handleMouseMove(event.globalPos())
+            self._mouse_pos = event.globalPos()
         elif hasattr(event, 'globalPosition'):
-            # If the event has a 'globalPosition' attribute, convert it to a point
-            self.handleMouseMove(event.globalPosition().toPoint())
-        else:
-            # If neither attribute is available, print an error message
-            print("Error: Unable to get mouse position from event")
-        # Call the parent class's mouseMoveEvent method
+            self._mouse_pos = event.globalPosition().toPoint()
+        
+        # Manually call eventFilter to process mouse move for auto-scrolling
+        self.eventFilter(self, event)
         super().mouseMoveEvent(event)
+
+    def closeEvent(self, event):
+        """Ensures the scroll timer is stopped and deleted when the widget is closed."""
+        if self._scroll_timer.isActive():
+            self._scroll_timer.stop()
+        self._scroll_timer.deleteLater() # Schedule for deletion
+        super().closeEvent(event)
 
     def wheelEvent(self, event):
         # Handle wheel events for zooming when Ctrl is pressed
@@ -175,15 +224,18 @@ class AutoScrollArea(QScrollArea):
     def zoom(self, factor):
         # Zoom the content of the scroll area
         if self.widget():
-            # Get the current size of the widget
+            previous_scale = getattr(self, "_previous_scale", 1.0)
+            self._current_scale = getattr(self, "_current_scale", 1.0) * factor
+            self._current_scale = max(self._MIN_SCALE, min(self._MAX_SCALE, self._current_scale))
+            
+            # Calculate the relative factor to apply to the current size
+            relative_factor = self._current_scale / previous_scale
+            self._previous_scale = self._current_scale # Update previous_scale for the next iteration
+
             current_size = self.widget().size()
-            # QSize cannot be multiplied directly; build a new instance instead
-            new_size = QSize(
-                int(current_size.width() * factor),
-                int(current_size.height() * factor),
-            )
-            # Resize the widget to the new size
-            self.widget().resize(new_size)
+            new_width = int(current_size.width() * relative_factor)
+            new_height = int(current_size.height() * relative_factor)
+            self.widget().resize(new_width, new_height)
 
             # Adjust scroll position to keep the center point fixed
             # Calculate the center point of the viewport
@@ -196,7 +248,7 @@ class AutoScrollArea(QScrollArea):
             target_local = self.widget().mapTo(self, target_global)
 
             # Ensure the target point is visible in the scroll area
-            self.ensureVisible(target_local.x(), target_local.y(), 
+            self.ensureVisible(target_local.x(), target_local.y(),
             self.viewport().width() // 2, self.viewport().height() // 2)
 
 class CustomSpinBox(QSpinBox):
@@ -204,6 +256,9 @@ class CustomSpinBox(QSpinBox):
         super().__init__(*args, **kwargs)
         self.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.setStyleSheet(get_custom_spinbox_style())
+        # Initialize pixmaps here, after QApplication is guaranteed to be available
+        self._UP_ARROW_PM = QIcon(resource_path("icons/up_arrow.png")).pixmap(14, 14)
+        self._DOWN_ARROW_PM = QIcon(resource_path("icons/down_arrow.png")).pixmap(14, 14)
 
     def stepBy(self, steps):
         super().stepBy(steps)
@@ -219,11 +274,11 @@ class CustomSpinBox(QSpinBox):
         
         # Draw custom up/down arrows
         rect = self.rect()
-        icon_size = 14
+        icon_size = 14 # This can remain as it's used for positioning
         padding = 2
         
-        up_arrow = QIcon(resource_path("icons/up_arrow.png")).pixmap(icon_size, icon_size)
-        down_arrow = QIcon(resource_path("icons/down_arrow.png")).pixmap(icon_size, icon_size)
+        up_arrow = self._UP_ARROW_PM
+        down_arrow = self._DOWN_ARROW_PM
         
         painter.drawPixmap(rect.right() - icon_size - padding, rect.top() + padding, up_arrow)
         painter.drawPixmap(rect.right() - icon_size - padding, rect.bottom() - icon_size - padding, down_arrow)

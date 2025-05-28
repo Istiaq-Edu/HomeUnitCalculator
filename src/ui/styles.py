@@ -3,7 +3,7 @@ import functools
 from types import MappingProxyType
 from typing import Mapping
 # Import the resource_path function from the utils module
-from utils import resource_path
+from src.core.utils import resource_path
 
 # Populate a *temporary* dict and immediately freeze it so no
 # mutable handle escapes the module's boundary.

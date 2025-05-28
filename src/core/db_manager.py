@@ -2,7 +2,7 @@ import os
 import sqlite3
 import json
 import re
-from encryption_utils import EncryptionUtil
+from src.core.encryption_utils import EncryptionUtil
 
 class DBManager:
     def __init__(self, db_name="app_config.db"):
@@ -13,10 +13,24 @@ class DBManager:
         self._connect()
         self._create_table()
 
+    def __enter__(self):
+        """Context manager entry point."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit point, ensures connection is closed."""
+        self.close()
+
+    def __del__(self):
+        """Destructor to ensure the connection is closed when the object is garbage collected."""
+        self.close()
+
     def _connect(self):
         """Establishes a connection to the SQLite database."""
         try:
             self.conn = sqlite3.connect(self.db_name)
+            # Return rows as dictionaries instead of bare tuples
+            self.conn.row_factory = sqlite3.Row
             self.cursor = self.conn.cursor()
         except sqlite3.Error as e:
             print(f"Database connection error: {e}")
@@ -61,34 +75,69 @@ class DBManager:
             )
             column_names = [col[1] for col in columns]
             if 'is_archived' not in column_names:
-                self.execute_query("""
-                    ALTER TABLE rentals ADD COLUMN is_archived INTEGER DEFAULT 0;
-                """)
-                print("Added 'is_archived' column to rentals table.")
+                try:
+                    self.execute_query("""
+                        ALTER TABLE rentals ADD COLUMN is_archived INTEGER DEFAULT 0;
+                    """)
+                    print("Added 'is_archived' column to rentals table.")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" in str(e):
+                        print("Column 'is_archived' already exists, skipping addition.")
+                    else:
+                        raise # Re-raise other operational errors
             print("Rentals table bootstrap completed.")
         except Exception as e:
             print(f"Database Error: Failed to bootstrap rentals table: {e}")
             raise
 
-    def execute_query(self, query: str, params: tuple = None, fetch_one: bool = False, fetch_all: bool = False):
+    def execute_query(
+        self,
+        query: str,
+        params: tuple | dict | None = None,
+        fetch_one: bool = False,
+    ) -> sqlite3.Row | list[sqlite3.Row] | int | None:
         """
         Executes a SQL query with optional parameters.
-        Commits changes for INSERT, UPDATE, DELETE.
-        Fetches results for SELECT queries based on fetch_one or fetch_all.
+
+        For data-modifying queries (INSERT, UPDATE, DELETE), changes are committed.
+        - For INSERT or REPLACE queries, the last inserted row ID (int) is returned.
+        - For other data-modifying queries (e.g., UPDATE, DELETE), None is returned.
+
+        For data-retrieval queries (e.g., SELECT, PRAGMA):
+        - If `fetch_one` is True, a single row (sqlite3.Row) is returned, or None if no row is found.
+        - If `fetch_one` is False, all matching rows (list[sqlite3.Row]) are returned.
+          An empty list is returned if no rows match.
+
+        :param query: The SQL query string to execute.
+        :param params: Optional. A tuple for positional placeholders, or a dictionary for
+                       named placeholders. If None, the query is executed without parameters.
+        :param fetch_one: If True, fetches only the first row for data-retrieval queries.
+                          If False, fetches all matching rows.
+        :return: A single row (sqlite3.Row), a list of rows (list[sqlite3.Row]),
+                 the last inserted row ID (int), or None, depending on the query
+                 type and fetch flags.
+        :raises sqlite3.Error: If a database error occurs during query execution.
+        :raises Exception: For other unexpected errors.
         """
         try:
-            # execute once with empty tuple if params is None
-            self.cursor.execute(query, params or ())
+            # execute once with empty dict if params is None, to handle named placeholders
+            if params is None:
+                self.cursor.execute(query)
+            else:
+                self.cursor.execute(query, params)
             
             # If the statement produced a result-set, fetch it; otherwise commit.
-            if self.cursor.description is not None:          # any SELECT / PRAGMA / WITH … SELECT …
+            if self.cursor.description:  # SELECT / PRAGMA / etc.
                 if fetch_one:
                     return self.cursor.fetchone()
-                return self.cursor.fetchall() if fetch_all or not fetch_one else None
+                # If fetch_one is not requested, default to fetching all results.
+                return self.cursor.fetchall()
 
             # No result-set → it's a write or DDL
             self.conn.commit()
-            return self.cursor.lastrowid if query.lstrip().upper().startswith("INSERT") else None
+            if query.lstrip().upper().startswith(("INSERT", "REPLACE")):
+                return self.cursor.lastrowid
+            return None
         except sqlite3.Error as e:
             print(f"Database query error: {e}\nQuery: {query}\nParams: {params}")
             self.conn.rollback()
@@ -147,12 +196,12 @@ class DBManager:
             self.cursor.execute("SELECT key, value FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')")
             rows = self.cursor.fetchall()
             
-            for key, encrypted_value in rows:
+            for row in rows:
                 try:
-                    decrypted_value = self.encryption_util.decrypt_data(encrypted_value)
-                    config[key] = decrypted_value
+                    decrypted_value = self.encryption_util.decrypt_data(row["value"])
+                    config[row["key"]] = decrypted_value
                 except Exception as e:
-                    print(f"Error decrypting value for key {key}: {e}")
+                    print(f"Error decrypting value for key {row['key']}: {e}")
                     # Continue to try decrypting other values
             
             if "SUPABASE_URL" not in config or "SUPABASE_KEY" not in config:
@@ -172,7 +221,7 @@ class DBManager:
         try:
             self.cursor.execute("SELECT COUNT(*) FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')")
             count = self.cursor.fetchone()[0]
-            return count == 2 # Both URL and Key must be present
+            return count >= 2 # Both URL and Key must be present
         except sqlite3.Error as e:
             print(f"Error checking config existence: {e}")
             return False

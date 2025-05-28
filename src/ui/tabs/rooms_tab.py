@@ -10,12 +10,12 @@ from PyQt5.QtWidgets import (
 )
 
 # Assuming these modules are in the same directory or accessible in PYTHONPATH
-from styles import (
-    get_room_selection_style, get_room_group_style, get_line_edit_style, 
+from src.ui.styles import (
+    get_room_selection_style, get_room_group_style, get_line_edit_style,
     get_button_style
 )
-from utils import resource_path, _clear_layout # For icons and layout clearing
-from custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.core.utils import resource_path, _clear_layout # For icons and layout clearing
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
 
 class RoomsTab(QWidget):
     def __init__(self, main_tab_ref, main_window_ref):
@@ -149,17 +149,13 @@ class RoomsTab(QWidget):
             row, col = divmod(i, 3) # Arrange in 3 columns
             self.rooms_scroll_layout.addWidget(room_group, row, col)
 
-        if self.rooms_scroll_layout.columnCount() > 0:
-            for col in range(self.rooms_scroll_layout.columnCount()):
-                 self.rooms_scroll_layout.setColumnStretch(col, 1)
+        # Ensure columns are stretched correctly for the QGridLayout
+        # QGridLayout.columnCount() always returns 0 in PyQt5, so manually set stretch for 3 columns
+        for col in range(3):
+            self.rooms_scroll_layout.setColumnStretch(col, 1)
         
-        # These calls are redundant – the layout and scroll widget were
-        # attached during initialisation (lines 75-76).
-        
-        # Setup navigation for room entries (simplified from original for brevity)
-        # This would typically call self.main_window.setup_navigation() if it handles cross-tab nav,
-        # or a more localized navigation setup if only within this tab.
-        # Navigation setup will be handled by main window after all tabs are created
+        # The layout and scroll widget were attached during initialisation (lines 60-61).
+        # Navigation setup will be handled by main window after all tabs are created.
 
 
     def calculate_rooms(self):

@@ -1,4 +1,8 @@
 import sys
+import os
+# Add the project root to the sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 import json
 from datetime import datetime as dt_class
 import functools
@@ -23,23 +27,23 @@ import traceback
 from supabase import create_client, Client
 from postgrest.exceptions import APIError
 from datetime import datetime
-from db_manager import DBManager
-from encryption_utils import EncryptionUtil
-from key_manager import get_or_create_key
-from styles import (
+from src.core.db_manager import DBManager
+from src.core.encryption_utils import EncryptionUtil
+from src.core.key_manager import get_or_create_key
+from src.ui.styles import (
     get_stylesheet, get_header_style, get_group_box_style,
     get_line_edit_style, get_button_style, get_results_group_style,
     get_room_group_style, get_month_info_style, get_table_style, get_label_style, get_custom_spinbox_style,
     get_room_selection_style, get_result_title_style, get_result_value_style
 )
-from utils import resource_path
-from custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
-from main_tab import MainTab
-from rooms_tab import RoomsTab
-from history_tab import HistoryTab, EditRecordDialog # EditRecordDialog is imported from history_tab
-from supabase_config_tab import SupabaseConfigTab
-from rental_info_tab import RentalInfoTab
-from archived_info_tab import ArchivedInfoTab
+from src.core.utils import resource_path
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.ui.tabs.main_tab import MainTab
+from src.ui.tabs.rooms_tab import RoomsTab
+from src.ui.tabs.history_tab import HistoryTab, EditRecordDialog # EditRecordDialog is imported from history_tab
+from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
+from src.ui.tabs.rental_info_tab import RentalInfoTab
+from src.ui.tabs.archived_info_tab import ArchivedInfoTab
 
 class MeterCalculationApp(QMainWindow):
     def __init__(self):
@@ -78,7 +82,7 @@ class MeterCalculationApp(QMainWindow):
     def check_internet_connectivity(self):
         import socket
         try:
-            socket.create_connection(("8.8.8.8", 53), timeout=3)
+            socket.create_connection(("8.8.8.8", 53), timeout=1)
             return True
         except OSError:
             return False
@@ -94,9 +98,13 @@ class MeterCalculationApp(QMainWindow):
         try:
             self.supabase = create_client(self.supabase_url, self.supabase_key)
             print("Supabase client initialized successfully from stored config.")
+            # Set default load source to Cloud if Supabase is configured
+            self.load_history_source_combo.setCurrentText("Load from Cloud")
         except Exception as e:
             self.supabase = None
             print(f"Failed to initialize Supabase client: {e}")
+            # If Supabase fails to initialize, ensure source is PC (CSV)
+            self.load_history_source_combo.setCurrentText("Load from PC (CSV)")
 
     def init_ui(self):
         central_widget = QWidget(self)
@@ -420,9 +428,14 @@ class MeterCalculationApp(QMainWindow):
             additional_amount_text = self.main_tab_instance.additional_amount_input.text()
             additional_amount = _s_float(additional_amount_text if additional_amount_text else "0.0")
             
-            total_unit_cost = sum(meter_readings)
             total_diff_units = sum(diff_readings)
-            per_unit_cost_calc = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0
+            unit_tariff = _s_float(
+                self.main_tab_instance.per_unit_cost_value_label.text()
+                    .lower().replace("tk", "").strip(),
+                default=0.0
+            )
+            total_unit_cost = unit_tariff * total_diff_units   # actual BDT
+            per_unit_cost_calc = unit_tariff                   # store the tariff itself
             grand_total_bill = total_unit_cost + additional_amount
             
             main_calc_data = {
@@ -435,21 +448,15 @@ class MeterCalculationApp(QMainWindow):
                 "extra_meter_readings": json.dumps(meter_readings[3:]) if len(meter_readings) > 3 else None,
                 "extra_diff_readings": json.dumps(diff_readings[3:]) if len(diff_readings) > 3 else None}
             
+            # Check for existing main calculation record
             response = self.supabase.table("main_calculations").select("id").eq("month", month).eq("year", year).execute()
             main_calc_id = None
             if response.data:
                 main_calc_id = response.data[0]['id']
-                self.supabase.table("main_calculations").update(main_calc_data).eq("id", main_calc_id).execute()
-                print(f"Main calculation data updated for {month} {year}")
-            else:
-                insert_response = self.supabase.table("main_calculations").insert(main_calc_data).execute()
-                if insert_response.data: main_calc_id = insert_response.data[0]['id']
-                else: raise Exception("Failed to insert/update main calculation data.") # More specific error
-                print(f"Main calculation data inserted for {month} {year} with ID: {main_calc_id}")
 
-            if main_calc_id and self.rooms_tab_instance.room_entries:
-                # Check for incomplete room calculations before saving
-                incomplete_rooms = []
+            # Check for incomplete room calculations before starting transaction
+            incomplete_rooms = []
+            if self.rooms_tab_instance.room_entries:
                 for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
                     real_unit_label = room_data['real_unit_label']
                     unit_bill_label = room_data['unit_bill_label']
@@ -467,46 +474,61 @@ class MeterCalculationApp(QMainWindow):
                                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                     if reply == QMessageBox.No:
                         return
-                
-                self.supabase.table("room_calculations").delete().eq("main_calculation_id", main_calc_id).execute()
-                room_data_list = []
-                for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
-                    present_entry = room_data['present_entry']
-                    previous_entry = room_data['previous_entry']
-                    real_unit_label = room_data['real_unit_label']
-                    unit_bill_label = room_data['unit_bill_label']
-                    gas_bill_entry = room_data['gas_bill_entry']
-                    water_bill_entry = room_data['water_bill_entry']
-                    house_rent_entry = room_data['house_rent_entry']
-                    grand_total_label = room_data['grand_total_label']
 
-                    room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
-                    room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
-                    
-                    # Handle incomplete rooms - save with special markers
-                    if real_unit_label.text() == "Incomplete" or unit_bill_label.text() == "Incomplete" or grand_total_label.text() == "Incomplete":
-                        room_data_list.append({"main_calculation_id": main_calc_id, "room_name": room_name,
-                                               "present_reading_room": _s_int(present_entry.text()),
-                                               "previous_reading_room": _s_int(previous_entry.text()),
-                                               "units_consumed_room": None,  # NULL indicates incomplete
-                                               "cost_room": None,            # NULL indicates incomplete
-                                               "gas_bill": None,
-                                               "water_bill": None,
-                                               "house_rent": None,
-                                               "grand_total_room": None})
+            try:
+                with self.supabase.postgrest.transaction() as trx:
+                    if main_calc_id:
+                        trx.table("main_calculations").update(main_calc_data).eq("id", main_calc_id).execute()
+                        print(f"Main calculation data updated for {month} {year}")
                     else:
-                        room_data_list.append({"main_calculation_id": main_calc_id, "room_name": room_name,
-                                               "present_reading_room": _s_int(present_entry.text()),
-                                               "previous_reading_room": _s_int(previous_entry.text()),
-                                               "units_consumed_room": _s_int(real_unit_label.text()),
-                                               "cost_room": _s_float(unit_bill_label.text().replace(" TK", "")),
-                                               "gas_bill": _s_float(gas_bill_entry.text()),
-                                               "water_bill": _s_float(water_bill_entry.text()),
-                                               "house_rent": _s_float(house_rent_entry.text()),
-                                               "grand_total_room": _s_float(grand_total_label.text().replace(" TK", ""))})
-                if room_data_list: self.supabase.table("room_calculations").insert(room_data_list).execute()
-            
-            QMessageBox.information(self, "Save Successful", f"Data saved to Supabase for {month} {year}")
+                        insert_response = trx.table("main_calculations").insert(main_calc_data).execute()
+                        if insert_response.data:
+                            main_calc_id = insert_response.data[0]['id']
+                        else:
+                            raise Exception("Failed to insert main calculation data.")
+                        print(f"Main calculation data inserted for {month} {year} with ID: {main_calc_id}")
+
+                    if main_calc_id and self.rooms_tab_instance.room_entries:
+                        trx.table("room_calculations").delete().eq("main_calculation_id", main_calc_id).execute()
+                        room_data_list = []
+                        for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
+                            real_unit_label = room_data['real_unit_label']
+                            unit_bill_label = room_data['unit_bill_label']
+                            grand_total_label = room_data['grand_total_label']
+                            
+                            # Skip incomplete rooms
+                            if real_unit_label.text() == "Incomplete" or unit_bill_label.text() == "Incomplete" or grand_total_label.text() == "Incomplete":
+                                continue
+
+                            present_entry = room_data['present_entry']
+                            previous_entry = room_data['previous_entry']
+                            gas_bill_entry = room_data['gas_bill_entry']
+                            water_bill_entry = room_data['water_bill_entry']
+                            house_rent_entry = room_data['house_rent_entry']
+
+                            room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                            room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
+                            
+                            room_data_list.append({
+                                "main_calculation_id": main_calc_id,
+                                "room_name": room_name,
+                                "present_reading": _s_int(present_entry.text()),
+                                "previous_reading": _s_int(previous_entry.text()),
+                                "real_unit": _s_float(real_unit_label.text()),
+                                "unit_bill": _s_float(unit_bill_label.text().replace(" TK", "")),
+                                "gas_bill": _s_float(gas_bill_entry.text()),
+                                "water_bill": _s_float(water_bill_entry.text()),
+                                "house_rent": _s_float(house_rent_entry.text()),
+                                "grand_total_room": _s_float(grand_total_label.text().replace(" TK", ""))
+                            })
+                        if room_data_list:
+                            trx.table("room_calculations").insert(room_data_list).execute()
+                            print(f"Room calculation data inserted/updated for main_calc_id: {main_calc_id}")
+                QMessageBox.information(self, "Save Successful", "Calculation data saved to Supabase.")
+            except APIError as e:
+                QMessageBox.critical(self, "Supabase API Error", f"Failed to save data to Supabase: {e.message}\n{traceback.format_exc()}")
+            except Exception as e:
+                QMessageBox.critical(self, "Save Error", f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
         except APIError as e:
             QMessageBox.critical(self, "Supabase API Error", f"Supabase API Error: {e.message}\nDetails: {e.details}\nHint: {e.hint}")
             print(f"Supabase API Error: {e.message}\nDetails: {e.details}\nHint: {e.hint}\n{traceback.format_exc()}")
@@ -547,8 +569,9 @@ class MeterCalculationApp(QMainWindow):
         # It should trigger a refresh in all tabs that display rental info
         # For now, it only refreshes the HistoryTab
         try:
-            self.history_tab_instance.load_history_data()
-            self.archived_info_tab_instance.load_archived_info()
+            self.rental_info_tab_instance.load_rental_records()
+            self.archived_info_tab_instance.load_archived_records()
+            self.history_tab_instance.load_history() # Ensure history tab is also refreshed
         except Exception as e:
             logging.error(f"Error refreshing rental tabs: {e}")
 

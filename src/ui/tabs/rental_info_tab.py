@@ -1,7 +1,9 @@
 import sys
 import traceback
 import os
+import io # Import the io module for in-memory binary streams
 from datetime import datetime
+from pathlib import Path # Import Path from pathlib
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap
@@ -17,16 +19,25 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 
-from styles import (
+from src.ui.styles import (
     get_room_selection_style, get_room_group_style, get_line_edit_style,
     get_button_style, get_table_style, get_label_style
 )
-from utils import resource_path, _clear_layout
-from custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
-from dialogs import RentalRecordDialog
+from src.core.utils import resource_path, _clear_layout
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
+from src.ui.dialogs import RentalRecordDialog
 
 
 class RentalInfoTab(QWidget):
+    # Define safe and forbidden directories at the class level
+    SAFE_DIRS = [Path.cwd()] + [Path.home() / d for d in ("Documents", "Desktop", "Downloads")]
+    FORBIDDEN = [
+        Path(p) for p in (
+            "/etc", "/sys", "/proc", "/bin", "/usr",
+            "C:/Windows", "C:/Windows/System32"
+        )
+    ]
+
     def __init__(self, main_window_ref):
         super().__init__()
         self.main_window = main_window_ref
@@ -189,7 +200,10 @@ class RentalInfoTab(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, f"Select {image_type.replace('_', ' ').title()} Image", "",
                                                    "Image Files (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)", options=options)
         if file_path:
-            # Validate file is actually an image
+            # Check that the chosen path is allowed and that the file is an image
+            if not self._is_safe_path(file_path):
+                QMessageBox.warning(self, "Forbidden Path", "The selected location is not permitted.")
+                return
             if not self._validate_image_file(file_path):
                 QMessageBox.warning(self, "Invalid File", "The selected file is not a valid image.")
                 return
@@ -226,7 +240,7 @@ class RentalInfoTab(QWidget):
         current_time = datetime.now().isoformat()
 
         try:
-            if self.current_rental_id:
+            if self.current_rental_id is not None:
                 # Update existing record
                 self.db_manager.execute_query(
                     """
@@ -264,6 +278,7 @@ class RentalInfoTab(QWidget):
     def load_rental_records(self):
         try:
             records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC", fetch_all=True)
+            self.rental_records_table.clearContents() # Clear existing items and their data
             self.rental_records_table.setRowCount(len(records))
             for row_idx, record in enumerate(records):
                 for col_idx, data in enumerate(record[:6]): # Display first 6 columns in table
@@ -339,44 +354,69 @@ class RentalInfoTab(QWidget):
                     return True # Event handled
         return super().eventFilter(obj, event)
 
-    def _is_safe_path(self, file_path):
-        """Validate that the file path is safe to access"""
-        if not file_path:
-            return False
-        
+    def _rel_to(self, p: Path, root: Path) -> bool:
+        """Helper to safely check if a path is relative to a root, guarding against ValueError."""
         try:
-            # Convert to absolute path and resolve any symbolic links
-            abs_path = os.path.abspath(os.path.realpath(file_path))
-            
-            # Get the application's working directory as the safe base
-            app_dir = os.path.abspath(os.getcwd())
-            
-            # Security checks:
-            # 1. Must be within app directory or common safe directories
-            safe_dirs = [
-                app_dir,
-                os.path.expanduser("~/Documents"),
-                os.path.expanduser("~/Desktop"),
-                os.path.expanduser("~/Downloads")
-            ]
-            
-            # Check if path is within any safe directory
-            is_in_safe_dir = any(
-                os.path.commonpath([abs_path, os.path.abspath(safe_dir)]) == os.path.abspath(safe_dir)
-                for safe_dir in safe_dirs
-            )
-            
-            # 2. Prevent directory traversal attacks
-            has_traversal = ".." in file_path or abs_path != os.path.normpath(abs_path)
-            
-            # 3. Prevent access to system directories
-            forbidden_dirs = ["/etc", "/sys", "/proc", "C:\\Windows", "C:\\System32"]
-            in_forbidden_dir = any(abs_path.startswith(forbidden) for forbidden in forbidden_dirs)
-            
-            return is_in_safe_dir and not has_traversal and not in_forbidden_dir
-            
-        except (OSError, ValueError):
+            return p.is_relative_to(root)
+        except ValueError:
             return False
+
+    def _is_safe_path(self, p: str) -> bool:
+        """
+        Validate that the file path is safe to access, considering symlinks and preventing
+        directory traversal attacks.
+
+        This function performs several security checks:
+        1. Ensures the path is not empty.
+        2. Handles potential OSError during path normalization.
+        3. Checks the original (user-supplied) path against a list of forbidden directories.
+        4. Prevents directory traversal attempts by checking for ".." segments in the original path.
+        5. Resolves the path to its true location, handling symlinks.
+        6. Checks the resolved path against forbidden directories (defense-in-depth).
+        7. Checks the resolved path against a list of allowed safe directories.
+        """
+        if not p:
+            return False
+
+        try:
+            # Convert the input string to a Path object for easier manipulation
+            original_path = Path(p)
+            # Normalize original path for case-insensitive comparison on Windows
+            original_path_norm = Path(os.path.normcase(str(original_path)))
+        except OSError: # Catches invalid path strings (e.g. containing null bytes)
+            # If path conversion fails, it's not a safe path
+            return False
+
+        # 1. Check original path against forbidden directories (before resolving symlinks)
+        # This prevents access to sensitive system directories even if symlinked from a safe location.
+        if any(self._rel_to(original_path_norm, Path(os.path.normcase(str(fd)))) for fd in self.FORBIDDEN):
+            return False
+
+        # 2. Reject any traversal attempt visible in the user-supplied path
+        # Path.resolve() eliminates ".." segments, so this check must be done before resolution.
+        if any(part == ".." for part in original_path.parts):
+            return False
+
+        # 3. Resolve the path to check its true location
+        # This handles symlinks and gets the canonical path.
+        try:
+            resolved_path = original_path.resolve(strict=False)
+            resolved_path_norm = Path(os.path.normcase(str(resolved_path)))
+        except OSError:
+            # If resolution fails (e.g., path does not exist or permissions issue), it's not a safe path
+            return False
+
+        # 4. Explicitly check for directory traversal segments in the resolved path (defense-in-depth)
+        # While resolve() typically removes '..', this acts as an additional safeguard.
+        if any(part == ".." for part in resolved_path.parts):
+            return False
+
+        # 5. Check resolved path against forbidden directories (in case a safe path symlinks to a forbidden one)
+        if any(self._rel_to(resolved_path_norm, Path(os.path.normcase(str(fd)))) for fd in self.FORBIDDEN):
+            return False
+
+        # 6. Check resolved path against safe directories
+        return any(self._rel_to(resolved_path_norm, Path(os.path.normcase(str(sd)))) for sd in self.SAFE_DIRS)
 
     def _validate_image_file(self, file_path):
         """Validate that the file is actually an image"""
@@ -391,23 +431,30 @@ class RentalInfoTab(QWidget):
             return None
         try:
             # Create a temporary Image object to get original dimensions
-            temp_img = Image(image_path)
-            img_width, img_height = temp_img.drawWidth, temp_img.drawHeight
-            
-            width_scale = max_width / img_width
-            height_scale = max_height / img_height
-            scale_factor = min(width_scale, height_scale) # Use the smaller scale factor to fit both dimensions
+            temp_pixmap = QPixmap(image_path)
+            if temp_pixmap.isNull():
+                return None
 
-            scaled_width = img_width * scale_factor
-            scaled_height = img_height * scale_factor
-            return scaled_width, scaled_height
+            # Calculate scaling factor
+            width = temp_pixmap.width()
+            height = temp_pixmap.height()
+
+            if width > max_width or height > max_height:
+                aspect_ratio = width / height
+                if width > height:
+                    new_width = max_width
+                    new_height = int(new_width / aspect_ratio)
+                else:
+                    new_height = max_height
+                    new_width = int(new_height * aspect_ratio)
+                return temp_pixmap.scaled(new_width, new_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            return temp_pixmap
         except Exception as e:
             print(f"Error scaling image {image_path}: {e}")
             traceback.print_exc()
             return None
 
     def generate_rental_pdf_from_data(self, record_data):
-        # record_data: id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path
         tenant_name = record_data[1]
         room_number = record_data[2]
         advanced_paid = record_data[3]
@@ -418,131 +465,84 @@ class RentalInfoTab(QWidget):
         nid_back_path = record_data[8]
         police_form_path = record_data[9]
 
-        default_filename = f"RentalAgreement_{tenant_name.replace(' ', '_')}_{room_number.replace(' ', '_')}.pdf"
-        options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(self, "Save Rental Agreement PDF", default_filename, "PDF Files (*.pdf);;All Files (*)", options=options)
-        
-        if not file_path:
-            return None # User cancelled
+        # Define PDF file name
+        pdf_filename = f"Rental_Record_{tenant_name.replace(' ', '_')}_{room_number.replace(' ', '_')}.pdf"
+        pdf_path = os.path.join(os.path.expanduser("~/Documents"), pdf_filename)
 
         try:
-            doc = SimpleDocTemplate(file_path, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch, leftMargin=0.5*inch, rightMargin=0.5*inch)
-            elements = []
+            doc = SimpleDocTemplate(pdf_path, pagesize=letter)
             styles = getSampleStyleSheet()
-            title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.darkblue, spaceAfter=15, alignment=TA_CENTER)
-            heading_style = ParagraphStyle('HeadingStyle', parent=styles['Heading2'], fontSize=14, textColor=colors.darkgreen, spaceAfter=10)
-            normal_style = ParagraphStyle('NormalStyle', parent=styles['Normal'], fontSize=10, textColor=colors.black, spaceAfter=5)
-            bold_style = ParagraphStyle('BoldStyle', parent=styles['Normal'], fontSize=10, textColor=colors.black, fontName='Helvetica-Bold', spaceAfter=5)
             
-            # Page 1: Details only
-            elements.append(Paragraph("Rental Information Report", title_style))
-            elements.append(Spacer(1, 0.2*inch))
+            # Custom style for centered bold text
+            centered_bold_style = ParagraphStyle(
+                'CenteredBold',
+                parent=styles['Normal'],
+                fontName='Helvetica-Bold',
+                fontSize=14,
+                alignment=TA_CENTER,
+                spaceAfter=12
+            )
 
+            elements = []
+
+            # Title
+            elements.append(Paragraph("Rental Information Record", centered_bold_style))
+            elements.append(Spacer(1, 0.2 * inch))
+
+            # Tenant Details Table
             data = [
-                [Paragraph("<b>Tenant Name:</b>", bold_style), Paragraph(tenant_name, normal_style)],
-                [Paragraph("<b>Room Number:</b>", bold_style), Paragraph(room_number, normal_style)],
-                [Paragraph("<b>Advanced Paid:</b>", bold_style), Paragraph(f"{advanced_paid:.2f} TK", normal_style)],
-                [Paragraph("<b>Record Created:</b>", bold_style), Paragraph(created_at, normal_style)],
-                [Paragraph("<b>Last Updated:</b>", bold_style), Paragraph(updated_at, normal_style)],
+                ["Field", "Details"],
+                ["Tenant Name:", tenant_name],
+                ["Room Number:", room_number],
+                ["Advanced Paid:", f"TK {advanced_paid:,.2f}"],
+                ["Record Created:", created_at],
+                ["Last Updated:", updated_at]
             ]
-            table = Table(data, colWidths=[2*inch, 5.5*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey), # Header background
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.darkblue), # Header text color
+            table_style = TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 11),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.white), # Data rows background
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey), # Light grid lines
-                ('LEFTPADDING', (0, 0), (-1, -1), 10),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-                ('TOPPADDING', (0, 0), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ]))
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('BOX', (0, 0), (-1, -1), 1, colors.black),
+            ])
+            table = Table(data, colWidths=[2 * inch, 4 * inch])
+            table.setStyle(table_style)
             elements.append(table)
-            # Page 2: Photo, NID Front, NID Back (top-down)
-            # Page 2: Photo, NID Front (top-down)
-            # Page 2: Photo, NID Front, NID Back (top-down, no bordering)
-            elements.append(NextPageTemplate('ImagePage')) # Template for upcoming page
-            elements.append(PageBreak()) # End of Page 1
-            
-            image_paths_page2 = [
-                photo_path,
-                nid_front_path,
-                nid_back_path,
-            ]
+            elements.append(Spacer(1, 0.3 * inch))
 
-            # Calculate available height for images on Page 2
-            # Letter page height is 11 inches. With 0.5 inch top/bottom margins, available height is 10 inches.
-            # Divide by 3 for three images, leaving some space for spacers.
-            max_img_width_page2 = 7.5 * inch # Full width of the page minus margins
-            max_img_height_page2 = (letter[1] - 1.0 * inch) / len(image_paths_page2) - (0.2 * inch * (len(image_paths_page2) - 1)) # Distribute height
+            # Document Images
+            elements.append(Paragraph("<b>Associated Documents:</b>", styles['h3']))
+            elements.append(Spacer(1, 0.1 * inch))
 
-            for path in image_paths_page2:
-                if path and self._is_safe_path(path) and os.path.exists(path):
-                    scaled_dims = self._scale_image(path, max_img_width_page2, max_img_height_page2)
-                    if scaled_dims:
-                        img_width, img_height = scaled_dims
-                        img = Image(path, width=img_width, height=img_height)
-                        img.hAlign = 'CENTER' # Center the image
+            image_paths = {
+                "Tenant Photo": photo_path,
+                "NID Front Side": nid_front_path,
+                "NID Back Side": nid_back_path,
+                "Police Verification Form": police_form_path
+            }
+
+            for title, path in image_paths.items():
+                if path and os.path.exists(path) and self._is_safe_path(path):
+                    elements.append(Paragraph(f"<b>{title}:</b>", styles['Normal']))
+                    scaled_image = self._scale_image(path, 500, 500) # Max width/height for images
+                    if scaled_image:
+                        # Convert QPixmap to ReportLab Image
+                        img_data = scaled_image.toImage().bits().asstring(scaled_image.toImage().byteCount())
+                        img = Image(io.BytesIO(img_data), scaled_image.width(), scaled_image.height())
                         elements.append(img)
-                        elements.append(Spacer(1, 0.2*inch)) # Add some space between images
+                        elements.append(Spacer(1, 0.1 * inch))
                     else:
-                        elements.append(Paragraph(f"<i>(Could not load image from {path})</i>", normal_style))
+                        elements.append(Paragraph(f"<i>Could not load image from {path}</i>", styles['Normal']))
                 else:
-                    missing_name = os.path.basename(path) if path else 'image'
-                    elements.append(Paragraph(f"<i>No file provided for {missing_name}</i>", normal_style))
-                    elements.append(Spacer(1, 0.1*inch))
-            # Removed PageBreak() here to prevent blank page before Police Form
+                    elements.append(Paragraph(f"<i>{title}: Not provided or file not found/safe.</i>", styles['Normal']))
+                elements.append(Spacer(1, 0.2 * inch))
 
-            # Page 3: Police Form (full page utilization, no bordering)
-            elements.append(NextPageTemplate('FullPageImage')) # Switch to the custom page template for full page image
-            elements.append(PageBreak())
-
-            if police_form_path and self._is_safe_path(police_form_path) and os.path.exists(police_form_path):
-                # Scale to fit entire page, maintaining aspect ratio
-                # Use the full page dimensions for scaling, as margins are now zero for this template
-                max_frame_width = letter[0] # Full width of the page
-                max_frame_height = letter[1] # Full height of the page
-
-                scaled_dims = self._scale_image(police_form_path, max_frame_width, max_frame_height)
-                if scaled_dims:
-                    img_width, img_height = scaled_dims
-                    img = Image(police_form_path, width=img_width, height=img_height)
-                    img.hAlign = 'CENTER' # Center the image
-                    img.vAlign = 'MIDDLE' # Center vertically
-                    elements.append(img)
-                else:
-                    elements.append(Paragraph(f"<i>(Could not load Police Form image from {police_form_path})</i>", normal_style))
-            else:
-                elements.append(Paragraph("<i>No Police Form file provided</i>", normal_style))
-            
-            # Define custom page templates
-            # Template for Page 2 (Images) - with standard margins
-            image_frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
-                                id='image_frame')
-            image_page_template = PageTemplate(id='ImagePage', frames=[image_frame])
-
-            # Template for Page 3 (Police Form) - with zero margins
-            full_page_frame = Frame(0, 0, letter[0], letter[1],
-                                    leftPadding=0, bottomPadding=0,
-                                    rightPadding=0, topPadding=0,
-                                    id='full_page_frame')
-            full_page_image_template = PageTemplate(id='FullPageImage', frames=[full_page_frame])
-
-            doc.addPageTemplates([image_page_template, full_page_image_template])
-            
             doc.build(elements)
-            QMessageBox.information(self, "PDF Saved", f"Rental agreement saved to {file_path}")
-            return file_path
-        except PermissionError:
-            QMessageBox.warning(self, "Permission Denied",
-                                f"Cannot save to {file_path}\n\nThe file may be open in another program or you don't have write permission to this location. Please close any programs using this file and try again or select a different location.")
-            return None
+            QMessageBox.information(self, "PDF Generated", f"Rental record PDF saved to:\n{pdf_path}")
+            return True
         except Exception as e:
-            QMessageBox.critical(self, "PDF Save Error", f"Failed to save PDF: {e}\n{traceback.format_exc()}")
-            return None
+            QMessageBox.critical(self, "PDF Generation Error", f"Failed to generate PDF: {e}\n{traceback.format_exc()}")
+            return False
