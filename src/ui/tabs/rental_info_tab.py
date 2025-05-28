@@ -2,6 +2,7 @@ import sys
 import traceback
 import os
 from datetime import datetime
+from pathlib import Path # Import Path from pathlib
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap
@@ -17,16 +18,25 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 
-from styles import (
+from src.ui.styles import (
     get_room_selection_style, get_room_group_style, get_line_edit_style,
     get_button_style, get_table_style, get_label_style
 )
-from utils import resource_path, _clear_layout
-from custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
-from dialogs import RentalRecordDialog
+from src.core.utils import resource_path, _clear_layout
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
+from src.ui.dialogs import RentalRecordDialog
 
 
 class RentalInfoTab(QWidget):
+    # Define safe and forbidden directories at the class level
+    SAFE_DIRS = [Path.cwd()] + [Path.home() / d for d in ("Documents", "Desktop", "Downloads")]
+    FORBIDDEN = [
+        Path(p) for p in (
+            "/etc", "/sys", "/proc", "/bin", "/usr",
+            "C:/Windows", "C:/Windows/System32"
+        )
+    ]
+
     def __init__(self, main_window_ref):
         super().__init__()
         self.main_window = main_window_ref
@@ -189,7 +199,10 @@ class RentalInfoTab(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, f"Select {image_type.replace('_', ' ').title()} Image", "",
                                                    "Image Files (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)", options=options)
         if file_path:
-            # Validate file is actually an image
+            # Check that the chosen path is allowed and that the file is an image
+            if not self._is_safe_path(file_path):
+                QMessageBox.warning(self, "Forbidden Path", "The selected location is not permitted.")
+                return
             if not self._validate_image_file(file_path):
                 QMessageBox.warning(self, "Invalid File", "The selected file is not a valid image.")
                 return
@@ -226,7 +239,7 @@ class RentalInfoTab(QWidget):
         current_time = datetime.now().isoformat()
 
         try:
-            if self.current_rental_id:
+            if self.current_rental_id is not None:
                 # Update existing record
                 self.db_manager.execute_query(
                     """
@@ -264,6 +277,7 @@ class RentalInfoTab(QWidget):
     def load_rental_records(self):
         try:
             records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC", fetch_all=True)
+            self.rental_records_table.clearContents() # Clear existing items and their data
             self.rental_records_table.setRowCount(len(records))
             for row_idx, record in enumerate(records):
                 for col_idx, data in enumerate(record[:6]): # Display first 6 columns in table
@@ -339,44 +353,47 @@ class RentalInfoTab(QWidget):
                     return True # Event handled
         return super().eventFilter(obj, event)
 
-    def _is_safe_path(self, file_path):
-        """Validate that the file path is safe to access"""
-        if not file_path:
-            return False
-        
+    def _rel_to(self, p: Path, root: Path) -> bool:
+        """Helper to safely check if a path is relative to a root, guarding against ValueError."""
         try:
-            # Convert to absolute path and resolve any symbolic links
-            abs_path = os.path.abspath(os.path.realpath(file_path))
-            
-            # Get the application's working directory as the safe base
-            app_dir = os.path.abspath(os.getcwd())
-            
-            # Security checks:
-            # 1. Must be within app directory or common safe directories
-            safe_dirs = [
-                app_dir,
-                os.path.expanduser("~/Documents"),
-                os.path.expanduser("~/Desktop"),
-                os.path.expanduser("~/Downloads")
-            ]
-            
-            # Check if path is within any safe directory
-            is_in_safe_dir = any(
-                os.path.commonpath([abs_path, os.path.abspath(safe_dir)]) == os.path.abspath(safe_dir)
-                for safe_dir in safe_dirs
-            )
-            
-            # 2. Prevent directory traversal attacks
-            has_traversal = ".." in file_path or abs_path != os.path.normpath(abs_path)
-            
-            # 3. Prevent access to system directories
-            forbidden_dirs = ["/etc", "/sys", "/proc", "C:\\Windows", "C:\\System32"]
-            in_forbidden_dir = any(abs_path.startswith(forbidden) for forbidden in forbidden_dirs)
-            
-            return is_in_safe_dir and not has_traversal and not in_forbidden_dir
-            
-        except (OSError, ValueError):
+            return p.is_relative_to(root)
+        except ValueError:
             return False
+
+    def _is_safe_path(self, p: str) -> bool:
+        """Validate that the file path is safe to access, considering symlinks."""
+        if not p:
+            return False
+
+        try:
+            original_path = Path(p)
+            # Normalize original path for case-insensitive comparison on Windows
+            original_path_norm = Path(os.path.normcase(str(original_path)))
+        except OSError:
+            return False
+
+        # 1. Check original path against forbidden directories (before resolving symlinks)
+        if any(self._rel_to(original_path_norm, Path(os.path.normcase(str(fd)))) for fd in self.FORBIDDEN):
+            return False
+
+        # 2. Resolve the path to check its true location
+        try:
+            resolved_path = original_path.resolve(strict=False)
+            resolved_path_norm = Path(os.path.normcase(str(resolved_path)))
+        except OSError:
+            # If resolution fails, it's not a safe path
+            return False
+
+        # 3. Explicitly check for directory traversal segments in the resolved path
+        if any(part == ".." for part in resolved_path.parts):
+            return False
+
+        # 4. Check resolved path against forbidden directories (in case a safe path symlinks to a forbidden one)
+        if any(self._rel_to(resolved_path_norm, Path(os.path.normcase(str(fd)))) for fd in self.FORBIDDEN):
+            return False
+
+        # 5. Check resolved path against safe directories
+        return any(self._rel_to(resolved_path_norm, Path(os.path.normcase(str(sd)))) for sd in self.SAFE_DIRS)
 
     def _validate_image_file(self, file_path):
         """Validate that the file is actually an image"""
@@ -479,8 +496,11 @@ class RentalInfoTab(QWidget):
             # Calculate available height for images on Page 2
             # Letter page height is 11 inches. With 0.5 inch top/bottom margins, available height is 10 inches.
             # Divide by 3 for three images, leaving some space for spacers.
+            img_count = max(1, sum(bool(p and os.path.exists(p)) for p in image_paths_page2))
+            max_img_height_page2 = (letter[1] - 1.0 * inch) / img_count - (0.2 * inch * (img_count - 1))
             max_img_width_page2 = 7.5 * inch # Full width of the page minus margins
-            max_img_height_page2 = (letter[1] - 1.0 * inch) / len(image_paths_page2) - (0.2 * inch * (len(image_paths_page2) - 1)) # Distribute height
+            # Height distributed only across the images that will actually be rendered
+            # max_img_height_page2 is already calculated correctly on line 500 using img_count
 
             for path in image_paths_page2:
                 if path and self._is_safe_path(path) and os.path.exists(path):

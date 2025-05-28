@@ -8,17 +8,19 @@ from datetime import datetime
 from PyQt5.QtCore import QRegExp
 from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QGroupBox, QFormLayout, QMessageBox, QSpinBox, QComboBox, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QGroupBox, QFormLayout, QMessageBox, QSpinBox, QComboBox, QSizePolicy,
+    QGridLayout # Added QGridLayout
 )
+from postgrest.exceptions import APIError
 
-from styles import (
+from src.ui.styles import (
     get_group_box_style, get_line_edit_style, get_button_style,
-    get_month_info_style, get_label_style, get_result_title_style, 
+    get_month_info_style, get_label_style, get_result_title_style,
     get_result_value_style
 )
-from utils import resource_path
-from custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.core.utils import resource_path
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
 
 class MainTab(QWidget):
     def __init__(self, main_window_ref):
@@ -326,6 +328,8 @@ class MainTab(QWidget):
             meter_edit = CustomLineEdit()
             meter_edit.setObjectName(f"meter_edit_{i}")
             meter_edit.setPlaceholderText(f"Enter meter {i+1} reading")
+            numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
+            meter_edit.setValidator(numeric_validator)
             self.meter_layout.addRow(f"Meter {i+1} Reading:", meter_edit)
             if i in current_values:
                 meter_edit.setText(current_values[i])
@@ -344,6 +348,8 @@ class MainTab(QWidget):
             diff_edit = CustomLineEdit()
             diff_edit.setObjectName(f"diff_edit_{i}")
             diff_edit.setPlaceholderText(f"Enter difference {i+1} reading")
+            numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
+            diff_edit.setValidator(numeric_validator)
             self.diff_layout.addRow(f"Difference {i+1} Reading:", diff_edit)
             if i in current_values:
                 diff_edit.setText(current_values[i])
@@ -525,8 +531,18 @@ class MainTab(QWidget):
             self.month_combo.setCurrentText(main_data.get("month", selected_month))
             self.year_spinbox.setValue(main_data.get("year", selected_year))
 
-            meter_readings = json.loads(main_data.get("extra_meter_readings", "[]"))
-            diff_readings = json.loads(main_data.get("extra_diff_readings", "[]"))
+            meter_json = main_data.get("extra_meter_readings") or "[]"
+            diff_json  = main_data.get("extra_diff_readings")  or "[]"
+            try:
+                meter_readings = json.loads(meter_json)
+                diff_readings  = json.loads(diff_json)
+            except (TypeError, json.JSONDecodeError):
+                QMessageBox.warning(
+                    self, "Load Error",
+                    "Corrupted extra meter/diff readings detected in cloud data; "
+                    "those fields will be ignored."
+                )
+                meter_readings, diff_readings = [], []
 
             # Prepend fixed meters/diffs if they exist
             meter_readings = [main_data.get(f"meter{i+1}_reading", 0) for i in range(3)] + meter_readings
@@ -542,12 +558,12 @@ class MainTab(QWidget):
             # Populate meter and diff entries
             for i, val in enumerate(meter_readings):
                 if i < len(self.meter_entries):
-                    self.meter_entries[i].setText(str(val))
+                    self.meter_entries[i].setText("" if val in (None, "") else str(val))
             for i, val in enumerate(diff_readings):
                 if i < len(self.diff_entries):
-                    self.diff_entries[i].setText(str(val))
+                    self.diff_entries[i].setText("" if val in (None, "") else str(val))
 
-            self.additional_amount_input.setText(str(main_data.get("additional_amount", 0.0)))
+            self.additional_amount_input.setText("" if main_data.get("additional_amount", 0.0) in (None, "") else str(main_data.get("additional_amount", 0.0)))
             
             # Load room data from Supabase
             response_rooms = self.main_window.supabase.table("room_calculations") \

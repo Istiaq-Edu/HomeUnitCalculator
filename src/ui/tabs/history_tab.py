@@ -16,12 +16,12 @@ from PyQt5.QtWidgets import (
 )
 from postgrest.exceptions import APIError
 
-from styles import (
+from src.ui.styles import (
     get_stylesheet, get_group_box_style, get_line_edit_style, get_button_style,
     get_room_group_style, get_month_info_style, get_table_style, get_label_style
 )
-from utils import resource_path # For icons
-from custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.core.utils import resource_path # For icons
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
 
 
 # Dialog for Editing Records (Moved from HomeUnitCalculator.py)
@@ -272,18 +272,29 @@ class EditRecordDialog(QDialog):
             for rws in self.room_edit_widgets:
                 present = _s_int(rws["present_edit"].text())
                 previous = _s_int(rws["previous_edit"].text())
+                if present < previous:
+                    raise ValueError(
+                        f"Present reading ({present}) cannot be less than previous reading "
+                        f"({previous}) for room '{rws['name']}'."
+                    )
                 units_consumed = present - previous
                 cost = units_consumed * per_unit_cost_calc
-                updated_room_data_list.append({
+                room_data_to_append = {
                     "main_calculation_id": self.record_id, "room_name": rws["name"],
                     "present_reading_room": present, "previous_reading_room": previous,
                     "units_consumed_room": units_consumed, "cost_room": cost
-                })
+                }
+                if rws.get("room_id"): # Include room_id if it exists for upsert
+                    room_data_to_append["id"] = rws["room_id"]
+                updated_room_data_list.append(room_data_to_append)
 
+            # Update main_calculations
             self.supabase.table("main_calculations").update(updated_main_data).eq("id", self.record_id).execute()
-            self.supabase.table("room_calculations").delete().eq("main_calculation_id", self.record_id).execute()
+            
+            # Use upsert for room_calculations to prevent data loss on partial failure
+            # upsert will insert new records or update existing ones based on primary key (id)
             if updated_room_data_list:
-                self.supabase.table("room_calculations").insert(updated_room_data_list).execute()
+                self.supabase.table("room_calculations").upsert(updated_room_data_list).execute()
 
             QMessageBox.information(self, "Success", "Record updated successfully.")
             self.accept()
@@ -294,6 +305,11 @@ class EditRecordDialog(QDialog):
 
 
 class HistoryTab(QWidget):
+    MONTH_ORDER = {
+        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
+    }
+
     def __init__(self, main_window_ref):
         super().__init__()
         self.main_window = main_window_ref
@@ -328,9 +344,10 @@ class HistoryTab(QWidget):
         year_label = QLabel("Year:")
         year_label.setStyleSheet(get_label_style())
         self.history_year_spinbox = QSpinBox()
-        self.history_year_spinbox.setRange(2000, 2100)
-        self.history_year_spinbox.setValue(datetime.now().year)
+        # Use 0 as sentinel for “All”
+        self.history_year_spinbox.setRange(0, 2100)
         self.history_year_spinbox.setSpecialValueText("All")
+        self.history_year_spinbox.setValue(0)          # default to “All”, or keep current-year if preferred
         self.history_year_spinbox.setStyleSheet(get_month_info_style())
         filter_layout.addWidget(month_label)
         filter_layout.addWidget(self.history_month_combo)
@@ -427,7 +444,9 @@ class HistoryTab(QWidget):
                 self.load_history_tables_from_csv(selected_month, selected_year_val)
             elif source == "Load from Cloud":
                 if self.main_window.supabase and self.main_window.check_internet_connectivity():
-                    self.load_history_tables_from_supabase(selected_month, selected_year_val)
+                    month_filter = None if selected_month == "All" else selected_month
+                    year_filter  = selected_year_val        # already None if “All”
+                    self.load_history_tables_from_supabase(month_filter, year_filter)
                 elif not self.main_window.supabase:
                     QMessageBox.warning(self, "Supabase Not Configured", "Supabase is not configured.")
                 else:
@@ -443,18 +462,96 @@ class HistoryTab(QWidget):
         # ... This is a substantial piece of code. For brevity here, I'll assume it's moved.
         # Key changes: self.main_history_table, self.room_history_table are now self's attributes.
         # selected_year_val can be None (when "All" years selected) - filter accordingly
-        QMessageBox.information(self, "CSV Load", f"CSV history loading to be fully implemented here.\nFilters: Month={selected_month}, Year={'All' if selected_year_val is None else selected_year_val}")
-        self.main_history_table.setRowCount(0) # Clear placeholder
         self.room_history_table.setRowCount(0) # Clear placeholder
 
-    def load_history_tables_from_supabase(self, selected_month, selected_year_val):
-        # (Logic from HomeUnitCalculator.py, adapted for self and self.main_window)
-        # ... This is also substantial.
-        # Key changes: Uses self.main_window.supabase, self.main_history_table, etc.
-        # selected_year_val can be None (when "All" years selected) - skip year filtering
-        QMessageBox.information(self, "Supabase Load", f"Supabase history loading to be fully implemented here.\nFilters: Month={selected_month}, Year={'All' if selected_year_val is None else selected_year_val}")
-        self.main_history_table.setRowCount(0) # Clear placeholder
-        self.room_history_table.setRowCount(0) # Clear placeholder
+    def load_history_tables_from_supabase(self, month_filter, year_filter):
+        if not self.main_window.supabase or not self.main_window.check_internet_connectivity():
+            QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
+            return
+
+        try:
+            # Build the query dynamically based on filters
+            main_query = self.main_window.supabase.table("main_calculations").select("*")
+            room_query = self.main_window.supabase.table("room_calculations").select("*")
+
+            # Fetch main calculation IDs first
+            ids_query = self.main_window.supabase.table("main_calculations").select("id")
+            if month_filter:
+                ids_query = ids_query.eq("month", month_filter)
+            if year_filter is not None:
+                ids_query = ids_query.eq("year", year_filter)
+            
+            ids_resp = ids_query.execute()
+            ids = [r["id"] for r in ids_resp.data] if ids_resp.data else []
+
+            # Fetch main calculations using the fetched IDs
+            main_query = self.main_window.supabase.table("main_calculations").select("*")
+            if ids:
+                main_query = main_query.in_("id", ids)
+            else:
+                main_query = main_query.eq("id", -1) # No main records, so fetch none
+            
+            main_resp = main_query.order("year", desc=True).execute() # Order by year in Supabase
+            main_records = main_resp.data if main_resp.data else []
+
+            # Sort main_records by month chronologically in Python
+            main_records.sort(key=lambda x: (x["year"], self.MONTH_ORDER.get(x["month"], 0)), reverse=True)
+
+            # Build room history query
+            room_query = self.main_window.supabase.table("room_calculations").select("*")
+            if ids: # Use the same IDs for room history
+                room_query = room_query.in_("main_calculation_id", ids)
+            else:
+                room_query = room_query.eq("main_calculation_id", -1) # Return no records
+            
+            room_resp = room_query.execute()
+            room_records = room_resp.data if room_resp.data else []
+
+            # Sort room_records by main_calculation_id and then room_name for consistent display
+            room_records.sort(key=lambda x: (x["main_calculation_id"], x.get("room_name", "")))
+
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+
+            if main_records:
+                self.main_history_table.setRowCount(len(main_records))
+                for row_idx, record in enumerate(main_records):
+                    self.main_history_table.setItem(row_idx, 0, QTableWidgetItem(record.get("month", "")))
+                    self.main_history_table.setItem(row_idx, 1, QTableWidgetItem(str(record.get("meter1_reading", ""))))
+                    self.main_history_table.setItem(row_idx, 2, QTableWidgetItem(str(record.get("meter2_reading", ""))))
+                    self.main_history_table.setItem(row_idx, 3, QTableWidgetItem(str(record.get("meter3_reading", ""))))
+                    self.main_history_table.setItem(row_idx, 4, QTableWidgetItem(str(record.get("diff1", ""))))
+                    self.main_history_table.setItem(row_idx, 5, QTableWidgetItem(str(record.get("diff2", ""))))
+                    self.main_history_table.setItem(row_idx, 6, QTableWidgetItem(str(record.get("diff3", ""))))
+                    self.main_history_table.setItem(row_idx, 7, QTableWidgetItem(f"{record.get('total_unit_cost', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, 8, QTableWidgetItem(f"{record.get('total_diff_units', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, 9, QTableWidgetItem(f"{record.get('per_unit_cost_calculated', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, 10, QTableWidgetItem(f"{record.get('additional_amount', 0):.2f}"))
+                    self.main_history_table.setItem(row_idx, 11, QTableWidgetItem(f"{record.get('grand_total_bill', 0):.2f}"))
+                    self.main_history_table.item(row_idx, 0).setData(Qt.UserRole, record.get("id")) # Store ID for editing/deleting
+
+            if room_records:
+                self.room_history_table.setRowCount(len(room_records))
+                for row_idx, record in enumerate(room_records):
+                    # Find corresponding main calculation to get month/year
+                    main_calc = next((m for m in main_records if m["id"] == record["main_calculation_id"]), None)
+                    month_year_str = f"{main_calc['month']} {main_calc['year']}" if main_calc else "N/A"
+
+                    self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
+                    self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(record.get("room_name", "")))
+                    self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(record.get("present_reading_room", ""))))
+                    self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(record.get("previous_reading_room", ""))))
+                    self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(record.get("units_consumed_room", ""))))
+                    cost_room_value = record.get('cost_room')
+                    self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(f"{cost_room_value:.2f}" if cost_room_value is not None else "N/A"))
+
+            if not main_records and not room_records:
+                QMessageBox.information(self, "No Data", "No records found for the selected filters.")
+
+        except APIError as e:
+            QMessageBox.critical(self, "Supabase API Error", f"Failed to load history: {e.message}\n{e.details}")
+        except Exception as e:
+            QMessageBox.critical(self, "Load History Error", f"Error: {e}\n{traceback.format_exc()}")
 
     def handle_edit_selected_record(self):
         selected_items = self.main_history_table.selectedItems()
@@ -511,11 +608,17 @@ class HistoryTab(QWidget):
         reply = QMessageBox.question(self, 'Confirm Delete', "Are you sure you want to delete this record?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
-                self.main_window.supabase.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
-                self.main_window.supabase.table("main_calculations").delete().eq("id", record_id).execute()
-                QMessageBox.information(self, "Delete Successful", "Record deleted.")
-                self.load_history()
-            except Exception as e: QMessageBox.critical(self, "Delete Error", f"Failed to delete: {e}")
+                with self.main_window.supabase.postgrest.transaction() as trx:
+                    # Delete associated room_calculations first (or rely on ON DELETE CASCADE if defined in DB)
+                    # For robustness, explicitly deleting within the transaction is safer if CASCADE isn't guaranteed.
+                    trx.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
+                    trx.table("main_calculations").delete().eq("id", record_id).execute()
+                QMessageBox.information(self, "Success", "Record deleted successfully.")
+                self.load_history() # Refresh the table
+            except APIError as e:
+                QMessageBox.critical(self, "Supabase API Error", f"Failed to delete: {e.message}\n{e.details}")
+            except Exception as e:
+                QMessageBox.critical(self, "Delete Error", f"Error: {e}\n{traceback.format_exc()}")
 
 
 if __name__ == '__main__':

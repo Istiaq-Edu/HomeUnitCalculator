@@ -1,14 +1,16 @@
 import sys
+import logging
 import re
+import sqlite3 # Added import for sqlite3
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel, 
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel,
     QLineEdit, QPushButton, QMessageBox, QApplication
 )
 
 # Assuming these modules are in the same directory or accessible in PYTHONPATH
-from styles import (
-    get_header_style, get_group_box_style, get_line_edit_style, 
+from src.ui.styles import (
+    get_header_style, get_group_box_style, get_line_edit_style,
     get_button_style
 )
 # Note: resource_path from utils might be needed if icons were used here, but they aren't in this tab.
@@ -125,7 +127,7 @@ class SupabaseConfigTab(QWidget):
 
         parsed = urlparse(url)
         url_ok = parsed.scheme in {"http", "https"} and parsed.netloc
-        key_ok = re.fullmatch(r'^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$', key) is not None
+        key_ok = re.fullmatch(r'^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$', key) is not None
 
         if not (url_ok and key_ok):
             QMessageBox.warning(
@@ -139,9 +141,19 @@ class SupabaseConfigTab(QWidget):
             self.main_window.db_manager.save_config(url, key)
             QMessageBox.information(self, "Success", "Supabase configuration saved and encrypted successfully!")
             self.main_window._initialize_supabase_client() # Re-initialize client with new config
-        except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Failed to save Supabase configuration: {e}")
-            print(f"Error saving Supabase config: {e}")
+        except sqlite3.Error as db_err:
+            logging.exception("Database error while saving Supabase config")
+            QMessageBox.critical(
+                self,
+                "Database Error",
+                f"Could not persist Supabase config.\n{db_err}"
+            )
+        except (ValueError, TypeError) as e:
+            logging.exception("Validation error while saving Supabase config")
+            QMessageBox.critical(self, "Validation Error", f"Configuration validation failed: {e}")
+        except Exception as e: # Catch-all for truly unexpected errors
+            logging.exception("An unexpected error occurred while saving Supabase config")
+            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred: {e}")
 
 if __name__ == '__main__':
     # This part is for testing the SupabaseConfigTab independently if needed
