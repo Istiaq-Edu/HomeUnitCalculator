@@ -1,5 +1,5 @@
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize, QTimer
-from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QPainter, QPixmap # QFont was not used by these specific widgets but good to have
+from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer
+from PyQt5.QtGui import QIcon, QPainter # QFont was not used by these specific widgets but good to have
 from PyQt5.QtWidgets import (
     QLineEdit, QSizePolicy, QScrollArea, QSpinBox, QAbstractSpinBox, 
     QStyleOptionSpinBox, QStyle, QPushButton
@@ -163,7 +163,9 @@ class AutoScrollArea(QScrollArea):
                 local_pos.x() > rect.width() - self.scroll_margin)
 
     def _perform_auto_scroll(self):
-        if not self.widget(): return # No widget to scroll
+        if not self.widget():
+            # No widget to scroll
+            return
 
         local_pos = self.mapFromGlobal(self._mouse_pos)
         rect = self.rect()

@@ -19,11 +19,8 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 
 from src.ui.styles import (
-    get_room_selection_style, get_room_group_style, get_line_edit_style,
-    get_button_style, get_table_style, get_label_style
+    get_room_selection_style, get_table_style
 )
-from src.core.utils import resource_path, _clear_layout
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
 from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
 
 class ArchivedInfoTab(QWidget):

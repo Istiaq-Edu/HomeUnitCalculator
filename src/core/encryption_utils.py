@@ -10,7 +10,7 @@ class EncryptionUtil:
                 raise ValueError("Invalid key format or length")
             self.f = Fernet(self.key)
         except (ValueError, TypeError, Exception) as e:
-            raise RuntimeError(f"Invalid encryption key: {e}")
+            raise RuntimeError(f"Invalid encryption key: {e}") from e
 
     def encrypt_data(self, data: str) -> bytes:
         """Encrypts a string and returns bytes."""
@@ -21,7 +21,7 @@ class EncryptionUtil:
         try:
             return self.f.encrypt(data.encode())
         except Exception as e:
-            raise RuntimeError(f"Encryption failed: {e}")
+            raise RuntimeError(f"Encryption failed: {e}") from e
 
     def decrypt_data(self, encrypted_data: bytes) -> str:
         """Decrypts bytes and returns a string."""
@@ -30,7 +30,7 @@ class EncryptionUtil:
         try:
             return self.f.decrypt(encrypted_data).decode()
         except Exception as e:
-            raise RuntimeError(f"Decryption failed: {e}")
+            raise RuntimeError(f"Decryption failed: {e}") from e
 
 if __name__ == "__main__":
     # Example usage and testing
@@ -70,13 +70,13 @@ if __name__ == "__main__":
         # Test error cases
         try:
             encryptor.encrypt_data("")
-            assert False, "Should have raised ValueError for empty string"
+            raise AssertionError("Should have raised ValueError for empty string")
         except ValueError:
             print("Empty string validation test passed.")
         
         try:
             encryptor.encrypt_data(123)
-            assert False, "Should have raised TypeError for non-string"
+            raise AssertionError("Should have raised TypeError for non-string")
         except TypeError:
             print("Type validation test passed.")
 

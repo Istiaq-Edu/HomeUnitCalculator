@@ -99,9 +99,28 @@ class DBManager:
     ) -> sqlite3.Row | list[sqlite3.Row] | int | None:
         """
         Executes a SQL query with optional parameters.
-        Commits changes for INSERT, UPDATE, DELETE.
-        Fetches results for SELECT queries based on fetch_one or fetch_all.
-:param params: A tuple or dictionary of parameters to bind to the query. Defaults to an empty dictionary for named parameters, or an empty tuple for positional parameters.
+
+        For data-modifying queries (INSERT, UPDATE, DELETE), changes are committed.
+        - For INSERT or REPLACE queries, the last inserted row ID (int) is returned.
+        - For other data-modifying queries (e.g., UPDATE, DELETE), None is returned.
+
+        For data-retrieval queries (e.g., SELECT, PRAGMA):
+        - If `fetch_one` is True, a single row (sqlite3.Row) is returned, or None if no row is found.
+        - If `fetch_one` is False, all matching rows (list[sqlite3.Row]) are returned by default.
+          An empty list is returned if no rows match.
+
+        :param query: The SQL query string to execute.
+        :param params: Optional. A tuple for positional placeholders, or a dictionary for
+                       named placeholders. If None, the query is executed without parameters.
+        :param fetch_one: If True, fetches only the first row for data-retrieval queries.
+        :param fetch_all: When `fetch_one` is False, this flag can be set to True to
+                          explicitly request all rows, though fetching all rows is the
+                          default in this scenario.
+        :return: A single row (sqlite3.Row), a list of rows (list[sqlite3.Row]),
+                 the last inserted row ID (int), or None, depending on the query
+                 type and fetch flags.
+        :raises sqlite3.Error: If a database error occurs during query execution.
+        :raises Exception: For other unexpected errors.
         """
         try:
             # execute once with empty dict if params is None, to handle named placeholders
@@ -111,14 +130,11 @@ class DBManager:
                 self.cursor.execute(query, params)
             
             # If the statement produced a result-set, fetch it; otherwise commit.
-            if self.cursor.description:               # SELECT / PRAGMA / etc.
+            if self.cursor.description:  # SELECT / PRAGMA / etc.
                 if fetch_one:
                     return self.cursor.fetchone()
-                if fetch_all:
-                    return self.cursor.fetchall()
-                # No fetch flags – caller gets None to avoid
-                # accidentally pulling an unbounded result set
-                return None
+                # If fetch_one is not requested, default to fetching all results.
+                return self.cursor.fetchall()
 
             # No result-set → it's a write or DDL
             self.conn.commit()

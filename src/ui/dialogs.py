@@ -222,7 +222,8 @@ class RentalRecordDialog(QDialog):
             )
             
             # 2. Prevent directory traversal attacks
-            has_traversal_chars = ".." in file_path
+            # `abs_path` is already canonicalised via realpath; check it instead
+            has_traversal_chars = ".." in abs_path
             
             # 3. Prevent access to system directories (case-insensitive for Windows)
             forbidden_dirs = ["/etc", "/sys", "/proc", "c:\\windows", "c:\\system32"]
