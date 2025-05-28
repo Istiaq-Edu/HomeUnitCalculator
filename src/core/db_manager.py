@@ -95,7 +95,6 @@ class DBManager:
         query: str,
         params: tuple | dict | None = None,
         fetch_one: bool = False,
-        fetch_all: bool = False,
     ) -> sqlite3.Row | list[sqlite3.Row] | int | None:
         """
         Executes a SQL query with optional parameters.
@@ -106,16 +105,14 @@ class DBManager:
 
         For data-retrieval queries (e.g., SELECT, PRAGMA):
         - If `fetch_one` is True, a single row (sqlite3.Row) is returned, or None if no row is found.
-        - If `fetch_one` is False, all matching rows (list[sqlite3.Row]) are returned by default.
+        - If `fetch_one` is False, all matching rows (list[sqlite3.Row]) are returned.
           An empty list is returned if no rows match.
 
         :param query: The SQL query string to execute.
         :param params: Optional. A tuple for positional placeholders, or a dictionary for
                        named placeholders. If None, the query is executed without parameters.
         :param fetch_one: If True, fetches only the first row for data-retrieval queries.
-        :param fetch_all: When `fetch_one` is False, this flag can be set to True to
-                          explicitly request all rows, though fetching all rows is the
-                          default in this scenario.
+                          If False, fetches all matching rows.
         :return: A single row (sqlite3.Row), a list of rows (list[sqlite3.Row]),
                  the last inserted row ID (int), or None, depending on the query
                  type and fetch flags.
