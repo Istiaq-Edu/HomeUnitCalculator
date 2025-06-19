@@ -241,7 +241,7 @@ class RentalRecordDialog(QDialog):
         if self.main_window and hasattr(self.main_window, 'rental_info_tab_instance') and hasattr(self.main_window.rental_info_tab_instance, 'generate_rental_pdf_from_data'):
             # Pass the namedtuple directly
             pdf_path = self.main_window.rental_info_tab_instance.generate_rental_pdf_from_data(self.record_data)
-            if pdf_path:
+            if isinstance(pdf_path, str) and pdf_path: # Ensure it's a string and not empty
                 self.pdf_path_label.setText(f"<a href='file:///{pdf_path}'>{os.path.basename(pdf_path)}</a>")
                 self.pdf_path_label.setToolTip(f"Click to open: {pdf_path}")
             else:

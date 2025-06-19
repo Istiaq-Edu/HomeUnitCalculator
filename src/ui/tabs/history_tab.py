@@ -408,9 +408,9 @@ class HistoryTab(QWidget):
         main_calc_group.setStyleSheet(get_group_box_style())
         main_calc_layout = QVBoxLayout(main_calc_group)
         self.main_history_table = QTableWidget()
-        # Disable internal scrollbars since we're using full page scrolling
-        self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Enable horizontal scrollbar for main table if content exceeds width
+        self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # Vertical scrolling handled by main scroll area
         self.main_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.main_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.main_history_table.setAlternatingRowColors(True)
@@ -434,12 +434,13 @@ class HistoryTab(QWidget):
             "Month", "Room Number", "Present Unit", "Previous Unit", "Real Unit", 
             "Unit Bill", "Gas Bill", "Water Bill", "House Rent", "Grand Total"
         ])
-        self.room_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch) 
+        # Allow interactive resizing and horizontal scrolling for room table
+        self.room_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive) 
         self.room_history_table.setAlternatingRowColors(True)
         self.room_history_table.setStyleSheet(get_table_style())
-        # Disable internal scrollbars since we're using full page scrolling
-        self.room_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Enable horizontal scrollbar for room table if content exceeds width
+        self.room_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # Vertical scrolling handled by main scroll area
         self.room_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.room_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         # Remove all height restrictions and let table grow naturally

@@ -78,7 +78,7 @@ class ArchivedInfoTab(QWidget):
                 WHERE is_archived = ?
                 ORDER BY updated_at DESC
             """
-            records = self.db_manager.execute_query(query, (1,), fetch_all=True)
+            records = self.db_manager.execute_query(query, (1,))
             
             if not records:
                 logging.info("No archived records found")
