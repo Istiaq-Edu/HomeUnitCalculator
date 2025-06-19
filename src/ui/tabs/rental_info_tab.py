@@ -4,9 +4,12 @@ import os
 import io # Import the io module for in-memory binary streams
 from datetime import datetime
 from pathlib import Path # Import Path from pathlib
+import shutil # Import shutil for file operations
+import uuid # Import uuid for generating unique filenames
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent
-from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap
+from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap # Keep QPixmap for _validate_image_file
+from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QGridLayout, QGroupBox, QFormLayout, QMessageBox, QSizePolicy, QDialog,
@@ -14,7 +17,8 @@ from PyQt5.QtWidgets import (
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak, BaseDocTemplate, PageTemplate, Frame, NextPageTemplate
+from reportlab.platypus import Table, TableStyle, Paragraph, Spacer, Image, PageBreak, NextPageTemplate, BaseDocTemplate, PageTemplate, Frame, FrameBreak # Re-import FrameBreak
+from reportlab.platypus.flowables import KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -37,6 +41,8 @@ class RentalInfoTab(QWidget):
             "C:/Windows", "C:/Windows/System32"
         )
     ]
+    # Define the directory where images will be stored within the application's data folder
+    IMAGE_STORAGE_DIR = Path.cwd() / "data" / "images"
 
     def __init__(self, main_window_ref):
         super().__init__()
@@ -207,15 +213,43 @@ class RentalInfoTab(QWidget):
             if not self._validate_image_file(file_path):
                 QMessageBox.warning(self, "Invalid File", "The selected file is not a valid image.")
                 return
+
+            # Ensure the image storage directory exists
+            self.IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+            try:
+                # Generate a unique filename to avoid collisions
+                original_filename = Path(file_path).name
+                file_extension = Path(file_path).suffix
+                unique_filename = f"{uuid.uuid4()}{file_extension}"
+                destination_path = self.IMAGE_STORAGE_DIR / unique_filename
+
+                # Copy the file to the application's image storage directory
+                shutil.copy2(file_path, destination_path)
                 
-            if image_type == "photo":
-                self.photo_path_label.setText(file_path)
-            elif image_type == "nid_front":
-                self.nid_front_path_label.setText(file_path)
-            elif image_type == "nid_back":
-                self.nid_back_path_label.setText(file_path)
-            elif image_type == "police_form":
-                self.police_form_path_label.setText(file_path)
+                # Update the label with the new internal path
+                if image_type == "photo":
+                    self.photo_path_label.setText(str(destination_path))
+                elif image_type == "nid_front":
+                    self.nid_front_path_label.setText(str(destination_path))
+                elif image_type == "nid_back":
+                    self.nid_back_path_label.setText(str(destination_path))
+                elif image_type == "police_form":
+                    self.police_form_path_label.setText(str(destination_path))
+                
+                QMessageBox.information(self, "Image Uploaded", f"Image copied to application data: {destination_path.name}")
+
+            except Exception as e:
+                QMessageBox.critical(self, "File Copy Error", f"Failed to copy image: {e}\n{traceback.format_exc()}")
+                # Reset label if copy fails
+                if image_type == "photo":
+                    self.photo_path_label.setText("No file selected")
+                elif image_type == "nid_front":
+                    self.nid_front_path_label.setText("No file selected")
+                elif image_type == "nid_back":
+                    self.nid_back_path_label.setText("No file selected")
+                elif image_type == "police_form":
+                    self.police_form_path_label.setText("No file selected")
 
     def save_rental_record(self):
         tenant_name = self.tenant_name_input.text().strip()
@@ -277,7 +311,7 @@ class RentalInfoTab(QWidget):
 
     def load_rental_records(self):
         try:
-            records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC", fetch_all=True)
+            records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC")
             self.rental_records_table.clearContents() # Clear existing items and their data
             self.rental_records_table.setRowCount(len(records))
             for row_idx, record in enumerate(records):
@@ -332,9 +366,11 @@ class RentalInfoTab(QWidget):
             self.input_fields[current_index + 1].setFocus()
             if isinstance(self.input_fields[current_index + 1], QLineEdit):
                 self.input_fields[current_index + 1].selectAll()
+            return True # Event handled
         else:
             # If it's the last input field, move focus to the Save Record button
             self.save_record_btn.setFocus()
+        return False # Event not handled, continue normal processing
 
     def eventFilter(self, obj, event):
         """Filters events to handle Up/Down arrow key navigation."""
@@ -426,33 +462,32 @@ class RentalInfoTab(QWidget):
         except Exception:
             return False
 
-    def _scale_image(self, image_path, max_width, max_height):
+    def _scale_image(self, image_path, max_width_points, max_height_points):
         if not image_path or not self._is_safe_path(image_path) or not os.path.exists(image_path):
-            return None
+            return None, 0, 0
         try:
-            # Create a temporary Image object to get original dimensions
-            temp_pixmap = QPixmap(image_path)
-            if temp_pixmap.isNull():
-                return None
+            # Use ReportLab's ImageReader to get original dimensions in points
+            img_reader = ImageReader(image_path)
+            original_width_points, original_height_points = img_reader.getSize()
 
-            # Calculate scaling factor
-            width = temp_pixmap.width()
-            height = temp_pixmap.height()
+            # Calculate scaling factors
+            width_scale = max_width_points / original_width_points
+            height_scale = max_height_points / original_height_points
+            scale_factor = min(width_scale, height_scale)
 
-            if width > max_width or height > max_height:
-                aspect_ratio = width / height
-                if width > height:
-                    new_width = max_width
-                    new_height = int(new_width / aspect_ratio)
-                else:
-                    new_height = max_height
-                    new_width = int(new_height * aspect_ratio)
-                return temp_pixmap.scaled(new_width, new_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            return temp_pixmap
+            # If the image is already smaller than the max dimensions, don't upscale
+            if scale_factor >= 1.0:
+                return image_path, original_width_points, original_height_points
+
+            new_width_points = original_width_points * scale_factor
+            new_height_points = original_height_points * scale_factor
+
+            # Return the original path and new dimensions in points
+            return image_path, new_width_points, new_height_points
         except Exception as e:
             print(f"Error scaling image {image_path}: {e}")
             traceback.print_exc()
-            return None
+            return None, 0, 0
 
     def generate_rental_pdf_from_data(self, record_data):
         tenant_name = record_data[1]
@@ -470,9 +505,11 @@ class RentalInfoTab(QWidget):
         pdf_path = os.path.join(os.path.expanduser("~/Documents"), pdf_filename)
 
         try:
-            doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+            doc = BaseDocTemplate(pdf_path, pagesize=letter,
+                                  leftMargin=0.1 * inch, rightMargin=0.1 * inch,
+                                  topMargin=0.1 * inch, bottomMargin=0.1 * inch)
             styles = getSampleStyleSheet()
-            
+
             # Custom style for centered bold text
             centered_bold_style = ParagraphStyle(
                 'CenteredBold',
@@ -480,14 +517,63 @@ class RentalInfoTab(QWidget):
                 fontName='Helvetica-Bold',
                 fontSize=14,
                 alignment=TA_CENTER,
-                spaceAfter=12
+                spaceAfter=3
             )
 
-            elements = []
+            # Custom style for "Associated Documents:" to control spacing
+            associated_docs_style = ParagraphStyle(
+                'AssociatedDocs',
+                parent=styles['h3'], # Inherit font/size from h3, but override spacing
+                spaceBefore=0,
+                spaceAfter=0
+            )
 
-            # Title
-            elements.append(Paragraph("Rental Information Record", centered_bold_style))
-            elements.append(Spacer(1, 0.2 * inch))
+            # Define Frames for Page 1 (Rental Details)
+            frame1_height = letter[1] - (2 * 0.1 * inch) # Page height - top/bottom margins
+            frame1 = Frame(doc.leftMargin, doc.bottomMargin, doc.width, frame1_height,
+                           leftPadding=0, bottomPadding=0,
+                           rightPadding=0, topPadding=0,
+                           showBoundary=1) # Set showBoundary=1 for debugging frames
+
+            # Define Frames for Page 2 (Tenant Photo, NID Front/Back)
+            # Page width and height for calculations
+            page_width, page_height = letter
+
+            # Margins for Page 2 frames
+            p2_left_margin = 0.1 * inch
+            p2_right_margin = 0.1 * inch
+            p2_top_margin = 0.1 * inch
+            p2_bottom_margin = 0.1 * inch
+
+            # Calculate usable width and height for frames
+            usable_width = page_width - p2_left_margin - p2_right_margin
+            usable_height = page_height - p2_top_margin - p2_bottom_margin
+
+            # Define a single full-page frame for Page 2
+            frame2_full = Frame(p2_left_margin, p2_bottom_margin, usable_width, usable_height,
+                                leftPadding=0, bottomPadding=0,
+                                rightPadding=0, topPadding=0,
+                                showBoundary=1)
+
+            # Define Frames for Page 3 (Police Form)
+            frame3_height = letter[1] - (2 * 0.1 * inch)
+            frame3 = Frame(doc.leftMargin, doc.bottomMargin, doc.width, frame3_height,
+                           leftPadding=0, bottomPadding=0,
+                           rightPadding=0, topPadding=0,
+                           showBoundary=1)
+
+            # Define Page Templates
+            page_template_1 = PageTemplate(id='Page1', frames=[frame1])
+            page_template_2 = PageTemplate(id='Page2', frames=[frame2_full]) # Use single frame
+            page_template_3 = PageTemplate(id='Page3', frames=[frame3])
+
+            doc.addPageTemplates([page_template_1, page_template_2, page_template_3])
+
+            all_elements = []
+            
+            # --- Page 1: Rental Information Data ---
+            all_elements.append(Paragraph("Rental Information Record", centered_bold_style))
+            all_elements.append(Spacer(1, 0.02 * inch))
 
             # Tenant Details Table
             data = [
@@ -503,46 +589,96 @@ class RentalInfoTab(QWidget):
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('BOX', (0, 0), (-1, -1), 1, colors.black),
             ])
             table = Table(data, colWidths=[2 * inch, 4 * inch])
             table.setStyle(table_style)
-            elements.append(table)
-            elements.append(Spacer(1, 0.3 * inch))
+            all_elements.append(table)
+            all_elements.append(Spacer(1, 0.02 * inch))
+            all_elements.append(NextPageTemplate('Page2')) # Set template for the next page
+            all_elements.append(PageBreak()) # Force a page break
 
-            # Document Images
-            elements.append(Paragraph("<b>Associated Documents:</b>", styles['h3']))
-            elements.append(Spacer(1, 0.1 * inch))
+            # --- Page 2: Tenant Photo, NID Front/Back ---
+            # Define a common max height for images on Page 2 to ensure they fit
+            # Set a fixed maximum height for each image to ensure all three fit on the page.
+            max_image_height_p2 = 3.0 * inch # Each image will be scaled to fit within 3 inches height
 
-            image_paths = {
-                "Tenant Photo": photo_path,
-                "NID Front Side": nid_front_path,
-                "NID Back Side": nid_back_path,
-                "Police Verification Form": police_form_path
-            }
+            all_elements.append(Paragraph("<b>Associated Documents:</b>", associated_docs_style))
+            all_elements.append(Spacer(1, 0.05 * inch)) # Use a fixed spacer height
 
-            for title, path in image_paths.items():
-                if path and os.path.exists(path) and self._is_safe_path(path):
-                    elements.append(Paragraph(f"<b>{title}:</b>", styles['Normal']))
-                    scaled_image = self._scale_image(path, 500, 500) # Max width/height for images
-                    if scaled_image:
-                        # Convert QPixmap to ReportLab Image
-                        img_data = scaled_image.toImage().bits().asstring(scaled_image.toImage().byteCount())
-                        img = Image(io.BytesIO(img_data), scaled_image.width(), scaled_image.height())
-                        elements.append(img)
-                        elements.append(Spacer(1, 0.1 * inch))
-                    else:
-                        elements.append(Paragraph(f"<i>Could not load image from {path}</i>", styles['Normal']))
+            # Tenant Photo
+            if photo_path and os.path.exists(photo_path) and self._is_safe_path(photo_path):
+                all_elements.append(Paragraph("<b>Tenant Photo:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
+                scaled_image_path, img_width_points, img_height_points = self._scale_image(photo_path, usable_width, max_image_height_p2)
+                if scaled_image_path:
+                    img = Image(scaled_image_path, width=img_width_points, height=img_height_points, kind='proportional')
+                    img.hAlign = 'CENTER' # Center the image horizontally
+                    all_elements.append(img)
                 else:
-                    elements.append(Paragraph(f"<i>{title}: Not provided or file not found/safe.</i>", styles['Normal']))
-                elements.append(Spacer(1, 0.2 * inch))
+                    all_elements.append(Paragraph(f"<i>Could not load image from {photo_path}</i>", styles['Normal']))
+            else:
+                all_elements.append(Paragraph(f"<i>Tenant Photo: Not provided or file not found/safe.</i>", styles['Normal']))
+            all_elements.append(Spacer(1, 0.05 * inch))
 
-            doc.build(elements)
+            # NID Front Side
+            if nid_front_path and os.path.exists(nid_front_path) and self._is_safe_path(nid_front_path):
+                all_elements.append(Paragraph("<b>NID Front Side:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
+                scaled_image_path, img_width_points, img_height_points = self._scale_image(nid_front_path, usable_width, max_image_height_p2)
+                if scaled_image_path:
+                    img = Image(scaled_image_path, width=img_width_points, height=img_height_points, kind='proportional')
+                    img.hAlign = 'CENTER' # Center the image horizontally
+                    all_elements.append(img)
+                else:
+                    all_elements.append(Paragraph(f"<i>Could not load image from {nid_front_path}</i>", styles['Normal']))
+            else:
+                all_elements.append(Paragraph(f"<i>NID Front Side: Not provided or file not found/safe.</i>", styles['Normal']))
+            all_elements.append(Spacer(1, 0.05 * inch)) # Small space between NID images
+
+            # NID Back Side
+            if nid_back_path and os.path.exists(nid_back_path) and self._is_safe_path(nid_back_path):
+                all_elements.append(Paragraph("<b>NID Back Side:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
+                scaled_image_path, img_width_points, img_height_points = self._scale_image(nid_back_path, usable_width, max_image_height_p2)
+                if scaled_image_path:
+                    img = Image(scaled_image_path, width=img_width_points, height=img_height_points, kind='proportional')
+                    img.hAlign = 'CENTER' # Center the image horizontally
+                    all_elements.append(img)
+                else:
+                    all_elements.append(Paragraph(f"<i>Could not load image from {nid_back_path}</i>", styles['Normal']))
+            else:
+                all_elements.append(Paragraph(f"<i>NID Back Side: Not provided or file not found/safe.</i>", styles['Normal']))
+            all_elements.append(NextPageTemplate('Page3')) # Set template for the next page
+            all_elements.append(PageBreak()) # Force a page break
+
+            # --- Page 3: Police Verification Form ---
+            all_elements.append(Paragraph("<b>Police Verification Form:</b>", styles['Normal']))
+            all_elements.append(Spacer(1, 0.02 * inch))
+
+            if police_form_path and os.path.exists(police_form_path) and self._is_safe_path(police_form_path):
+                # Calculate max_width and max_height for the police form to fit frame3
+                police_form_max_width = frame3.width # Use full frame width
+                police_form_max_height = frame3_height - (1.0 * inch) # Account for some internal padding/spacing and title/spacer
+
+                # Use _scale_image for police form as well
+                scaled_image_path, img_width_points, img_height_points = self._scale_image(police_form_path, police_form_max_width, police_form_max_height)
+                
+                if scaled_image_path:
+                    try:
+                        img = Image(scaled_image_path, width=img_width_points, height=img_height_points) # No need for kind='proportional' if already scaled
+                        img.hAlign = 'CENTER'
+                        all_elements.append(img)
+                    except Exception as img_e:
+                        all_elements.append(Paragraph(f"<i>Error creating image object for police form: {img_e}</i>", styles['Normal']))
+                else:
+                    all_elements.append(Paragraph(f"<i>Could not load or scale police form image from {police_form_path}</i>", styles['Normal']))
+            else:
+                all_elements.append(Paragraph(f"<i>Police Verification Form: Not provided or file not found/safe.</i>", styles['Normal']))
+
+            doc.build(all_elements)
             QMessageBox.information(self, "PDF Generated", f"Rental record PDF saved to:\n{pdf_path}")
-            return True
+            return pdf_path
         except Exception as e:
             QMessageBox.critical(self, "PDF Generation Error", f"Failed to generate PDF: {e}\n{traceback.format_exc()}")
-            return False
+            return None

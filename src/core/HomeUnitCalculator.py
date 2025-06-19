@@ -52,6 +52,10 @@ class MeterCalculationApp(QMainWindow):
         self.setGeometry(100, 100, 1300, 860)
         self.setStyleSheet(get_stylesheet())
         self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
+
+        # Ensure the data/images directory exists
+        self.image_storage_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'data', 'images')
+        os.makedirs(self.image_storage_dir, exist_ok=True)
         
         self.db_manager = DBManager()
         self.encryption_util = EncryptionUtil()
@@ -571,7 +575,6 @@ class MeterCalculationApp(QMainWindow):
         try:
             self.rental_info_tab_instance.load_rental_records()
             self.archived_info_tab_instance.load_archived_records()
-            self.history_tab_instance.load_history() # Ensure history tab is also refreshed
         except Exception as e:
             logging.error(f"Error refreshing rental tabs: {e}")
 

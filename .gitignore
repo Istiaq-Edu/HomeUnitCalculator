@@ -6,3 +6,5 @@ __pycache__/
 *.db
 *.csv
 *.pdf
+data/
+data/images/

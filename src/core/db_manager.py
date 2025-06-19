@@ -70,8 +70,7 @@ class DBManager:
             """)
             # Add is_archived column if it doesn't exist (for backward compatibility)
             columns = self.execute_query(
-                "PRAGMA table_info(rentals);",
-                fetch_all=True
+                "PRAGMA table_info(rentals);"
             )
             column_names = [col[1] for col in columns]
             if 'is_archived' not in column_names:
