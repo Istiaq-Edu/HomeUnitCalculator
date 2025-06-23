@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QGridLayout, QGroupBox, QFormLayout, QMessageBox, QSizePolicy, QDialog,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QComboBox
+    QComboBox, QCheckBox
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -26,7 +26,8 @@ from reportlab.lib.enums import TA_CENTER
 
 from src.ui.styles import (
     get_room_selection_style, get_room_group_style, get_line_edit_style,
-    get_button_style, get_table_style, get_label_style, get_source_combo_style
+    get_button_style, get_table_style, get_label_style, get_source_combo_style,
+    get_checkbox_style
 )
 from src.core.utils import resource_path, _clear_layout
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
@@ -164,12 +165,48 @@ class RentalInfoTab(QWidget):
 
         left_column_layout.addWidget(image_upload_group)
 
+        # Save Options Group
+        save_options_group = QGroupBox("Save Options")
+        save_options_group.setStyleSheet(get_room_selection_style())
+        save_options_layout = QHBoxLayout(save_options_group)
+        save_options_layout.setContentsMargins(10, 10, 10, 10)
+        save_options_layout.setSpacing(20)
+        save_options_layout.setAlignment(Qt.AlignCenter)
+
+        self.save_to_pc_checkbox = QCheckBox("Save to PC")
+        self.save_to_pc_checkbox.setChecked(True)
+        self.save_to_pc_checkbox.setStyleSheet(get_checkbox_style())
+        self.save_to_pc_checkbox.setIcon(QIcon(resource_path("icons/database_icon.png")))
+        self.save_to_pc_checkbox.setIconSize(self.save_to_pc_checkbox.sizeHint() / 2)
+        save_options_layout.addWidget(self.save_to_pc_checkbox)
+
+        self.save_to_cloud_checkbox = QCheckBox("Save to Cloud")
+        self.save_to_cloud_checkbox.setChecked(True)
+        self.save_to_cloud_checkbox.setStyleSheet(get_checkbox_style())
+        self.save_to_cloud_checkbox.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
+        self.save_to_cloud_checkbox.setIconSize(self.save_to_cloud_checkbox.sizeHint() / 2)
+        save_options_layout.addWidget(self.save_to_cloud_checkbox)
+
+        left_column_layout.addWidget(save_options_group)
+
+        # Action Buttons Layout
+        action_buttons_layout = QHBoxLayout()
+        
         # Save Record Button
         self.save_record_btn = CustomNavButton("Save Record")
         self.save_record_btn.setStyleSheet(get_button_style())
         self.save_record_btn.clicked.connect(self.save_rental_record)
-        left_column_layout.addWidget(self.save_record_btn)
+        action_buttons_layout.addWidget(self.save_record_btn)
 
+        # Clear Form Button
+        self.clear_form_btn = QPushButton("Clear Form")
+        clear_button_style = get_button_style().replace("#059669", "#6c757d").replace("#047857", "#5a6268") # Gray color
+        self.clear_form_btn.setStyleSheet(clear_button_style)
+        self.clear_form_btn.clicked.connect(self.clear_form)
+        action_buttons_layout.addWidget(self.clear_form_btn)
+        
+        left_column_layout.addLayout(action_buttons_layout)
+        
         main_horizontal_layout.addLayout(left_column_layout)
 
         # Right Column Layout (Rental Records Table)
@@ -263,110 +300,75 @@ class RentalInfoTab(QWidget):
     def save_rental_record(self):
         tenant_name = self.tenant_name_input.text().strip()
         room_number = self.room_number_input.text().strip()
-        advanced_paid_text = self.advanced_paid_input.text().strip()
+        advanced_paid_str = self.advanced_paid_input.text().strip()
         
+        photo_path = self.photo_path_label.text()
+        nid_front_path = self.nid_front_path_label.text()
+        nid_back_path = self.nid_back_path_label.text()
+        police_form_path = self.police_form_path_label.text()
+
+        save_to_pc = self.save_to_pc_checkbox.isChecked()
+        save_to_cloud = self.save_to_cloud_checkbox.isChecked()
+
         if not tenant_name or not room_number:
             QMessageBox.warning(self, "Input Error", "Tenant Name and Room Number cannot be empty.")
             return
 
-        if not self.main_window.supabase_manager.is_client_initialized() and self.load_source_combo.currentText() == "Cloud (Supabase)":
-            QMessageBox.warning(self, "Supabase Not Configured", "Supabase client is not initialized. Please configure Supabase in the settings tab.")
+        if not save_to_pc and not save_to_cloud:
+            QMessageBox.warning(self, "Save Option Error", "Please select at least one destination to save the record (PC or Cloud).")
             return
-
-        try:
-            advanced_paid = float(advanced_paid_text) if advanced_paid_text else 0.0
-        except ValueError:
-            QMessageBox.warning(self, "Input Error", "Advanced Paid must be a valid number.")
-            return
-
-        photo_path = self.photo_path_label.text() if self.photo_path_label.text() != "No file selected" else ""
-        nid_front_path = self.nid_front_path_label.text() if self.nid_front_path_label.text() != "No file selected" else ""
-        nid_back_path = self.nid_back_path_label.text() if self.nid_back_path_label.text() != "No file selected" else ""
-        police_form_path = self.police_form_path_label.text() if self.police_form_path_label.text() != "No file selected" else ""
-
-        current_time = datetime.now().isoformat()
-
-        try:
-            # Data for Supabase
-            supabase_record_data = {
-                "tenant_name": tenant_name,
-                "room_number": room_number,
-                "advanced_paid": advanced_paid,
-                "photo_path": photo_path,
-                "nid_front_path": nid_front_path,
-                "nid_back_path": nid_back_path,
-                "police_form_path": police_form_path,
-                "is_archived": False # Always save as active initially
-            }
-
-            local_db_success = False
-            supabase_success = False
             
-            # --- Save to Local DB ---
-            if self.current_rental_id is not None:
-                # Update existing local record
-                self.db_manager.execute_query(
-                    """
-                    UPDATE rentals SET
-                        tenant_name = ?, room_number = ?, advanced_paid = ?,
-                        photo_path = ?, nid_front_path = ?, nid_back_path = ?,
-                        police_form_path = ?, updated_at = ?, supabase_id = ?
-                    WHERE id = ?
-                    """,
-                    (tenant_name, room_number, advanced_paid,
-                     photo_path, nid_front_path, nid_back_path,
-                     police_form_path, current_time, self.current_supabase_id, self.current_rental_id)
-                )
-                local_db_success = True
-                QMessageBox.information(self, "Local DB Success", "Rental record updated in local database!")
-            else:
-                # Insert new local record
-                local_id = self.db_manager.execute_query(
-                    """
-                    INSERT INTO rentals (tenant_name, room_number, advanced_paid, photo_path, nid_front_path, nid_back_path, police_form_path, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (tenant_name, room_number, advanced_paid, photo_path, nid_front_path, nid_back_path, police_form_path, current_time, current_time)
-                )
-                if local_id:
-                    self.current_rental_id = local_id # Set the ID for potential Supabase update
-                    local_db_success = True
-                    QMessageBox.information(self, "Local DB Success", "Rental record saved to local database!")
+        advanced_paid = float(advanced_paid_str) if advanced_paid_str else 0.0
+        
+        record_data = {
+            "id": self.current_rental_id,
+            "supabase_id": self.current_supabase_id,
+            "tenant_name": tenant_name,
+            "room_number": room_number,
+            "advanced_paid": advanced_paid,
+            "photo_path": photo_path if photo_path != "No file selected" else None,
+            "nid_front_path": nid_front_path if nid_front_path != "No file selected" else None,
+            "nid_back_path": nid_back_path if nid_back_path != "No file selected" else None,
+            "police_form_path": police_form_path if police_form_path != "No file selected" else None,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "is_archived": 0
+        }
+        
+        local_save_success = True
+        cloud_save_success = True
+        
+        if save_to_pc:
+            try:
+                if self.current_rental_id:
+                    self.db_manager.update_rental_record(record_data)
                 else:
-                    QMessageBox.critical(self, "Local DB Error", "Failed to save rental record to local database.")
-
-            # --- Save to Supabase ---
+                    self.db_manager.insert_rental_record(record_data)
+                print("Record saved to local DB successfully.")
+            except Exception as e:
+                local_save_success = False
+                QMessageBox.critical(self, "Local DB Error", f"Failed to save record to local DB: {e}\n{traceback.format_exc()}")
+        
+        if save_to_cloud:
             if self.main_window.supabase_manager.is_client_initialized():
-                supabase_id = self.main_window.supabase_manager.save_rental_record(supabase_record_data, self.current_supabase_id)
-                if supabase_id:
-                    self.current_supabase_id = supabase_id
-                    supabase_success = True
-                    QMessageBox.information(self, "Cloud Success", "Rental record saved/updated in Supabase!")
-                    
-                    # Update local record with Supabase ID if it's a new local record or Supabase ID changed
-                    if local_db_success and self.current_rental_id and (self.db_manager.execute_query("SELECT supabase_id FROM rentals WHERE id = ?", (self.current_rental_id,), fetch_one=True)[0] != str(supabase_id)):
-                        self.db_manager.execute_query(
-                            "UPDATE rentals SET supabase_id = ? WHERE id = ?",
-                            (str(supabase_id), self.current_rental_id)
-                        )
-                        print(f"Updated local record {self.current_rental_id} with Supabase ID {supabase_id}")
-                else:
-                    QMessageBox.critical(self, "Cloud Error", "Failed to save/update rental record in Supabase.")
+                try:
+                    # SupabaseManager's save_rental_record handles both insert and update
+                    self.main_window.supabase_manager.save_rental_record(record_data)
+                    print("Record saved to Supabase successfully.")
+                except Exception as e:
+                    cloud_save_success = False
+                    QMessageBox.critical(self, "Supabase Error", f"Failed to save record to Supabase: {e}\n{traceback.format_exc()}")
             else:
-                QMessageBox.warning(self, "Supabase Not Initialized", "Supabase client is not initialized. Skipping cloud save.")
-
-            if local_db_success or supabase_success:
-                self.load_rental_records()
-                self.clear_form()
-            # Removed automatic PDF generation after saving/updating the record, as per user feedback.
-            # PDF generation will now be triggered by a dedicated button in the record details dialog.
-
-        except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred while saving rental record: {e}\n{traceback.format_exc()}")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Database Error", f"Failed to save rental record: {e}")
-            traceback.print_exc()
+                cloud_save_success = False
+                QMessageBox.warning(self, "Supabase Error", "Supabase client not initialized. Cannot save to cloud.")
+        
+        if local_save_success and cloud_save_success:
+            QMessageBox.information(self, "Success", "Rental record saved successfully.")
+            self.clear_form()
+            self.load_rental_records() # Refresh the table
+            self.main_window.refresh_all_rental_tabs()
+        else:
+            QMessageBox.warning(self, "Partial Success", "Record may not have been saved to all selected locations.")
 
     def load_rental_records(self):
         self.rental_records_table.clearContents()

@@ -653,43 +653,51 @@ def get_result_value_style():
 
 @functools.lru_cache(maxsize=None)
 def get_source_combo_style():
-    """
-    Returns a distinct style for the source selection QComboBox.
-    """
-    down_arrow_path = resource_path("icons/down_arrow.png").replace('\\', '/')
-    tpl = textwrap.dedent("""\
+    # Down arrow icon path
+    down_arrow_path = resource_path("icons/down_arrow.png").replace("\\", "/")
+    
+    return textwrap.dedent(f"""\
         QComboBox {{
-            border: 2px solid {accent_primary};
-            border-radius: 8px;
-            padding: 8px 12px;
-            background-color: {text_secondary};
-            font-size: 14px;
+            border: 1px solid {COLOR_VARS['accent_primary']};
+            border-radius: 4px;
+            padding: 5px;
+            background-color: {COLOR_VARS['bg_secondary']};
+            color: {COLOR_VARS['text_primary']};
             font-weight: bold;
-            color: {text_primary};
-        }}
-        QComboBox:hover {{
-            border-color: {hover_dark_blue};
         }}
         QComboBox::drop-down {{
             subcontrol-origin: padding;
             subcontrol-position: top right;
-            width: 25px;
+            width: 20px;
             border-left-width: 1px;
-            border-left-color: {accent_secondary};
+            border-left-color: {COLOR_VARS['accent_primary']};
             border-left-style: solid;
-            border-top-right-radius: 8px;
-            border-bottom-right-radius: 8px;
-        }}
-        QComboBox::down-arrow {{
             image: url({down_arrow_path});
-            width: 16px;
-            height: 16px;
         }}
-        QComboBox QAbstractItemView {{
-            border: 1px solid {accent_secondary};
-            background-color: {text_secondary};
-            color: {text_primary};
-            selection-background-color: {selected_light_blue};
+    """)
+    
+@functools.lru_cache(maxsize=None)
+def get_checkbox_style():
+    return textwrap.dedent(f"""\
+        QCheckBox {{
+            spacing: 10px;
+            color: {COLOR_VARS['text_primary']};
+            font-weight: bold;
+            font-size: 14px;
         }}
-        """)
-    return tpl.format(down_arrow_path=down_arrow_path, **COLOR_VARS)
+        QCheckBox::indicator {{
+            width: 20px;
+            height: 20px;
+            border: 2px solid {COLOR_VARS['accent_primary']};
+            border-radius: 5px;
+            background-color: {COLOR_VARS['bg_primary']};
+        }}
+        QCheckBox::indicator:hover {{
+            border: 2px solid {COLOR_VARS['hover_dark_blue']};
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {COLOR_VARS['accent_primary']};
+            border: 2px solid {COLOR_VARS['accent_primary']};
+            image: url({resource_path('icons/save_icon.png').replace('\\', '/')});
+        }}
+    """)
