@@ -400,9 +400,9 @@ class MainTab(QWidget):
         if source == "Load from PC (CSV)":
             self.load_info_to_inputs_from_csv(selected_month, selected_year)
         elif source == "Load from Cloud":
-            if self.main_window.supabase and self.main_window.check_internet_connectivity():
+            if self.main_window.supabase_manager.is_client_initialized() and self.main_window.check_internet_connectivity():
                 self.load_info_to_inputs_from_supabase(selected_month, selected_year)
-            elif not self.main_window.supabase:
+            elif not self.main_window.supabase_manager.is_client_initialized():
                 QMessageBox.warning(self, "Supabase Not Configured", "Supabase is not configured. Please go to the 'Supabase Config' tab.")
             else: # No internet
                  QMessageBox.warning(self, "Network Error", 
@@ -513,96 +513,67 @@ class MainTab(QWidget):
             QMessageBox.critical(self, "Load Error", f"Failed to load data from CSV: {e}\n{traceback.format_exc()}")
 
     def load_info_to_inputs_from_supabase(self, selected_month, selected_year):
-        if not self.main_window.supabase:
+        if not self.main_window.supabase_manager.is_client_initialized():
             QMessageBox.critical(self, "Supabase Error", "Supabase client is not initialized.")
             return
 
         try:
-            response_main = self.main_window.supabase.table("main_calculations") \
-                                .select("*") \
-                                .eq("month", selected_month) \
-                                .eq("year", selected_year) \
-                                .limit(1) \
-                                .execute()
+            # Fetch main calculation data
+            main_calc_record = self.main_window.supabase_manager.get_main_calculations(
+                month=selected_month, 
+                year=selected_year
+            )
 
-            if not response_main.data:
-                QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month} {selected_year} in Cloud.")
+            if not main_calc_record:
+                QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month} {selected_year} in the cloud.")
                 return
 
-            main_data = response_main.data[0]
+            main_data = main_calc_record.get("main_data", {})
+            if isinstance(main_data, str):
+                try:
+                    main_data = json.loads(main_data)
+                except json.JSONDecodeError:
+                    main_data = {}
+
+            # Load main tab data
+            self.month_combo.setCurrentText(selected_month)
+            self.year_spinbox.setValue(selected_year)
             
-            self.month_combo.setCurrentText(main_data.get("month", selected_month))
-            self.year_spinbox.setValue(main_data.get("year", selected_year))
-
-            meter_json = main_data.get("extra_meter_readings") or "[]"
-            diff_json  = main_data.get("extra_diff_readings")  or "[]"
-            try:
-                meter_readings = json.loads(meter_json)
-                diff_readings  = json.loads(diff_json)
-            except (TypeError, json.JSONDecodeError):
-                QMessageBox.warning(
-                    self, "Load Error",
-                    "Corrupted extra meter/diff readings detected in cloud data; "
-                    "those fields will be ignored."
-                )
-                meter_readings, diff_readings = [], []
-
-            # Prepend fixed meters/diffs if they exist
-            meter_readings = [main_data.get(f"meter{i+1}_reading", 0) for i in range(3)] + meter_readings
-            diff_readings = [main_data.get(f"diff{i+1}", 0) for i in range(3)] + diff_readings
-
-            # Update spinbox counts
-            num_meters = len(meter_readings)
-            num_diffs = len(diff_readings)
-
-            self.meter_count_spinbox.setValue(min(num_meters, self.meter_count_spinbox.maximum()))
-            self.diff_count_spinbox.setValue(min(num_diffs, self.diff_count_spinbox.maximum()))
-
-            # Populate meter and diff entries
-            for i, val in enumerate(meter_readings):
-                if i < len(self.meter_entries):
-                    self.meter_entries[i].setText("" if val in (None, "") else str(val))
-            for i, val in enumerate(diff_readings):
-                if i < len(self.diff_entries):
-                    self.diff_entries[i].setText("" if val in (None, "") else str(val))
-
-            self.additional_amount_input.setText("" if main_data.get("additional_amount", 0.0) in (None, "") else str(main_data.get("additional_amount", 0.0)))
+            meter_values = main_data.get("meter_readings", [])
+            diff_values = main_data.get("diff_readings", [])
             
-            # Load room data from Supabase
-            response_rooms = self.main_window.supabase.table("room_calculations") \
-                                .select("*") \
-                                .eq("main_calculation_id", main_data['id']) \
-                                .order("room_name", desc=False) \
-                                .execute()
+            num_meters = len(meter_values)
+            num_diffs = len(diff_values)
             
-            if response_rooms.data:
-                room_data_from_supabase = response_rooms.data
-                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_data_from_supabase))
+            self.meter_count_spinbox.setValue(num_meters)
+            self.diff_count_spinbox.setValue(num_diffs)
+            
+            for i, val in enumerate(meter_values):
+                if i < len(self.meter_entries): self.meter_entries[i].setText(str(val))
+            for i, val in enumerate(diff_values):
+                if i < len(self.diff_entries): self.diff_entries[i].setText(str(val))
                 
-                for i, room_db_data in enumerate(room_data_from_supabase):
-                    if i < len(self.main_window.rooms_tab_instance.room_entries):
-                        room_ui_data = self.main_window.rooms_tab_instance.room_entries[i]
-                        
-                        room_ui_data['present_entry'].setText(str(room_db_data.get('present_reading_room', '0')))
-                        room_ui_data['previous_entry'].setText(str(room_db_data.get('previous_reading_room', '0')))
-                        room_ui_data['gas_bill_entry'].setText(str(room_db_data.get('gas_bill', '0.00')))
-                        room_ui_data['water_bill_entry'].setText(str(room_db_data.get('water_bill', '0.00')))
-                        room_ui_data['house_rent_entry'].setText(str(room_db_data.get('house_rent', '0.00')))
-                        
-                        # Set room name if available in the UI group box
-                        room_group_widget = self.main_window.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
-                        if isinstance(room_group_widget, QGroupBox):
-                            room_group_widget.setTitle(room_db_data.get('room_name', f"Room {i+1}"))
-                
-                self.main_window.rooms_tab_instance.calculate_rooms()
-            else:
-                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1)
-                self.main_window.rooms_tab_instance.calculate_rooms()
+            self.additional_amount_input.setText(str(main_data.get("additional_amount", "0")))
 
-            QMessageBox.information(self, "Load Successful", f"Data for {selected_month} {selected_year} loaded from Cloud.")
+            # Fetch and load room data
+            main_calc_id = main_calc_record.get("id")
+            if main_calc_id:
+                room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
+                if room_records:
+                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_records))
+                    for i, room_rec in enumerate(room_records):
+                        room_data = room_rec.get("room_data", {})
+                        if isinstance(room_data, str):
+                            try:
+                                room_data = json.loads(room_data)
+                            except json.JSONDecodeError:
+                                room_data = {}
+                        if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_supabase_record'):
+                            self.main_window.rooms_tab_instance.load_room_data_from_supabase_record(room_data, i)
 
-        except APIError as e:
-            QMessageBox.critical(self, "Supabase API Error", f"Supabase API error: {e.message}\n{traceback.format_exc()}")
+            self.calculate_main() # Recalculate results based on loaded data
+            QMessageBox.information(self, "Load Successful", f"Data for {selected_month} {selected_year} loaded from the cloud.")
+
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to load data from Cloud: {e}\n{traceback.format_exc()}")
 

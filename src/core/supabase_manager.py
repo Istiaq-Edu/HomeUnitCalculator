@@ -197,7 +197,15 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot retrieve main calculation.")
             return None
         try:
-            response = self.supabase.table("main_calculations").select("id, month, year, main_data").eq("month", month).eq("year", year).limit(1).execute()
+            query = self.supabase.table("main_calculations").select("id, month, year, main_data")
+            if month is not None:
+                query = query.eq("month", month)
+            if year is not None:
+                query = query.eq("year", year)
+            
+            # If both are None, it's effectively get_all_main_calculations, but with limit 1
+            # If only one is None, it filters by the other.
+            response = query.limit(1).execute()
             if response.data:
                 return response.data[0] # Return the full record
             return None
@@ -208,22 +216,32 @@ class SupabaseManager:
             print(f"An unexpected error occurred retrieving main calculation: {e}")
             return None
 
-    def get_all_main_calculations(self) -> list[dict]:
+    def get_main_calculations(self, month: str | None = None, year: int | None = None) -> list[dict]:
         """
-        Retrieves all main calculation records from Supabase.
-        :return: A list of all main calculation records.
+        Retrieves main calculation records from Supabase, optionally filtered by month and year.
+        If both month and year are None, it retrieves all records.
+        :param month: The month of the calculation (optional).
+        :param year: The year of the calculation (optional).
+        :return: A list of main calculation records.
         """
         if not self.is_client_initialized():
-            print("Supabase client not initialized. Cannot retrieve all main calculations.")
+            print("Supabase client not initialized. Cannot retrieve main calculations.")
             return []
         try:
-            response = self.supabase.table("main_calculations").select("id, month, year, main_data").order("year", desc=True).order("created_at", desc=True).execute()
+            query = self.supabase.table("main_calculations").select("id, month, year, main_data")
+            
+            if month is not None:
+                query = query.eq("month", month)
+            if year is not None:
+                query = query.eq("year", year)
+            
+            response = query.order("year", desc=True).order("created_at", desc=True).execute()
             return response.data if response.data else []
         except (APIError, AuthApiError) as e:
-            print(f"Supabase API error retrieving all main calculations: {e}")
+            print(f"Supabase API error retrieving main calculations: {e}")
             return []
         except Exception as e:
-            print(f"An unexpected error occurred retrieving all main calculations: {e}")
+            print(f"An unexpected error occurred retrieving main calculations: {e}")
             return []
 
     def get_room_calculations(self, main_calculation_id: int) -> list[dict]:

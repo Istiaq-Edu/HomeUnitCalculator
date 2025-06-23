@@ -360,10 +360,10 @@ class HistoryTab(QWidget):
         year_label = QLabel("Year:")
         year_label.setStyleSheet(get_label_style())
         self.history_year_spinbox = QSpinBox()
-        # Use 0 as sentinel for “All”
+        # Use 0 as sentinel for "All"
         self.history_year_spinbox.setRange(0, 2100)
         self.history_year_spinbox.setSpecialValueText("All")
-        self.history_year_spinbox.setValue(0)          # default to “All”, or keep current-year if preferred
+        self.history_year_spinbox.setValue(0)          # default to "All", or keep current-year if preferred
         self.history_year_spinbox.setStyleSheet(get_month_info_style())
         filter_layout.addWidget(month_label)
         filter_layout.addWidget(self.history_month_combo)
@@ -535,11 +535,11 @@ class HistoryTab(QWidget):
             if source == "Load from PC (CSV)":
                 self.load_history_tables_from_csv(selected_month, selected_year_val)
             elif source == "Load from Cloud":
-                if self.main_window.supabase and self.main_window.check_internet_connectivity():
+                if self.main_window.supabase_manager and self.main_window.check_internet_connectivity():
                     month_filter = None if selected_month == "All" else selected_month
-                    year_filter  = selected_year_val        # already None if “All”
+                    year_filter  = selected_year_val        # already None if "All"
                     self.load_history_tables_from_supabase(month_filter, year_filter)
-                elif not self.main_window.supabase:
+                elif not self.main_window.supabase_manager:
                     QMessageBox.warning(self, "Supabase Not Configured", "Supabase is not configured.")
                 else:
                     QMessageBox.warning(self, "Network Error", "No internet connection.")
@@ -737,118 +737,160 @@ class HistoryTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Load History Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
 
-    def load_history_tables_from_supabase(self, month_filter, year_filter):
+    def load_history_tables_from_supabase(self, month_filter: str | None, year_filter: int | None):
         if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():
             QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
             return
 
         try:
-            main_records = []
-            if month_filter == "All" and year_filter == 0:
-                main_records = self.main_window.supabase_manager.get_all_main_calculations()
-            else:
-                main_record = self.main_window.supabase_manager.get_main_calculations(month_filter, year_filter)
-                if main_record:
-                    main_records.append(main_record)
+            # Use the unified get_main_calculations which can handle filters or return all
+            # Pass None for month/year if "All" is selected or if it's the default 0 for year
+            actual_month_filter = None if month_filter == "All" else month_filter
+            actual_year_filter = None if year_filter == 0 else year_filter
 
+            # self.clear_history_tables()  # Clear tables before loading | this is the buggy line
+            # Directly clear the tables instead of calling a separate method
             self.main_history_table.setRowCount(0)
             self.room_history_table.setRowCount(0)
             self.totals_table.setRowCount(0)
+
+            main_calculations = self.main_window.supabase_manager.get_main_calculations(
+                month=actual_month_filter,
+                year=actual_year_filter
+            )
+
+            if not main_calculations:
+                QMessageBox.information(self, "No Data", "No history records found in Supabase for the selected filters.")
+                return
 
             all_room_rows = []
-            processed_main_ids = set() # To track main_calculation_id for totals
+            for main_calc in main_calculations:
+                main_calc_id = main_calc.get("id")
+                if main_calc_id:
+                    room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
+                    
+                    # Add parent month/year context to each room record
+                    for room in room_records:
+                        room['month'] = main_calc.get('month')
+                        room['year'] = main_calc.get('year')
+                    
+                    all_room_rows.extend(room_records)
 
-            # Determine max meter/diff columns needed
-            max_meter_diff_pairs = 3 # Start with default 3
-            for record in main_records:
-                main_data_jsonb = record.get("main_data", {})
-                meter_readings_from_jsonb = main_data_jsonb.get("meter_readings", [])
-                diff_readings_from_jsonb = main_data_jsonb.get("diff_readings", [])
+            if main_calculations:
+                self.main_history_table.setRowCount(len(main_calculations))
                 
-                max_meter_diff_pairs = max(max_meter_diff_pairs,
-                                           len(meter_readings_from_jsonb),
-                                           len(diff_readings_from_jsonb))
+                # Determine max_meters from the fetched data
+                max_meters = 3 # default
+                for calc in main_calculations:
+                    main_data = calc.get("main_data", {})
+                    if isinstance(main_data, str):
+                        try:
+                            main_data = json.loads(main_data)
+                        except json.JSONDecodeError:
+                            main_data = {}
+                    
+                    for i in range(10):
+                        meter_key = f"meter_{i+1}"
+                        diff_key = f"diff_{i+1}"
+                        if main_data.get(meter_key) or main_data.get(diff_key):
+                            max_meters = max(max_meters, i + 1)
+                
+                self.set_main_history_table_columns(max_meters)
+
+                for row_idx, calc in enumerate(main_calculations):
+                    main_data = calc.get("main_data", {})
+                    # Handle if main_data is a JSON string
+                    if isinstance(main_data, str):
+                        try:
+                            main_data = json.loads(main_data)
+                        except json.JSONDecodeError:
+                            main_data = {}
+
+                    month_year = f"{calc.get('month', 'N/A')} {calc.get('year', 'N/A')}"
+                    self.main_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year))
+
+                    for i in range(max_meters):
+                        meter_val = str(main_data.get(f"meter_{i+1}", ""))
+                        diff_val = str(main_data.get(f"diff_{i+1}", ""))
+                        self.main_history_table.setItem(row_idx, 1 + i, QTableWidgetItem(meter_val))
+                        self.main_history_table.setItem(row_idx, 1 + max_meters + i, QTableWidgetItem(diff_val))
+
+                    base_col = 1 + max_meters * 2
+                    self.main_history_table.setItem(row_idx, base_col + 0, QTableWidgetItem(str(main_data.get("total_unit_cost", ""))))
+                    self.main_history_table.setItem(row_idx, base_col + 1, QTableWidgetItem(str(main_data.get("total_diff_units", ""))))
+                    self.main_history_table.setItem(row_idx, base_col + 2, QTableWidgetItem(str(main_data.get("per_unit_cost", ""))))
+                    self.main_history_table.setItem(row_idx, base_col + 3, QTableWidgetItem(str(main_data.get("added_amount", ""))))
+                    self.main_history_table.setItem(row_idx, base_col + 4, QTableWidgetItem(str(main_data.get("grand_total", ""))))
+
+            if all_room_rows:
+                self.room_history_table.setRowCount(len(all_room_rows))
+                for row_idx, room in enumerate(all_room_rows):
+                    room_data = room.get("room_data", {})
+                    if isinstance(room_data, str):
+                        try:
+                            room_data = json.loads(room_data)
+                        except json.JSONDecodeError:
+                            room_data = {}
+                    
+                    month_year = f"{room.get('month', 'N/A')} {room.get('year', 'N/A')}"
+
+                    self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year))
+                    self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(str(room_data.get("room_name", ""))))
+                    self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(room_data.get("present_unit", ""))))
+                    self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(room_data.get("previous_unit", ""))))
+                    self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(room_data.get("real_unit", ""))))
+                    self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(str(room_data.get("unit_bill", ""))))
+                    self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(str(room_data.get("gas_bill", ""))))
+                    self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(str(room_data.get("water_bill", ""))))
+                    self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(str(room_data.get("house_rent", ""))))
+                    self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(str(room_data.get("grand_total", ""))))
+
+            self.calculate_and_display_totals_from_supabase_records(main_calculations, all_room_rows)
             
-            self.set_main_history_table_columns(max_meter_diff_pairs)
-
-            for row_idx, record in enumerate(main_records):
-                self.main_history_table.insertRow(row_idx)
-                
-                main_data_jsonb = record.get("main_data", {})
-                meter_readings = main_data_jsonb.get("meter_readings", [])
-                diff_readings = main_data_jsonb.get("diff_readings", [])
-
-                # Populate main history table
-                col = 0
-                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(f"{record.get('month')} {record.get('year')}"))
-                col += 1
-                for i in range(max_meter_diff_pairs):
-                    self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(meter_readings[i]) if i < len(meter_readings) else "0"))
-                    col += 1
-                for i in range(max_meter_diff_pairs):
-                    self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(diff_readings[i]) if i < len(diff_readings) else "0"))
-                    col += 1
-                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("total_unit_cost", "N/A"))))
-                col += 1
-                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("total_diff_units", "N/A"))))
-                col += 1
-                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("per_unit_cost_calculated", "N/A"))))
-                col += 1
-                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("additional_amount", "N/A"))))
-                col += 1
-                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("grand_total_bill", "N/A"))))
-                
-                # Store the record ID in a hidden column or as item data for editing/deletion
-                self.main_history_table.setItem(row_idx, self.main_history_table.columnCount() - 1, QTableWidgetItem(str(record.get('id'))))
-                self.main_history_table.hideColumn(self.main_history_table.columnCount() - 1) # Hide the ID column
-
-                # Fetch associated room calculations using SupabaseManager
-                room_records = self.main_window.supabase_manager.get_room_calculations(record['id'])
-                
-                for room_rec in room_records:
-                    room_data_jsonb = room_rec.get("room_data", {})
-                    all_room_rows.append({
-                        "month": f"{record.get('month')} {record.get('year')}",
-                        "room_name": room_data_jsonb.get("room_name", "N/A"),
-                        "present_unit": room_data_jsonb.get("present_unit", "N/A"),
-                        "previous_unit": room_data_jsonb.get("previous_unit", "N/A"),
-                        "real_unit": room_data_jsonb.get("real_unit", "N/A"),
-                        "unit_bill": room_data_jsonb.get("unit_bill", "N/A"),
-                        "gas_bill": room_data_jsonb.get("gas_bill", "N/A"),
-                        "water_bill": room_data_jsonb.get("water_bill", "N/A"),
-                        "house_rent": room_data_jsonb.get("house_rent", "N/A"),
-                        "grand_total": room_data_jsonb.get("grand_total", "N/A"),
-                        "main_calculation_id": record['id'] # For linking to main record
-                    })
-                processed_main_ids.add(record['id']) # Add main record ID to processed set
-
+            # Resize tables to fit content
             self.resize_table_to_content(self.main_history_table)
-
-            # Populate room history table
-            self.room_history_table.setRowCount(len(all_room_rows))
-            for row_idx, room_row in enumerate(all_room_rows):
-                self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(room_row["month"]))
-                self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(room_row["room_name"]))
-                self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(room_row["present_unit"])))
-                self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(room_row["previous_unit"])))
-                self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(room_row["real_unit"])))
-                self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(str(room_row["unit_bill"])))
-                self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(str(room_row["gas_bill"])))
-                self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(str(room_row["water_bill"])))
-                self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(str(room_row["house_rent"])))
-                self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(str(room_row["grand_total"])))
             self.resize_table_to_content(self.room_history_table)
+            self.resize_table_to_content(self.totals_table)
 
-            # Calculate and display totals for Supabase data
-            self.calculate_and_display_totals_supabase(all_room_rows)
-
-            QMessageBox.information(self, "Load Successful", "History loaded from Supabase.")
+            QMessageBox.information(self, "Load Successful", f"Loaded {len(main_calculations)} main records and {len(all_room_rows)} room records from Supabase.")
 
         except Exception as e:
-            QMessageBox.critical(self, "Load Error", f"An unexpected error occurred while loading from Supabase: {e}\n{traceback.format_exc()}")
-            self.main_history_table.setRowCount(0)
-            self.room_history_table.setRowCount(0)
-            self.totals_table.setRowCount(0)
+            QMessageBox.critical(self, "Load History Error", f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}")
+            # Clear tables on error to avoid displaying partial data
+            self.calculate_and_display_totals_from_supabase_records([], []) # Clear totals
+
+    def calculate_and_display_totals_from_supabase_records(self, main_calculations: list[dict], all_room_rows: list[dict]):
+        # ... function to calculate and display totals from Supabase data
+        total_grand_total_main = 0
+        total_grand_total_rooms = 0
+
+        # Sum grand_total from main_calculations
+        for calc in main_calculations:
+            main_data = calc.get("main_data", {})
+            if isinstance(main_data, str):
+                try:
+                    main_data = json.loads(main_data)
+                except json.JSONDecodeError:
+                    main_data = {}
+            total_grand_total_main += float(main_data.get("grand_total", 0))
+
+        # Sum grand_total from all_room_rows
+        for room in all_room_rows:
+            room_data = room.get("room_data", {})
+            if isinstance(room_data, str):
+                try:
+                    room_data = json.loads(room_data)
+                except json.JSONDecodeError:
+                    room_data = {}
+            total_grand_total_rooms += float(room_data.get("grand_total", 0))
+        
+        difference = total_grand_total_main - total_grand_total_rooms
+
+        self.totals_table.setRowCount(1)
+        self.totals_table.setItem(0, 0, QTableWidgetItem(f"{total_grand_total_main:,.2f}"))
+        self.totals_table.setItem(0, 1, QTableWidgetItem(f"{total_grand_total_rooms:,.2f}"))
+        self.totals_table.setItem(0, 2, QTableWidgetItem(f"{difference:,.2f}"))
+
 
     def handle_edit_selected_record(self):
         selected_items = self.main_history_table.selectedItems()
@@ -856,9 +898,11 @@ class HistoryTab(QWidget):
             QMessageBox.information(self, "No Selection", "Please select a record to edit.")
             return
         selected_row = selected_items[0].row()
-        first_item_in_row = self.main_history_table.item(selected_row, 0)
-        if not first_item_in_row: return
-        record_id = first_item_in_row.data(Qt.UserRole)
+        # Assuming the ID is stored in a hidden column (e.g., column 5 as per load_history_tables_from_supabase)
+        # Or, if using Qt.UserRole, retrieve it like this:
+        record_id_item = self.main_history_table.item(selected_row, self.main_history_table.columnCount() - 1)
+        record_id = record_id_item.text() if record_id_item else None # Get ID from the hidden column
+        
         if record_id:
             if self.main_window.load_history_source_combo.currentText() == "Load from Cloud":
                 self.handle_edit_record(record_id)
@@ -1024,43 +1068,6 @@ class HistoryTab(QWidget):
             self.totals_table.setRowCount(0)
             print(f"Error calculating totals from main rows: {e}")
 
-    def calculate_and_display_totals_supabase(self, room_records):
-        """Calculate and display totals for Supabase room records"""
-        try:
-            # Group room records by main_calculation_id to ensure unique month/year entries
-            # for the totals table, as multiple rooms can belong to one main calculation.
-            grouped_room_records = {}
-            for record in room_records:
-                main_calc_id = record.get("main_calculation_id")
-                if main_calc_id not in grouped_room_records:
-                    grouped_room_records[main_calc_id] = {
-                        "month": record.get("month"),
-                        "total_house_rent": 0.0,
-                        "total_water_bill": 0.0,
-                        "total_gas_bill": 0.0,
-                        "total_room_unit_bill": 0.0
-                    }
-                
-                # Access values from the room_data JSONB
-                room_data_jsonb = record.get("room_data", {})
-                grouped_room_records[main_calc_id]["total_house_rent"] += float(room_data_jsonb.get("house_rent", 0.0))
-                grouped_room_records[main_calc_id]["total_water_bill"] += float(room_data_jsonb.get("water_bill", 0.0))
-                grouped_room_records[main_calc_id]["total_gas_bill"] += float(room_data_jsonb.get("gas_bill", 0.0))
-                grouped_room_records[main_calc_id]["total_room_unit_bill"] += float(room_data_jsonb.get("unit_bill", 0.0))
-
-            self.totals_table.setRowCount(len(grouped_room_records))
-            for row_idx, (main_calc_id, totals_data) in enumerate(grouped_room_records.items()):
-                self.totals_table.setItem(row_idx, 0, QTableWidgetItem(totals_data["month"]))
-                self.totals_table.setItem(row_idx, 1, QTableWidgetItem(f"{totals_data['total_house_rent']:.2f}"))
-                self.totals_table.setItem(row_idx, 2, QTableWidgetItem(f"{totals_data['total_water_bill']:.2f}"))
-                self.totals_table.setItem(row_idx, 3, QTableWidgetItem(f"{totals_data['total_gas_bill']:.2f}"))
-                self.totals_table.setItem(row_idx, 4, QTableWidgetItem(f"{totals_data['total_room_unit_bill']:.2f}"))
-            
-            self.resize_table_to_content(self.totals_table)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Totals Calculation Error", f"Error calculating Supabase totals: {e}\n{traceback.format_exc()}")
-            self.totals_table.setRowCount(0)
 
 
 if __name__ == '__main__':
