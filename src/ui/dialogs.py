@@ -25,10 +25,10 @@ RentalRecord = namedtuple('RentalRecord', [
 ])
 
 class RentalRecordDialog(QDialog):
-    def __init__(self, parent=None, record_data=None, db_manager=None, supabase_manager=None, is_archived_record=False, main_window_ref=None, current_source="Local DB"):
+    def __init__(self, parent=None, record_data=None, db_manager=None, supabase_manager=None, is_archived_record=False, main_window_ref=None, current_source="Local DB", supabase_id=None):
         super().__init__(parent)
         self.setWindowTitle("Rental Record Details")
-        self.setGeometry(200, 200, 800, 600)
+        self.setMinimumSize(500, 600)
         if db_manager is None:
             raise ValueError("db_manager is required for dialog operations")
         if record_data is None:
@@ -59,6 +59,7 @@ class RentalRecordDialog(QDialog):
         self.is_archived_record = is_archived_record
         self.main_window = main_window_ref # Store reference to main window
         self.current_source = current_source # New: To know if record came from Local DB or Supabase
+        self.supabase_id = supabase_id or record_data.get("supabase_id")
 
         self.init_ui()
         if self.record_data:
@@ -203,11 +204,24 @@ class RentalRecordDialog(QDialog):
 
         for img_type, label in image_labels.items():
             path = image_paths[img_type]
-            if path and self._is_safe_path(path) and os.path.exists(path):
+            if path and path.startswith("http"):
+                try:
+                    import requests
+                    resp = requests.get(path, timeout=5)
+                    if resp.status_code == 200:
+                        pixmap = QPixmap()
+                        pixmap.loadFromData(resp.content)
+                        label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                        label.setText("")
+                    else:
+                        label.setText(f"No {img_type.replace('_', ' ').title()}")
+                except Exception as e:
+                    label.setText(f"No {img_type.replace('_', ' ').title()}")
+            elif path and self._is_safe_path(path) and os.path.exists(path):
                 pixmap = QPixmap(path)
                 if not pixmap.isNull():
                     label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                    label.setText("") # Clear "No Photo" text
+                    label.setText("")
                 else:
                     label.setText(f"Invalid {img_type.replace('_', ' ').title()}")
             else:
@@ -367,47 +381,19 @@ class RentalRecordDialog(QDialog):
 
 
     def toggle_archive_status(self):
-        new_status = not self.record_data.is_archived
-        record_id = self.record_data.id
-        
-        success = False
-        
-        if self.current_source == "Local DB":
-            # Update local DB
-            try:
-                self.db_manager.execute_query(
-                    "UPDATE rentals SET is_archived = ?, updated_at = ? WHERE id = ?",
-                    (int(new_status), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), record_id)
-                )
-                success = True
-            except Exception as e:
-                QMessageBox.critical(self, "Database Error", f"Failed to update local record: {e}")
-                return
-        
-        elif self.current_source == "Cloud (Supabase)":
-            if not self.supabase_manager or not self.supabase_manager.is_client_initialized():
-                QMessageBox.warning(self, "Supabase Error", "Supabase client not configured.")
-                return
-
-            # Update Supabase
-            try:
-                if self.supabase_manager.update_rental_record_archive_status(record_id, new_status):
-                    success = True
-                else:
-                    QMessageBox.critical(self, "Supabase Error", "Failed to update record in Supabase.")
-            except Exception as e:
-                QMessageBox.critical(self, "Supabase Error", f"An error occurred while updating Supabase: {e}")
-                return
-
-        if success:
-            action = "archived" if new_status else "unarchived"
-            QMessageBox.information(self, "Success", f"Record successfully {action}.")
-            
-            # Refresh the main window's tabs
-            if self.main_window:
-                self.main_window.refresh_all_rental_tabs()
-            
-            self.accept() # Close the dialog
+        print(f"Toggling archive status for Supabase record ID: {self.supabase_id}")
+        if self.supabase_manager.is_client_initialized():
+            success = self.supabase_manager.update_rental_record_archive_status(self.supabase_id, not self.is_archived_record)
+            if success:
+                QMessageBox.information(self, "Success", f"Record has been {'archived' if not self.is_archived_record else 'unarchived'} in the cloud.")
+                self.is_archived_record = not self.is_archived_record
+                
+                # Refresh the main window's tabs
+                if self.main_window:
+                    self.main_window.refresh_all_rental_tabs()
+                
+                self.accept() # Close the dialog
+            else:
+                QMessageBox.critical(self, "Supabase Error", "Failed to update record in Supabase.")
         else:
-            # This case might be hit if source is neither, or for other logic errors
-            QMessageBox.warning(self, "Update Failed", "Could not update the record's archive status.")
+            QMessageBox.warning(self, "Supabase Error", "Supabase client not configured.")

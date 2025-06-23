@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path # Import Path from pathlib
 import shutil # Import shutil for file operations
 import uuid # Import uuid for generating unique filenames
+import urllib.parse
+import re
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap # Keep QPixmap for _validate_image_file
@@ -60,8 +62,9 @@ class RentalInfoTab(QWidget):
         self.police_form_path_label = None
         self.rental_records_table = None
 
-        self.current_rental_id = None # To track if we are editing an existing record (local DB ID)
-        self.current_supabase_id = None # To track if we are editing an existing record (Supabase ID)
+        self.current_rental_id = None  # Local DB primary key (if editing an existing record)
+        self.current_supabase_id = None  # Supabase record UUID (if editing an existing record)
+        self.current_is_archived = False  # Preserve archive status when editing
 
         self.init_ui()
         self.setup_db_table()
@@ -332,7 +335,7 @@ class RentalInfoTab(QWidget):
             "police_form_path": police_form_path if police_form_path != "No file selected" else None,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "is_archived": 0
+            "is_archived": 1 if self.current_is_archived else 0
         }
         
         local_save_success = True
@@ -341,7 +344,17 @@ class RentalInfoTab(QWidget):
         if save_to_pc:
             try:
                 if self.current_rental_id:
-                    self.db_manager.update_rental_record(record_data)
+                    # Use execute_query for the update
+                    update_query = """
+                        UPDATE rentals SET
+                            tenant_name = :tenant_name, room_number = :room_number,
+                            advanced_paid = :advanced_paid, photo_path = :photo_path,
+                            nid_front_path = :nid_front_path, nid_back_path = :nid_back_path,
+                            police_form_path = :police_form_path, updated_at = :updated_at,
+                            is_archived = :is_archived
+                        WHERE id = :id
+                    """
+                    self.db_manager.execute_query(update_query, record_data)
                 else:
                     self.db_manager.insert_rental_record(record_data)
                 print("Record saved to local DB successfully.")
@@ -352,9 +365,22 @@ class RentalInfoTab(QWidget):
         if save_to_cloud:
             if self.main_window.supabase_manager.is_client_initialized():
                 try:
+                    image_paths = {
+                        "photo": record_data.get("photo_path"),
+                        "nid_front": record_data.get("nid_front_path"),
+                        "nid_back": record_data.get("nid_back_path"),
+                        "police_form": record_data.get("police_form_path"),
+                    }
                     # SupabaseManager's save_rental_record handles both insert and update
-                    self.main_window.supabase_manager.save_rental_record(record_data)
-                    print("Record saved to Supabase successfully.")
+                    result = self.main_window.supabase_manager.save_rental_record(record_data, image_paths)
+                    
+                    # Ensure result is a string before checking its content
+                    if isinstance(result, str) and "Successfully" in result:
+                        print("Record saved to Supabase successfully.")
+                    else:
+                        cloud_save_success = False
+                        QMessageBox.critical(self, "Supabase Error", f"Failed to save record to Supabase: {result}")
+
                 except Exception as e:
                     cloud_save_success = False
                     QMessageBox.critical(self, "Supabase Error", f"Failed to save record to Supabase: {e}\n{traceback.format_exc()}")
@@ -488,7 +514,8 @@ class RentalInfoTab(QWidget):
                 supabase_manager=self.main_window.supabase_manager, # Supabase manager
                 is_archived_record=record_dict.get("is_archived", False),
                 main_window_ref=self.main_window,
-                current_source=selected_source # Pass the current source to the dialog
+                current_source=selected_source, # Pass the current source to the dialog
+                supabase_id=record_dict.get("supabase_id") # Pass supabase_id
             )
             dialog.exec_() # Show as modal dialog
         except Exception as e:
@@ -500,6 +527,8 @@ class RentalInfoTab(QWidget):
         # record_data is expected to be a dictionary (either from local DB or Supabase, flattened)
         self.current_rental_id = record_data.get("id") # Local DB ID
         self.current_supabase_id = record_data.get("supabase_id") # Supabase ID
+        # Store archive status so we can retain it during save
+        self.current_is_archived = bool(record_data.get("is_archived", False))
 
         self.tenant_name_input.setText(record_data.get("tenant_name", ""))
         self.room_number_input.setText(record_data.get("room_number", ""))
@@ -524,6 +553,7 @@ class RentalInfoTab(QWidget):
         self.police_form_path_label.setText("No file selected")
         self.current_rental_id = None
         self.current_supabase_id = None
+        self.current_is_archived = False
         self.save_record_btn.setText("Save Record")
 
     def _handle_enter_pressed(self, current_index):
@@ -629,7 +659,34 @@ class RentalInfoTab(QWidget):
             return False
 
     def _scale_image(self, image_path, max_width_points, max_height_points):
-        if not image_path or not self._is_safe_path(image_path) or not os.path.exists(image_path):
+        # If the path is a URL, download to temp file first
+        if image_path and str(image_path).startswith("http"):
+            try:
+                import requests, tempfile, urllib.parse, os as _os
+
+                # Parse the URL to safely extract the file extension (ignore query params)
+                parsed = urllib.parse.urlparse(image_path)
+                url_path = parsed.path  # e.g. "/storage/v1/object/public/..../image.jpg"
+                _root, ext = _os.path.splitext(url_path)
+                # Fallback to .jpg if extension missing or contains illegal chars (e.g. '.jpg?')
+                if not ext or any(c in ext for c in "?&#%"):
+                    ext = ".jpg"
+
+                r = requests.get(image_path, timeout=10)
+                if r.status_code == 200:
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+                    tmp.write(r.content)
+                    tmp.close()
+                    image_path = tmp.name
+                    # temp files are considered safe
+                    safe_bypass = True
+                else:
+                    return None, 0, 0
+            except Exception as url_exc:
+                print(f"Error downloading image {image_path}: {url_exc}")
+                return None, 0, 0
+
+        if not image_path or ('safe_bypass' not in locals() and not self._is_safe_path(image_path)) or not os.path.exists(image_path):
             return None, 0, 0
         try:
             # Use ReportLab's ImageReader to get original dimensions in points
@@ -667,7 +724,11 @@ class RentalInfoTab(QWidget):
         police_form_path = record_data[9]
 
         # Define PDF file name
-        pdf_filename = f"Rental_Record_{tenant_name.replace(' ', '_')}_{room_number.replace(' ', '_')}.pdf"
+        def _sanitize(s):
+            # Replace invalid filename characters with underscore
+            return re.sub(r'[\\/*?:"<>|]', '_', str(s)).replace(' ', '_')
+
+        pdf_filename = f"Rental_Record_{_sanitize(tenant_name)}_{_sanitize(room_number)}.pdf"
         pdf_path = os.path.join(os.path.expanduser("~/Documents"), pdf_filename)
 
         try:
@@ -776,7 +837,7 @@ class RentalInfoTab(QWidget):
             all_elements.append(Spacer(1, 0.05 * inch)) # Use a fixed spacer height
 
             # Tenant Photo
-            if photo_path and os.path.exists(photo_path) and self._is_safe_path(photo_path):
+            if photo_path and (photo_path.startswith("http") or (os.path.exists(photo_path) and self._is_safe_path(photo_path))):
                 all_elements.append(Paragraph("<b>Tenant Photo:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
                 scaled_image_path, img_width_points, img_height_points = self._scale_image(photo_path, usable_width, max_image_height_p2)
                 if scaled_image_path:
@@ -790,7 +851,7 @@ class RentalInfoTab(QWidget):
             all_elements.append(Spacer(1, 0.05 * inch))
 
             # NID Front Side
-            if nid_front_path and os.path.exists(nid_front_path) and self._is_safe_path(nid_front_path):
+            if nid_front_path and (nid_front_path.startswith("http") or (os.path.exists(nid_front_path) and self._is_safe_path(nid_front_path))):
                 all_elements.append(Paragraph("<b>NID Front Side:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
                 scaled_image_path, img_width_points, img_height_points = self._scale_image(nid_front_path, usable_width, max_image_height_p2)
                 if scaled_image_path:
@@ -804,7 +865,7 @@ class RentalInfoTab(QWidget):
             all_elements.append(Spacer(1, 0.05 * inch)) # Small space between NID images
 
             # NID Back Side
-            if nid_back_path and os.path.exists(nid_back_path) and self._is_safe_path(nid_back_path):
+            if nid_back_path and (nid_back_path.startswith("http") or (os.path.exists(nid_back_path) and self._is_safe_path(nid_back_path))):
                 all_elements.append(Paragraph("<b>NID Back Side:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
                 scaled_image_path, img_width_points, img_height_points = self._scale_image(nid_back_path, usable_width, max_image_height_p2)
                 if scaled_image_path:
@@ -822,7 +883,7 @@ class RentalInfoTab(QWidget):
             all_elements.append(Paragraph("<b>Police Verification Form:</b>", styles['Normal']))
             all_elements.append(Spacer(1, 0.02 * inch))
 
-            if police_form_path and os.path.exists(police_form_path) and self._is_safe_path(police_form_path):
+            if police_form_path and (police_form_path.startswith("http") or (os.path.exists(police_form_path) and self._is_safe_path(police_form_path))):
                 # Calculate max_width and max_height for the police form to fit frame3
                 police_form_max_width = frame3.width # Use full frame width
                 police_form_max_height = frame3_height - (1.0 * inch) # Account for some internal padding/spacing and title/spacer

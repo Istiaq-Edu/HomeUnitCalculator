@@ -4,6 +4,7 @@ from supabase import create_client, Client
 from postgrest.exceptions import APIError
 from gotrue.errors import AuthApiError
 from src.core.db_manager import DBManager # To get Supabase URL and Key
+from datetime import datetime
 
 class SupabaseManager:
     def __init__(self):
@@ -22,6 +23,8 @@ class SupabaseManager:
             print("Supabase URL/Key not found in local DB. Supabase features disabled.")
             return
 
+        print(f"DEBUG: Connecting to Supabase project with URL: {supabase_url}")
+
         try:
             self.supabase = create_client(supabase_url, supabase_key)
             print("Supabase client initialized successfully from stored config.")
@@ -33,7 +36,7 @@ class SupabaseManager:
         """Checks if the Supabase client is initialized and ready for use."""
         return self.supabase is not None
 
-    def upload_image(self, local_file_path: str, bucket_name: str = "rental_images", folder: str = "rentals") -> str | None:
+    def upload_image(self, local_file_path: str, bucket_name: str = "rental-images", folder: str = "rentals") -> str | None:
         """
         Uploads an image to Supabase Storage and returns its public URL.
         :param local_file_path: The path to the local image file.
@@ -54,16 +57,16 @@ class SupabaseManager:
 
         try:
             with open(local_file_path, 'rb') as f:
-                # Upload the file
-                response = self.supabase.storage.from_(bucket_name).upload(storage_path, f.read(), {"content-type": "image/jpeg"})
+                # Set "upsert" to "true" (as a string) in file_options to overwrite if it exists.
+                self.supabase.storage.from_(bucket_name).upload(
+                    path=storage_path, 
+                    file=f.read(), 
+                    file_options={"content-type": "image/jpeg", "upsert": "true"}
+                )
                 
-                # If upload is successful, get the public URL
-                if response.status_code == 200: # Supabase storage upload returns 200 on success
-                    public_url_response = self.supabase.storage.from_(bucket_name).get_public_url(storage_path)
-                    return public_url_response
-                else:
-                    print(f"Image upload failed with status code {response.status_code}: {response.json()}")
-                    return None
+                # If we reach here, the upload was successful. Get the public URL.
+                public_url_response = self.supabase.storage.from_(bucket_name).get_public_url(storage_path)
+                return public_url_response
         except Exception as e:
             print(f"Error uploading image {local_file_path}: {e}")
             return None
@@ -274,121 +277,98 @@ class SupabaseManager:
             print(f"An unexpected error occurred retrieving room calculations: {e}")
             return []
 
-    def save_rental_record(self, record_data: dict, record_id: int | None = None) -> int | None:
+    def _upload_rental_images(self, image_paths: dict) -> dict:
+        """Upload local images and return mapping key->url. Existing URLs are passed through."""
+        image_urls = {}
+        for key, path in image_paths.items():
+            if not path:
+                continue
+            # If the path is already an http URL, assume it's already uploaded
+            if str(path).lower().startswith("http"):
+                image_urls[key] = path
+                continue
+            # Otherwise upload only if the file exists locally
+            if os.path.exists(path):
+                url = self.upload_image(path)
+                if url:
+                    image_urls[key] = url
+        return image_urls
+
+    def save_rental_record(self, record_data: dict, image_paths: dict) -> str:
         """
-        Saves or updates a rental record to Supabase, handling image uploads.
-        :param record_data: Dictionary containing rental record data (tenant_name, room_number, advanced_paid, image_paths).
-        :param record_id: Optional ID of the record to update. If None, a new record is inserted.
-        :return: The ID of the inserted/updated record, or None on failure.
+        Saves a rental record to Supabase, including uploading images.
+        Uses separate columns for each piece of data.
         """
         if not self.is_client_initialized():
-            print("Supabase client not initialized. Cannot save rental record.")
-            return None
-
-        tenant_name = record_data.get("tenant_name")
-        room_number = record_data.get("room_number")
-        advanced_paid = record_data.get("advanced_paid")
-        is_archived = record_data.get("is_archived", False)
-
-        if not (tenant_name and room_number):
-            print("Tenant name and room number are required for rental record.")
-            return None
+            return "Error: Supabase client not initialized."
 
         try:
-            # Upload images and get URLs
-            photo_url = self.upload_image(record_data.get("photo_path")) if record_data.get("photo_path") else None
-            nid_front_url = self.upload_image(record_data.get("nid_front_path")) if record_data.get("nid_front_path") else None
-            nid_back_url = self.upload_image(record_data.get("nid_back_path")) if record_data.get("nid_back_path") else None
-            police_form_url = self.upload_image(record_data.get("police_form_path")) if record_data.get("police_form_path") else None
+            # Step 1: Upload images and get URLs
+            image_urls = self._upload_rental_images(image_paths)
 
-            # Prepare data for JSONB columns
-            data_to_save = {
-                "tenant_data": {
-                    "tenant_name": tenant_name,
-                    "room_number": room_number,
-                    "advanced_paid": advanced_paid
-                },
-                "image_urls": {
-                    "photo_url": photo_url,
-                    "nid_front_url": nid_front_url,
-                    "nid_back_url": nid_back_url,
-                    "police_form_url": police_form_url
-                },
-                "is_archived": is_archived
+            # Check for upload failures before proceeding
+            for key, path in image_paths.items():
+                if path and not str(path).lower().startswith("http") and not image_urls.get(key):
+                    return f"Error: Failed to upload image for {key}."
+
+            # Step 2: Prepare the record for insertion/update
+            record_to_save = {
+                "tenant_name": record_data.get("tenant_name"),
+                "room_number": record_data.get("room_number"),
+                "advanced_paid": record_data.get("advanced_paid"),
+                "photo_url": image_urls.get("photo"),
+                "nid_front_url": image_urls.get("nid_front"),
+                "nid_back_url": image_urls.get("nid_back"),
+                "police_form_url": image_urls.get("police_form"),
+                "is_archived": record_data.get("is_archived", False),
+                "updated_at": datetime.now().isoformat()
             }
 
-            if record_id:
-                # Update existing record
-                update_response = self.supabase.table("rental_records").update(data_to_save).eq("id", record_id).execute()
-                if update_response.data:
-                    print(f"Rental record updated for ID: {record_id}")
-                    return record_id
-                else:
-                    print(f"Failed to update rental record: {update_response.json()}")
-                    return None
+            # Step 3: Insert or Update the record
+            if record_data.get("id"):
+                # Update existing record by primary key id
+                response = self.supabase.table("rental_records").update(record_to_save).eq("id", record_data["id"]).execute()
             else:
                 # Insert new record
-                insert_response = self.supabase.table("rental_records").insert(data_to_save).execute()
-                if insert_response.data:
-                    new_id = insert_response.data[0]['id']
-                    print(f"Rental record inserted with ID: {new_id}")
-                    return new_id
-                else:
-                    print(f"Failed to insert rental record: {insert_response.json()}")
-                    return None
-        except (APIError, AuthApiError) as e:
-            print(f"Supabase API error saving rental record: {e}")
-            return None
+                response = self.supabase.table("rental_records").insert(record_to_save).execute()
+
+            if response.data:
+                return f"Successfully saved record for {record_data.get('tenant_name')}."
+            else:
+                # This path should ideally not be taken if exceptions are handled, but as a fallback.
+                return f"Error: Failed to save record to Supabase. Response: {response}"
+
         except Exception as e:
-            print(f"An unexpected error occurred saving rental record: {e}")
-            return None
+            return f"Error saving rental record: {e}"
 
     def get_rental_records(self, is_archived: bool | None = None) -> list[dict]:
         """
-        Retrieves rental records from Supabase.
-        :param is_archived: If True, retrieves archived records. If False, retrieves non-archived. If None, retrieves all.
-        :return: A list of rental record dictionaries.
+        Retrieves rental records from Supabase, optionally filtering by archive status.
         """
         if not self.is_client_initialized():
             print("Supabase client not initialized. Cannot retrieve rental records.")
             return []
         try:
-            query = self.supabase.table("rental_records").select("id, tenant_data, image_urls, created_at, updated_at, is_archived")
+            # Select individual columns
+            query = self.supabase.table("rental_records").select(
+                "id, supabase_id, tenant_name, room_number, advanced_paid, photo_url, nid_front_url, nid_back_url, police_form_url, is_archived, created_at, updated_at"
+            )
+
             if is_archived is not None:
                 query = query.eq("is_archived", is_archived)
+
             response = query.order("created_at", desc=True).execute()
-            
-            if response.data:
-                # Flatten the JSONB data for easier consumption
-                flattened_records = []
-                for record in response.data:
-                    flattened_record = {
-                        "id": record.get("id"),
-                        "tenant_name": record.get("tenant_data", {}).get("tenant_name"),
-                        "room_number": record.get("tenant_data", {}).get("room_number"),
-                        "advanced_paid": record.get("tenant_data", {}).get("advanced_paid"),
-                        "photo_url": record.get("image_urls", {}).get("photo_url"),
-                        "nid_front_url": record.get("image_urls", {}).get("nid_front_url"),
-                        "nid_back_url": record.get("image_urls", {}).get("nid_back_url"),
-                        "police_form_url": record.get("image_urls", {}).get("police_form_url"),
-                        "created_at": record.get("created_at"),
-                        "updated_at": record.get("updated_at"),
-                        "is_archived": record.get("is_archived")
-                    }
-                    flattened_records.append(flattened_record)
-                return flattened_records
-            return []
-        except (APIError, AuthApiError) as e:
+
+            return response.data if response.data else []
+
+        except Exception as e:
             print(f"Supabase API error retrieving rental records: {e}")
             return []
-        except Exception as e:
-            print(f"An unexpected error occurred retrieving rental records: {e}")
-            return []
 
-    def update_rental_record_archive_status(self, record_id: int, is_archived: bool) -> bool:
+    def update_rental_record_archive_status(self, supabase_id: str, is_archived: bool) -> bool:
         """
         Updates the is_archived status of a rental record in Supabase.
-        :param record_id: The ID of the rental record to update.
+        :param supabase_id: The supabase_id of the rental record to update.
         :param is_archived: The new archive status (True for archived, False for active).
         :return: True if successful, False otherwise.
         """
@@ -396,12 +376,12 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot update archive status.")
             return False
         try:
-            response = self.supabase.table("rental_records").update({"is_archived": is_archived}).eq("id", record_id).execute()
+            response = self.supabase.table("rental_records").update({"is_archived": is_archived}).eq("supabase_id", supabase_id).execute()
             if response.data:
-                print(f"Rental record ID {record_id} archive status updated to {is_archived}.")
+                print(f"Rental record supabase_id {supabase_id} archive status updated to {is_archived}.")
                 return True
             else:
-                print(f"Failed to update archive status for record ID {record_id}: {response.json()}")
+                print(f"Failed to update archive status for record supabase_id {supabase_id}: {response.json()}")
                 return False
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error updating archive status: {e}")
@@ -410,25 +390,26 @@ class SupabaseManager:
             print(f"An unexpected error occurred updating archive status: {e}")
             return False
 
-    def delete_rental_record(self, record_id: int) -> bool:
+    def delete_rental_record(self, record_identifier) -> bool:
         """
         Deletes a rental record from Supabase.
         Note: This does NOT delete associated images from Supabase Storage.
         Image deletion would require tracking image URLs and calling storage.remove().
         For simplicity, we're only deleting the record here.
-        :param record_id: The ID of the rental record to delete.
+        :param record_identifier: Either numeric primary-key id or uuid supabase_id.
         :return: True if successful, False otherwise.
         """
         if not self.is_client_initialized():
             print("Supabase client not initialized. Cannot delete rental record.")
             return False
         try:
-            response = self.supabase.table("rental_records").delete().eq("id", record_id).execute()
+            col = "id" if isinstance(record_identifier, int) or str(record_identifier).isdigit() else "supabase_id"
+            response = self.supabase.table("rental_records").delete().eq(col, record_identifier).execute()
             if response.data:
-                print(f"Rental record ID {record_id} deleted.")
+                print(f"Rental record {record_identifier} deleted.")
                 return True
             else:
-                print(f"Failed to delete rental record ID {record_id}: {response.json()}")
+                print(f"Failed to delete rental record {record_identifier}: {response.json()}")
                 return False
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error deleting rental record: {e}")
@@ -549,7 +530,7 @@ if __name__ == "__main__":
                 "photo_path": dummy_image_path,
                 "nid_front_path": dummy_image_path
             }
-            rental_id = manager.save_rental_record(test_rental_data)
+            rental_id = manager.save_rental_record(test_rental_data, image_paths={"photo": dummy_image_path, "nid_front": dummy_image_path})
             print(f"Saved rental record with ID: {rental_id}")
 
             if rental_id:
@@ -584,7 +565,7 @@ if __name__ == "__main__":
                     "photo_path": None, # No new photo
                     "nid_front_path": dummy_image_path # Re-upload same NID front
                 }
-                updated_id = manager.save_rental_record(updated_rental_data, record_id=rental_id)
+                updated_id = manager.save_rental_record(updated_rental_data, image_paths={"photo": None, "nid_front": dummy_image_path})
                 print(f"Updated rental record with ID: {updated_id}")
                 assert updated_id == rental_id
 
