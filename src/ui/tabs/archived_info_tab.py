@@ -9,7 +9,7 @@ from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QGridLayout, QGroupBox, QFormLayout, QMessageBox, QSizePolicy, QDialog,
-    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -19,7 +19,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 
 from src.ui.styles import (
-    get_room_selection_style, get_table_style
+    get_room_selection_style, get_table_style, get_button_style, get_source_combo_style
 )
 from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
 
@@ -44,6 +44,13 @@ class ArchivedInfoTab(QWidget):
         table_group.setStyleSheet(get_room_selection_style())
         table_layout = QVBoxLayout(table_group)
 
+        # Add Load Source Combo Box
+        self.load_source_combo = QComboBox()
+        self.load_source_combo.addItems(["Local DB", "Cloud (Supabase)"])
+        self.load_source_combo.setStyleSheet(get_source_combo_style()) # Re-using button style for now
+        self.load_source_combo.currentIndexChanged.connect(self.load_archived_records)
+        table_layout.addWidget(self.load_source_combo)
+
         self.archived_records_table = QTableWidget()
         self.archived_records_table.setColumnCount(6) # ID, Name, Room, Advanced, Created, Updated
         self.archived_records_table.setHorizontalHeaderLabels(["ID", "Tenant Name", "Room Number", "Advanced Paid", "Created At", "Updated At"])
@@ -66,36 +73,78 @@ class ArchivedInfoTab(QWidget):
             QMessageBox.warning(self, "Database Warning", "Unable to initialize database table. Some features may not work correctly.")
 
     def load_archived_records(self):
-        try:
-            # Reset table to pristine state
-            self.archived_records_table.clearContents()
-            self.archived_records_table.setRowCount(0)
-            # Select only records where is_archived is 1
-            query = """
-                SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at,
-                       photo_path, nid_front_path, nid_back_path, police_form_path, is_archived
-                FROM rentals
-                WHERE is_archived = ?
-                ORDER BY updated_at DESC
-            """
-            records = self.db_manager.execute_query(query, (1,))
-            
-            if not records:
-                logging.info("No archived records found")
-                return          # nothing to show or DB error already warned
+        self.archived_records_table.clearContents()
+        self.archived_records_table.setRowCount(0)
 
-            self.archived_records_table.setRowCount(len(records))
-            for row_idx, record in enumerate(records):
-                for col_idx, data in enumerate(record[:6]): # Display first 6 columns in table
-                    # Handle None values appropriately
-                    display_data = str(data) if data is not None else ""
-                    item = QTableWidgetItem(display_data)
-                    self.archived_records_table.setItem(row_idx, col_idx, item)
-                # Store full paths in item data for later retrieval
-                self.archived_records_table.item(row_idx, 0).setData(Qt.UserRole, record) # Store full record in ID item
-        except Exception as e:
-            logging.error(f"Database Error: Failed to load archived rental records: {e}", exc_info=True)
-            QMessageBox.warning(self, "Load Error", "Unable to load archived records. Please check the database connection.")
+        selected_source = self.load_source_combo.currentText()
+        records = []
+
+        if selected_source == "Local DB":
+            try:
+                # Select only records where is_archived is 1
+                query = """
+                    SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at,
+                           photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id
+                    FROM rentals
+                    WHERE is_archived = ?
+                    ORDER BY updated_at DESC
+                """
+                records = self.db_manager.execute_query(query, (1,))
+                logging.info(f"Loaded {len(records)} archived records from Local DB.")
+            except Exception as e:
+                logging.error(f"Database Error: Failed to load archived rental records from local DB: {e}", exc_info=True)
+                QMessageBox.critical(self, "Local DB Error", f"Failed to load archived rental records from local DB: {e}")
+                return
+        elif selected_source == "Cloud (Supabase)":
+            if not self.main_window.supabase_manager.is_client_initialized():
+                QMessageBox.warning(self, "Supabase Not Configured", "Supabase client is not initialized. Cannot load from cloud.")
+                return
+            try:
+                # Fetch archived records from Supabase
+                records = self.main_window.supabase_manager.get_rental_records(is_archived=True)
+                logging.info(f"Loaded {len(records)} archived records from Supabase.")
+            except Exception as e:
+                logging.error(f"Cloud DB Error: Failed to load archived rental records from Supabase: {e}", exc_info=True)
+                QMessageBox.critical(self, "Cloud DB Error", f"Failed to load archived rental records from Supabase: {e}")
+                return
+        
+        if not records:
+            logging.info(f"No archived records found in {selected_source}")
+            QMessageBox.information(self, "No Records", f"No archived rental records found in {selected_source}.")
+            return
+
+        self.archived_records_table.setRowCount(len(records))
+        for row_idx, record in enumerate(records):
+            # Determine the ID and other fields based on source
+            if selected_source == "Local DB":
+                # SQLite record: (id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id)
+                display_id = record[0]
+                tenant_name = record[1]
+                room_number = record[2]
+                advanced_paid = record[3]
+                created_at = record[4]
+                updated_at = record[5]
+                full_record_data = record # Store the full SQLite row
+            else: # Cloud (Supabase)
+                # Supabase record (flattened dict from SupabaseManager.get_rental_records)
+                display_id = record.get("id")
+                tenant_name = record.get("tenant_name")
+                room_number = record.get("room_number")
+                advanced_paid = record.get("advanced_paid")
+                created_at = record.get("created_at")
+                updated_at = record.get("updated_at")
+                full_record_data = record # Store the full dictionary
+
+            self.archived_records_table.setItem(row_idx, 0, QTableWidgetItem(str(display_id)))
+            self.archived_records_table.setItem(row_idx, 1, QTableWidgetItem(str(tenant_name)))
+            self.archived_records_table.setItem(row_idx, 2, QTableWidgetItem(str(room_number)))
+            self.archived_records_table.setItem(row_idx, 3, QTableWidgetItem(str(advanced_paid)))
+            self.archived_records_table.setItem(row_idx, 4, QTableWidgetItem(str(created_at)))
+            self.archived_records_table.setItem(row_idx, 5, QTableWidgetItem(str(updated_at)))
+            
+            # Store the full record data (either SQLite row or Supabase dict) in the first column's UserRole
+            self.archived_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
+
 
     def show_record_details_dialog(self, index):
         if not index.isValid():
@@ -110,23 +159,48 @@ class ArchivedInfoTab(QWidget):
             logging.warning(f"No item found at row {selected_row}")
             return
             
-        record = item.data(Qt.UserRole)
-        if not record:
+        record_data = item.data(Qt.UserRole)
+        if not record_data:
             logging.warning(f"No record data found for row {selected_row}")
             return
         
+        selected_source = self.load_source_combo.currentText()
+
+        # Adapt record_data to a consistent format for the dialog
+        if selected_source == "Local DB":
+            # SQLite record: (id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id)
+            # Convert to dict for consistency with Supabase records in dialog
+            record_dict = {
+                "id": record_data[0],
+                "tenant_name": record_data[1],
+                "room_number": record_data[2],
+                "advanced_paid": record_data[3],
+                "created_at": record_data[4],
+                "updated_at": record_data[5],
+                "photo_path": record_data[6],
+                "nid_front_path": record_data[7],
+                "nid_back_path": record_data[8],
+                "police_form_path": record_data[9],
+                "is_archived": bool(record_data[10]),
+                "supabase_id": record_data[11]
+            }
+        else: # Cloud (Supabase) - already a flattened dict
+            record_dict = record_data
+            # Ensure local paths are empty strings if not present, as dialog expects paths
+            record_dict["photo_path"] = record_dict.get("photo_url", "")
+            record_dict["nid_front_path"] = record_dict.get("nid_front_url", "")
+            record_dict["nid_back_path"] = record_dict.get("nid_back_url", "")
+            record_dict["police_form_path"] = record_dict.get("police_form_url", "")
+
         try:
-            # Pass is_archived status to the dialog (is_archived is at index 10)
-            # Cast explicitly to int so that "0" and 0 are both handled correctly
-            is_archived = bool(int(record[10])) if len(record) > 10 else False
-            
-            # Pass the main_window_ref to the dialog so it can access generate_rental_pdf_from_data
             dialog = RentalRecordDialog(
                 self,
-                record_data=record,
-                db_manager=self.db_manager,
-                is_archived_record=is_archived,
-                main_window_ref=self.main_window
+                record_data=record_dict, # Pass the consistent dictionary
+                db_manager=self.db_manager, # Local DB manager
+                supabase_manager=self.main_window.supabase_manager, # Supabase manager
+                is_archived_record=record_dict.get("is_archived", False),
+                main_window_ref=self.main_window,
+                current_source=selected_source # Pass the current source to the dialog
             )
             dialog.exec_() # Show as modal dialog
         except Exception as e:

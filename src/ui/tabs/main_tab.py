@@ -38,6 +38,7 @@ class MainTab(QWidget):
         self.additional_amount_value_label = None
         self.in_total_value_label = None
         self.main_calculate_button = None
+        self.save_to_cloud_button = None # New button for saving to cloud
         
         self.load_month_combo = None
         self.load_year_spinbox = None
@@ -167,12 +168,14 @@ class MainTab(QWidget):
         results_group = self.create_results_group()
         main_layout.addWidget(results_group)
 
+        button_layout = QHBoxLayout()
         self.main_calculate_button = CustomNavButton("Calculate")
         self.main_calculate_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
         self.main_calculate_button.clicked.connect(self.calculate_main)
         self.main_calculate_button.setStyleSheet(get_button_style())
         self.main_calculate_button.setFixedHeight(50)
-        main_layout.addWidget(self.main_calculate_button)
+        button_layout.addWidget(self.main_calculate_button)
+        main_layout.addLayout(button_layout)
         
         self.update_meter_inputs(3)
         self.update_diff_inputs(3)

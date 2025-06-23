@@ -30,7 +30,7 @@ class EditRecordDialog(QDialog):
         super().__init__(parent)
         self.record_id = record_id 
         self.main_window = parent.main_window # Access main_window through HistoryTab's parent
-        self.supabase = self.main_window.supabase # Get supabase client from main_window
+        self.supabase_manager = self.main_window.supabase_manager # Get supabase manager from main_window
         self.room_edit_widgets = [] 
         self.meter_diff_edit_widgets = [] 
         
@@ -62,34 +62,12 @@ class EditRecordDialog(QDialog):
         self.diff2_edit = CustomLineEdit(); self.diff2_edit.setObjectName("dialog_diff2_edit")
         self.diff3_edit = CustomLineEdit(); self.diff3_edit.setObjectName("dialog_diff3_edit")
         
-        meter_values = [
-            main_data.get("meter1_reading", "") or "",
-            main_data.get("meter2_reading", "") or "",
-            main_data.get("meter3_reading", "") or ""
-        ]
-        diff_values = [
-            main_data.get("diff1", "") or "",
-            main_data.get("diff2", "") or "",
-            main_data.get("diff3", "") or ""
-        ]
+        # Extract data from main_data JSONB structure
+        meter_values = main_data.get("meter_readings", [])
+        diff_values = main_data.get("diff_readings", [])
         
-        extra_meter_readings = main_data.get("extra_meter_readings", None)
-        extra_diff_readings = main_data.get("extra_diff_readings", None)
-        
-        if extra_meter_readings:
-            with contextlib.suppress(json.JSONDecodeError, TypeError):
-                extra_meters = json.loads(extra_meter_readings)
-                if isinstance(extra_meters, list): 
-                    meter_values.extend(extra_meters)
-        
-        if extra_diff_readings:
-            with contextlib.suppress(json.JSONDecodeError, TypeError):
-                extra_diffs = json.loads(extra_diff_readings)
-                if isinstance(extra_diffs, list): 
-                    diff_values.extend(extra_diffs)
-        
-        num_pairs = max(3, len(meter_values), len(diff_values)) # Ensure at least 3 pairs for backward compatibility
-                                                                # or if extra readings make it longer.
+        # Ensure at least 3 pairs for backward compatibility or if extra readings make it longer.
+        num_pairs = max(3, len(meter_values), len(diff_values))
         
         for i in range(num_pairs):
             if i < 3:
@@ -203,19 +181,9 @@ class EditRecordDialog(QDialog):
         if enter_sequence: enter_sequence[0].setFocus()
 
     def populate_data(self, main_data, room_data_list):
-        meter_values = [
-            main_data.get("meter1_reading", "") or "", main_data.get("meter2_reading", "") or "", main_data.get("meter3_reading", "") or ""
-        ]
-        diff_values = [
-            main_data.get("diff1", "") or "", main_data.get("diff2", "") or "", main_data.get("diff3", "") or ""
-        ]
-        
-        if main_data.get("extra_meter_readings"):
-            with contextlib.suppress(json.JSONDecodeError, TypeError):
-                meter_values.extend(json.loads(main_data["extra_meter_readings"]))
-        if main_data.get("extra_diff_readings"):
-            with contextlib.suppress(json.JSONDecodeError, TypeError):
-                diff_values.extend(json.loads(main_data["extra_diff_readings"]))
+        # Extract data from main_data JSONB structure
+        meter_values = main_data.get("meter_readings", [])
+        diff_values = main_data.get("diff_readings", [])
 
         for i, pair_widgets in enumerate(self.meter_diff_edit_widgets):
             if i < len(meter_values) and pair_widgets['meter_edit']: pair_widgets['meter_edit'].setText(str(meter_values[i]))
@@ -225,9 +193,16 @@ class EditRecordDialog(QDialog):
         
         for i, room_widget_set in enumerate(self.room_edit_widgets):
             if i < len(room_data_list):
-                room_data = room_data_list[i]
-                room_widget_set["present_edit"].setText(str(room_data.get("present_reading_room", "") or ""))
-                room_widget_set["previous_edit"].setText(str(room_data.get("previous_reading_room", "") or ""))
+                room_record = room_data_list[i]
+                # Extract data from room_data JSONB structure
+                room_data_jsonb = room_record.get("room_data", {})
+                room_widget_set["present_edit"].setText(str(room_data_jsonb.get("present_unit", "") or ""))
+                room_widget_set["previous_edit"].setText(str(room_data_jsonb.get("previous_unit", "") or ""))
+                # Store image paths for later use in save_changes
+                room_widget_set["photo_path"] = room_record.get("photo_url")
+                room_widget_set["nid_front_path"] = room_record.get("nid_front_url")
+                room_widget_set["nid_back_path"] = room_record.get("nid_back_url")
+                room_widget_set["police_form_path"] = room_record.get("police_form_url")
 
     def save_changes(self):
         def _s_int(v_str, default=0): 
@@ -258,50 +233,79 @@ class EditRecordDialog(QDialog):
             per_unit_cost_calc = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0
             grand_total_bill = total_unit_cost + additional_amount
 
-            updated_main_data = {
-                "meter1_reading": meter_vals[0], "meter2_reading": meter_vals[1], "meter3_reading": meter_vals[2],
-                "diff1": diff_vals[0], "diff2": diff_vals[1], "diff3": diff_vals[2],
+            # Prepare main_data for JSONB column
+            updated_main_data_jsonb = {
+                "meter_readings": meter_vals,
+                "diff_readings": diff_vals,
                 "additional_amount": additional_amount,
-                "total_unit_cost": total_unit_cost, "total_diff_units": total_diff_units,
-                "per_unit_cost_calculated": per_unit_cost_calc, "grand_total_bill": grand_total_bill,
-                "extra_meter_readings": json.dumps(meter_vals[3:]) if len(meter_vals) > 3 else None,
-                "extra_diff_readings": json.dumps(diff_vals[3:]) if len(diff_vals) > 3 else None
+                "total_unit_cost": total_unit_cost,
+                "total_diff_units": total_diff_units,
+                "per_unit_cost_calculated": per_unit_cost_calc,
+                "grand_total_bill": grand_total_bill,
             }
 
-            updated_room_data_list = []
+            updated_room_records_for_supabase = []
             for rws in self.room_edit_widgets:
-                present = _s_int(rws["present_edit"].text())
-                previous = _s_int(rws["previous_edit"].text())
+                present = _s_float(rws["present_edit"].text()) # Use _s_float for consistency
+                previous = _s_float(rws["previous_edit"].text()) # Use _s_float for consistency
                 if present < previous:
-                    raise ValueError(
-                        f"Present reading ({present}) cannot be less than previous reading "
-                        f"({previous}) for room '{rws['name']}'."
-                    )
+                    QMessageBox.warning(self, "Input Error",
+                                        f"Present reading ({present}) cannot be less than previous reading "
+                                        f"({previous}) for room '{rws['name']}'.")
+                    return # Do not proceed with saving if validation fails
                 units_consumed = present - previous
                 cost = units_consumed * per_unit_cost_calc
-                room_data_to_append = {
-                    "main_calculation_id": self.record_id, "room_name": rws["name"],
-                    "present_reading_room": present, "previous_reading_room": previous,
-                    "units_consumed_room": units_consumed, "cost_room": cost
+                
+                # Prepare room_data for JSONB column
+                room_data_jsonb = {
+                    "room_name": rws["name"],
+                    "present_unit": present,
+                    "previous_unit": previous,
+                    "real_unit": units_consumed, # This is the "real unit" calculated
+                    "unit_bill": cost,
+                    # Assuming gas_bill, water_bill, house_rent, grand_total are not editable in this dialog
+                    # If they are, you'd need to add QLineEdit for them and retrieve their values here.
+                    # For now, we'll omit them or fetch from original room_data if needed.
                 }
-                if rws.get("room_id"): # Include room_id if it exists for upsert
-                    room_data_to_append["id"] = rws["room_id"]
-                updated_room_data_list.append(room_data_to_append)
 
-            # Update main_calculations
-            self.supabase.table("main_calculations").update(updated_main_data).eq("id", self.record_id).execute()
+                # Include local image paths (which are actually URLs from Supabase Storage)
+                # SupabaseManager will handle re-upload if paths change, or keep existing if same.
+                room_record_to_save = {
+                    "room_data": room_data_jsonb,
+                    "photo_path": rws.get("photo_path"),
+                    "nid_front_path": rws.get("nid_front_path"),
+                    "nid_back_path": rws.get("nid_back_path"),
+                    "police_form_path": rws.get("police_form_path")
+                }
+                
+                # If this is an existing room record, include its ID
+                if rws.get("room_id"):
+                    room_record_to_save["id"] = rws["room_id"]
+                
+                updated_room_records_for_supabase.append(room_record_to_save)
+
+            # Update main_calculations using SupabaseManager
+            main_update_success = self.supabase_manager.save_main_calculation(
+                {"id": self.record_id, **updated_main_data_jsonb} # Pass ID for update
+            )
             
-            # Use upsert for room_calculations to prevent data loss on partial failure
-            # upsert will insert new records or update existing ones based on primary key (id)
-            if updated_room_data_list:
-                self.supabase.table("room_calculations").upsert(updated_room_data_list).execute()
+            if not main_update_success:
+                QMessageBox.critical(self, "Supabase Error", "Failed to update main calculation data.")
+                return
+
+            # Save room calculations using SupabaseManager
+            if updated_room_records_for_supabase:
+                rooms_update_success = self.supabase_manager.save_room_calculations(
+                    self.record_id, updated_room_records_for_supabase
+                )
+                if not rooms_update_success:
+                    QMessageBox.critical(self, "Supabase Error", "Failed to update room calculation data.")
+                    return
 
             QMessageBox.information(self, "Success", "Record updated successfully.")
-            self.accept()
-        except APIError as e:
-            QMessageBox.critical(self, "Supabase API Error", f"Failed to update: {e.message}\n{e.details}")
+            self.accept() # Close dialog on success
         except Exception as e:
-            QMessageBox.critical(self, "Update Error", f"Error: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Update Error", f"An unexpected error occurred during update: {e}\n{traceback.format_exc()}")
 
 
 class HistoryTab(QWidget):
@@ -734,198 +738,117 @@ class HistoryTab(QWidget):
             QMessageBox.critical(self, "Load History Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
 
     def load_history_tables_from_supabase(self, month_filter, year_filter):
-        if not self.main_window.supabase or not self.main_window.check_internet_connectivity():
+        if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():
             QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
             return
 
         try:
-            # Build the query dynamically based on filters
-            main_query = self.main_window.supabase.table("main_calculations").select("*")
-            room_query = self.main_window.supabase.table("room_calculations").select("*")
-
-            # Fetch main calculation IDs first
-            ids_query = self.main_window.supabase.table("main_calculations").select("id")
-            if month_filter:
-                ids_query = ids_query.eq("month", month_filter)
-            if year_filter is not None:
-                ids_query = ids_query.eq("year", year_filter)
-            
-            ids_resp = ids_query.execute()
-            ids = [r["id"] for r in ids_resp.data] if ids_resp.data else []
-
-            # Fetch main calculations using the fetched IDs
-            main_query = self.main_window.supabase.table("main_calculations").select("*")
-            if ids:
-                main_query = main_query.in_("id", ids)
+            main_records = []
+            if month_filter == "All" and year_filter == 0:
+                main_records = self.main_window.supabase_manager.get_all_main_calculations()
             else:
-                main_query = main_query.eq("id", -1) # No main records, so fetch none
-            
-            main_resp = main_query.order("year", desc=True).execute() # Order by year in Supabase
-            main_records = main_resp.data if main_resp.data else []
-
-            # Sort main_records by month chronologically in Python
-            main_records.sort(key=lambda x: (x["year"], self.MONTH_ORDER.get(x["month"], 0)), reverse=True)
-
-            # Build room history query
-            room_query = self.main_window.supabase.table("room_calculations").select("*")
-            if ids: # Use the same IDs for room history
-                room_query = room_query.in_("main_calculation_id", ids)
-            else:
-                room_query = room_query.eq("main_calculation_id", -1) # Return no records
-            
-            room_resp = room_query.execute()
-            room_records = room_resp.data if room_resp.data else []
-
-            # Debug: Print main records order
-            print("DEBUG: Main records order:")
-            for idx, record in enumerate(main_records):
-                print(f"  {idx}: ID={record['id']}, {record['month']} {record['year']}")
-            
-            # Create a mapping of main_calculation_id to chronological order
-            main_calc_order = {record["id"]: idx for idx, record in enumerate(main_records)}
-            
-            # Debug: Print room records before sorting
-            print("DEBUG: Room records before sorting:")
-            for idx, record in enumerate(room_records[:10]):  # Show first 10
-                print(f"  {idx}: main_calc_id={record['main_calculation_id']}, room={record.get('room_name', '')}")
-            
-            # Sort room_records chronologically by main calculation order, then by room_name
-            room_records.sort(key=lambda x: (
-                main_calc_order.get(x["main_calculation_id"], 999999),  # Use high number for missing IDs
-                x.get("room_name", "")
-            ))
-            
-            # Debug: Print room records after sorting
-            print("DEBUG: Room records after sorting:")
-            for idx, record in enumerate(room_records[:10]):  # Show first 10
-                print(f"  {idx}: main_calc_id={record['main_calculation_id']}, room={record.get('room_name', '')}")
+                main_record = self.main_window.supabase_manager.get_main_calculations(month_filter, year_filter)
+                if main_record:
+                    main_records.append(main_record)
 
             self.main_history_table.setRowCount(0)
             self.room_history_table.setRowCount(0)
+            self.totals_table.setRowCount(0)
 
-            if main_records:
-                # Determine max number of meters/diffs dynamically
-                max_meters = 3
-                for record in main_records:
-                    extra_meters = []
-                    extra_diffs = []
-                    if record.get("extra_meter_readings"):
-                        with contextlib.suppress(json.JSONDecodeError, TypeError):
-                            extra_meters = json.loads(record["extra_meter_readings"])
-                    if record.get("extra_diff_readings"):
-                        with contextlib.suppress(json.JSONDecodeError, TypeError):
-                            extra_diffs = json.loads(record["extra_diff_readings"])
-                    max_meters = max(max_meters, len(extra_meters) + 3, len(extra_diffs) + 3)
-                max_meters = min(max_meters, 10)  # Clamp max to 10
+            all_room_rows = []
+            processed_main_ids = set() # To track main_calculation_id for totals
 
-                self.set_main_history_table_columns(max_meters)
-                self.main_history_table.setRowCount(len(main_records))
-                for row_idx, record in enumerate(main_records):
-                    self.main_history_table.setItem(row_idx, 0, QTableWidgetItem(record.get("month", "")))
-                    # Set meter columns dynamically
-                    for i in range(max_meters):
-                        if i == 0:
-                            val = str(record.get("meter1_reading", ""))
-                        elif i == 1:
-                            val = str(record.get("meter2_reading", ""))
-                        elif i == 2:
-                            val = str(record.get("meter3_reading", ""))
-                        else:
-                            val = ""
-                        if i >= 3 and record.get("extra_meter_readings"):
-                            with contextlib.suppress(json.JSONDecodeError, TypeError):
-                                extra_meters = json.loads(record["extra_meter_readings"])
-                                if i - 3 < len(extra_meters):
-                                    val = str(extra_meters[i - 3])
-                        self.main_history_table.setItem(row_idx, 1 + i, QTableWidgetItem(val))
-                    # Set diff columns dynamically
-                    for i in range(max_meters):
-                        if i == 0:
-                            val = str(record.get("diff1", ""))
-                        elif i == 1:
-                            val = str(record.get("diff2", ""))
-                        elif i == 2:
-                            val = str(record.get("diff3", ""))
-                        else:
-                            val = ""
-                        if i >= 3 and record.get("extra_diff_readings"):
-                            with contextlib.suppress(json.JSONDecodeError, TypeError):
-                                extra_diffs = json.loads(record["extra_diff_readings"])
-                                if i - 3 < len(extra_diffs):
-                                    val = str(extra_diffs[i - 3])
-                        self.main_history_table.setItem(row_idx, 1 + max_meters + i, QTableWidgetItem(val))
-                    # Set fixed columns after meters/diffs
-                    base_col = 1 + max_meters * 2
-                    self.main_history_table.setItem(row_idx, base_col + 0, QTableWidgetItem(f"{record.get('total_unit_cost', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, base_col + 1, QTableWidgetItem(f"{record.get('total_diff_units', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, base_col + 2, QTableWidgetItem(f"{record.get('per_unit_cost_calculated', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, base_col + 3, QTableWidgetItem(f"{record.get('additional_amount', 0):.2f}"))
-                    self.main_history_table.setItem(row_idx, base_col + 4, QTableWidgetItem(f"{record.get('grand_total_bill', 0):.2f}"))
-                    self.main_history_table.item(row_idx, 0).setData(Qt.UserRole, record.get("id")) # Store ID for editing/deleting
+            # Determine max meter/diff columns needed
+            max_meter_diff_pairs = 3 # Start with default 3
+            for record in main_records:
+                main_data_jsonb = record.get("main_data", {})
+                meter_readings_from_jsonb = main_data_jsonb.get("meter_readings", [])
+                diff_readings_from_jsonb = main_data_jsonb.get("diff_readings", [])
+                
+                max_meter_diff_pairs = max(max_meter_diff_pairs,
+                                           len(meter_readings_from_jsonb),
+                                           len(diff_readings_from_jsonb))
+            
+            self.set_main_history_table_columns(max_meter_diff_pairs)
 
-            if room_records:
-                self.room_history_table.setRowCount(len(room_records))
-                for row_idx, record in enumerate(room_records):
-                    # Find corresponding main calculation to get month/year
-                    main_calc = next((m for m in main_records if m["id"] == record["main_calculation_id"]), None)
-                    month_year_str = f"{main_calc['month']} {main_calc['year']}" if main_calc else "N/A"
+            for row_idx, record in enumerate(main_records):
+                self.main_history_table.insertRow(row_idx)
+                
+                main_data_jsonb = record.get("main_data", {})
+                meter_readings = main_data_jsonb.get("meter_readings", [])
+                diff_readings = main_data_jsonb.get("diff_readings", [])
 
-                    # Populate all 10 columns consistently
-                    self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
-                    self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(record.get("room_name", "")))
-                    self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(record.get("present_reading_room", "") or "")))
-                    self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(record.get("previous_reading_room", "") or "")))
-                    self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(record.get("units_consumed_room", "") or "")))
-                    
-                    # Unit Bill (cost_room)
-                    cost_room_value = record.get('cost_room')
-                    unit_bill_str = f"{cost_room_value:.2f}" if cost_room_value is not None else "0.00"
-                    self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(unit_bill_str))
-                    
-                    # Gas Bill
-                    gas_bill_value = record.get('gas_bill')
-                    gas_bill_str = f"{gas_bill_value:.2f}" if gas_bill_value is not None else "0.00"
-                    self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(gas_bill_str))
-                    
-                    # Water Bill
-                    water_bill_value = record.get('water_bill')
-                    water_bill_str = f"{water_bill_value:.2f}" if water_bill_value is not None else "0.00"
-                    self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(water_bill_str))
-                    
-                    # House Rent
-                    house_rent_value = record.get('house_rent')
-                    house_rent_str = f"{house_rent_value:.2f}" if house_rent_value is not None else "0.00"
-                    self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(house_rent_str))
-                    
-                    # Grand Total (calculate if not available)
-                    grand_total_value = record.get('grand_total')
-                    if grand_total_value is not None:
-                        grand_total_str = f"{grand_total_value:.2f}"
-                    else:
-                        # Calculate grand total from available components
-                        unit_bill = cost_room_value or 0
-                        gas_bill = gas_bill_value or 0
-                        water_bill = water_bill_value or 0
-                        house_rent = house_rent_value or 0
-                        calculated_total = unit_bill + gas_bill + water_bill + house_rent
-                        grand_total_str = f"{calculated_total:.2f}"
-                    self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(grand_total_str))
+                # Populate main history table
+                col = 0
+                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(f"{record.get('month')} {record.get('year')}"))
+                col += 1
+                for i in range(max_meter_diff_pairs):
+                    self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(meter_readings[i]) if i < len(meter_readings) else "0"))
+                    col += 1
+                for i in range(max_meter_diff_pairs):
+                    self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(diff_readings[i]) if i < len(diff_readings) else "0"))
+                    col += 1
+                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("total_unit_cost", "N/A"))))
+                col += 1
+                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("total_diff_units", "N/A"))))
+                col += 1
+                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("per_unit_cost_calculated", "N/A"))))
+                col += 1
+                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("additional_amount", "N/A"))))
+                col += 1
+                self.main_history_table.setItem(row_idx, col, QTableWidgetItem(str(main_data_jsonb.get("grand_total_bill", "N/A"))))
+                
+                # Store the record ID in a hidden column or as item data for editing/deletion
+                self.main_history_table.setItem(row_idx, self.main_history_table.columnCount() - 1, QTableWidgetItem(str(record.get('id'))))
+                self.main_history_table.hideColumn(self.main_history_table.columnCount() - 1) # Hide the ID column
+
+                # Fetch associated room calculations using SupabaseManager
+                room_records = self.main_window.supabase_manager.get_room_calculations(record['id'])
+                
+                for room_rec in room_records:
+                    room_data_jsonb = room_rec.get("room_data", {})
+                    all_room_rows.append({
+                        "month": f"{record.get('month')} {record.get('year')}",
+                        "room_name": room_data_jsonb.get("room_name", "N/A"),
+                        "present_unit": room_data_jsonb.get("present_unit", "N/A"),
+                        "previous_unit": room_data_jsonb.get("previous_unit", "N/A"),
+                        "real_unit": room_data_jsonb.get("real_unit", "N/A"),
+                        "unit_bill": room_data_jsonb.get("unit_bill", "N/A"),
+                        "gas_bill": room_data_jsonb.get("gas_bill", "N/A"),
+                        "water_bill": room_data_jsonb.get("water_bill", "N/A"),
+                        "house_rent": room_data_jsonb.get("house_rent", "N/A"),
+                        "grand_total": room_data_jsonb.get("grand_total", "N/A"),
+                        "main_calculation_id": record['id'] # For linking to main record
+                    })
+                processed_main_ids.add(record['id']) # Add main record ID to processed set
+
+            self.resize_table_to_content(self.main_history_table)
+
+            # Populate room history table
+            self.room_history_table.setRowCount(len(all_room_rows))
+            for row_idx, room_row in enumerate(all_room_rows):
+                self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(room_row["month"]))
+                self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(room_row["room_name"]))
+                self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(room_row["present_unit"])))
+                self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(room_row["previous_unit"])))
+                self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(room_row["real_unit"])))
+                self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(str(room_row["unit_bill"])))
+                self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(str(room_row["gas_bill"])))
+                self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(str(room_row["water_bill"])))
+                self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(str(room_row["house_rent"])))
+                self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(str(room_row["grand_total"])))
+            self.resize_table_to_content(self.room_history_table)
 
             # Calculate and display totals for Supabase data
-            self.calculate_and_display_totals_supabase(room_records)
+            self.calculate_and_display_totals_supabase(all_room_rows)
 
-            # Resize tables to fit content after loading data
-            self.resize_table_to_content(self.main_history_table)
-            self.resize_table_to_content(self.room_history_table)
-            self.resize_table_to_content(self.totals_table)
+            QMessageBox.information(self, "Load Successful", "History loaded from Supabase.")
 
-            if not main_records and not room_records:
-                QMessageBox.information(self, "No Data", "No records found for the selected filters.")
-
-        except APIError as e:
-            QMessageBox.critical(self, "Supabase API Error", f"Failed to load history: {e.message}\n{e.details}")
         except Exception as e:
-            QMessageBox.critical(self, "Load History Error", f"Error: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Load Error", f"An unexpected error occurred while loading from Supabase: {e}\n{traceback.format_exc()}")
+            self.main_history_table.setRowCount(0)
+            self.room_history_table.setRowCount(0)
+            self.totals_table.setRowCount(0)
 
     def handle_edit_selected_record(self):
         selected_items = self.main_history_table.selectedItems()
@@ -962,36 +885,44 @@ class HistoryTab(QWidget):
             QMessageBox.warning(self, "No Record ID", "Record ID not found for selection.")
 
     def handle_edit_record(self, record_id): # Actual logic for editing
-        if not self.main_window.supabase or not self.main_window.check_internet_connectivity():
+        if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():
             QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
             return
         try:
-            response = self.main_window.supabase.table("main_calculations") \
-                           .select("*, room_calculations(*)") \
-                           .eq("id", record_id).maybe_single().execute()
-            if response.data:
-                dialog = EditRecordDialog(record_id, response.data, response.data.get("room_calculations", []), parent=self)
-                if dialog.exec_() == QDialog.Accepted: self.load_history()
-            else: QMessageBox.warning(self, "Not Found", f"Record ID {record_id} not found.")
-        except Exception as e: QMessageBox.critical(self, "Error", f"Error fetching record: {e}")
+            # Fetch main calculation data using SupabaseManager
+            main_record = self.main_window.supabase_manager.get_main_calculations_by_id(record_id) # New method needed in SupabaseManager
+            if not main_record:
+                QMessageBox.critical(self, "Error", "Main calculation record not found.")
+                return
+            main_data = main_record.get("main_data", {}) # Extract JSONB data
+
+            # Fetch room calculation data using SupabaseManager
+            room_data_list = self.main_window.supabase_manager.get_room_calculations(record_id)
+
+            dialog = EditRecordDialog(record_id, main_data, room_data_list, parent=self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.load_history() # Refresh the table after changes are saved
+        except Exception as e:
+            QMessageBox.critical(self, "Edit Record Error", f"An unexpected error occurred while editing record: {e}\n{traceback.format_exc()}")
+            room_data_list = self.main_window.supabase_manager.get_room_calculations(record_id)
 
     def handle_delete_record(self, record_id): # Actual logic for deleting
-        if not self.main_window.supabase or not self.main_window.check_internet_connectivity():
+        if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():
             QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
             return
-        reply = QMessageBox.question(self, 'Confirm Delete', "Are you sure you want to delete this record?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        reply = QMessageBox.question(self, "Confirm Delete",
+                                     "Are you sure you want to delete this record and all associated room data?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
-                # Delete associated room_calculations first (or rely on ON DELETE CASCADE if defined in DB)
-                # For robustness, explicitly deleting room calculations first is safer if CASCADE isn't guaranteed.
-                self.main_window.supabase.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
-                self.main_window.supabase.table("main_calculations").delete().eq("id", record_id).execute()
-                QMessageBox.information(self, "Success", "Record deleted successfully.")
-                self.load_history() # Refresh the table
-            except APIError as e:
-                QMessageBox.critical(self, "Supabase API Error", f"Failed to delete: {e.message}\n{e.details}")
+                delete_success = self.main_window.supabase_manager.delete_calculation_record(record_id) # New method needed
+                if delete_success:
+                    QMessageBox.information(self, "Delete Successful", "Record deleted successfully.")
+                    self.load_history() # Refresh the table
+                else:
+                    QMessageBox.critical(self, "Supabase Error", "Failed to delete record from Supabase.")
             except Exception as e:
-                QMessageBox.critical(self, "Delete Error", f"Error: {e}\n{traceback.format_exc()}")
+                QMessageBox.critical(self, "Delete Error", f"An unexpected error occurred during delete: {e}\n{traceback.format_exc()}")
 
     def calculate_and_display_totals(self, room_rows, get_csv_value):
         """Calculate and display totals for house rent, water bill, gas bill, and unit bill"""
@@ -1096,36 +1027,40 @@ class HistoryTab(QWidget):
     def calculate_and_display_totals_supabase(self, room_records):
         """Calculate and display totals for Supabase room records"""
         try:
-            total_house_rent = 0.0
-            total_water_bill = 0.0
-            total_gas_bill = 0.0
-            total_unit_bill = 0.0
-            
+            # Group room records by main_calculation_id to ensure unique month/year entries
+            # for the totals table, as multiple rooms can belong to one main calculation.
+            grouped_room_records = {}
             for record in room_records:
-                # Get values from Supabase records, defaulting to 0 if not found or None
-                # Note: Supabase data structure might be different from CSV
-                # For now, we'll use cost_room as unit_bill since that's what's available
-                house_rent = float(record.get("house_rent", 0) or 0)
-                water_bill = float(record.get("water_bill", 0) or 0)
-                gas_bill = float(record.get("gas_bill", 0) or 0)
-                unit_bill = float(record.get("cost_room", 0) or 0)  # Using cost_room as unit bill
+                main_calc_id = record.get("main_calculation_id")
+                if main_calc_id not in grouped_room_records:
+                    grouped_room_records[main_calc_id] = {
+                        "month": record.get("month"),
+                        "total_house_rent": 0.0,
+                        "total_water_bill": 0.0,
+                        "total_gas_bill": 0.0,
+                        "total_room_unit_bill": 0.0
+                    }
                 
-                total_house_rent += house_rent
-                total_water_bill += water_bill
-                total_gas_bill += gas_bill
-                total_unit_bill += unit_bill
+                # Access values from the room_data JSONB
+                room_data_jsonb = record.get("room_data", {})
+                grouped_room_records[main_calc_id]["total_house_rent"] += float(room_data_jsonb.get("house_rent", 0.0))
+                grouped_room_records[main_calc_id]["total_water_bill"] += float(room_data_jsonb.get("water_bill", 0.0))
+                grouped_room_records[main_calc_id]["total_gas_bill"] += float(room_data_jsonb.get("gas_bill", 0.0))
+                grouped_room_records[main_calc_id]["total_room_unit_bill"] += float(room_data_jsonb.get("unit_bill", 0.0))
+
+            self.totals_table.setRowCount(len(grouped_room_records))
+            for row_idx, (main_calc_id, totals_data) in enumerate(grouped_room_records.items()):
+                self.totals_table.setItem(row_idx, 0, QTableWidgetItem(totals_data["month"]))
+                self.totals_table.setItem(row_idx, 1, QTableWidgetItem(f"{totals_data['total_house_rent']:.2f}"))
+                self.totals_table.setItem(row_idx, 2, QTableWidgetItem(f"{totals_data['total_water_bill']:.2f}"))
+                self.totals_table.setItem(row_idx, 3, QTableWidgetItem(f"{totals_data['total_gas_bill']:.2f}"))
+                self.totals_table.setItem(row_idx, 4, QTableWidgetItem(f"{totals_data['total_room_unit_bill']:.2f}"))
             
-            # Clear existing totals and add new row
-            self.totals_table.setRowCount(1)
-            self.totals_table.setItem(0, 0, QTableWidgetItem(f"{total_house_rent:.2f}"))
-            self.totals_table.setItem(0, 1, QTableWidgetItem(f"{total_water_bill:.2f}"))
-            self.totals_table.setItem(0, 2, QTableWidgetItem(f"{total_gas_bill:.2f}"))
-            self.totals_table.setItem(0, 3, QTableWidgetItem(f"{total_unit_bill:.2f}"))
-            
+            self.resize_table_to_content(self.totals_table)
+
         except Exception as e:
-            # If there's an error calculating totals, just clear the table
+            QMessageBox.critical(self, "Totals Calculation Error", f"Error calculating Supabase totals: {e}\n{traceback.format_exc()}")
             self.totals_table.setRowCount(0)
-            print(f"Error calculating totals for Supabase data: {e}")
 
 
 if __name__ == '__main__':

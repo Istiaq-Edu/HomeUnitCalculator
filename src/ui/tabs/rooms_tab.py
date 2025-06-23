@@ -14,8 +14,20 @@ from src.ui.styles import (
     get_room_selection_style, get_room_group_style, get_line_edit_style,
     get_button_style
 )
-from src.core.utils import resource_path, _clear_layout # For icons and layout clearing
+from src.core.utils import resource_path # For icons
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+
+# Local _clear_layout function to avoid circular dependency with utils
+def _clear_layout(layout):
+    if layout is not None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout() is not None:
+                _clear_layout(item.layout())
 
 class RoomsTab(QWidget):
     def __init__(self, main_tab_ref, main_window_ref):
@@ -80,7 +92,7 @@ class RoomsTab(QWidget):
         self.room_entries = []
 
         for i in range(num_rooms):
-            room_group = QGroupBox(f"Room {i+1}")
+            room_group = QGroupBox(f"Room {i+1}") # Store reference to the QGroupBox
             room_layout = QFormLayout(room_group)
             room_group.setStyleSheet(get_room_group_style())
             room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -142,7 +154,8 @@ class RoomsTab(QWidget):
                 'house_rent_entry': house_rent_entry,
                 'real_unit_label': real_unit_label,
                 'unit_bill_label': unit_bill_label,
-                'grand_total_label': grand_total_label
+                'grand_total_label': grand_total_label,
+                'room_group': room_group # Store reference to the QGroupBox
             })
             
             # Add to grid layout
@@ -284,6 +297,107 @@ class RoomsTab(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Load Room Data Error", f"Failed to load room data for room {room_index+1}: {e}\n{traceback.format_exc()}")
+
+    def get_room_data_for_supabase(self):
+        """
+        Collects all room data from UI inputs and formats it for Supabase JSONB storage.
+        Returns a list of dictionaries, each representing a room's data.
+        """
+        room_data_list = []
+        for i, room_data_entries in enumerate(self.room_entries):
+            try:
+                room_name = room_data_entries['room_group'].title() # Get room name from group box title
+                present_unit = int(room_data_entries['present_entry'].text() or '0')
+                previous_unit = int(room_data_entries['previous_entry'].text() or '0')
+                gas_bill = float(room_data_entries['gas_bill_entry'].text() or '0.0')
+                water_bill = float(room_data_entries['water_bill_entry'].text() or '0.0')
+                house_rent = float(room_data_entries['house_rent_entry'].text() or '0.0')
+
+                # Real Unit, Unit Bill, Grand Total are calculated values, not direct inputs
+                real_unit_text = room_data_entries['real_unit_label'].text()
+                unit_bill_text = room_data_entries['unit_bill_label'].text()
+                grand_total_text = room_data_entries['grand_total_label'].text()
+
+                real_unit = int(real_unit_text) if real_unit_text.isdigit() else 0
+                unit_bill = float(unit_bill_text.replace(" TK", "").strip()) if unit_bill_text and unit_bill_text not in ["N/A", "Incomplete"] else 0.0
+                grand_total = float(grand_total_text.replace(" TK", "").strip()) if grand_total_text and grand_total_text not in ["N/A", "Incomplete"] else 0.0
+
+                room_data_jsonb = {
+                    "room_name": room_name,
+                    "present_unit": present_unit,
+                    "previous_unit": previous_unit,
+                    "real_unit": real_unit,
+                    "unit_bill": unit_bill,
+                    "gas_bill": gas_bill,
+                    "water_bill": water_bill,
+                    "house_rent": house_rent,
+                    "grand_total": grand_total
+                }
+                room_data_list.append(room_data_jsonb)
+            except Exception as e:
+                QMessageBox.warning(self, "Data Collection Error", f"Error collecting data for Room {i+1}: {e}")
+                # Optionally, return an empty list or partial data if an error occurs
+                return []
+        return room_data_list
+
+    def load_room_data_from_supabase_rows(self, room_records):
+        """
+        Loads room data from Supabase records (list of dictionaries) into the UI.
+        Each record is expected to have 'room_data' (JSONB) and potentially 'id' for updates.
+        """
+        if not room_records:
+            self.num_rooms_spinbox.setValue(1)
+            self.clear_room_inputs()
+            return
+
+        # Adjust number of rooms in UI to match loaded data
+        self.num_rooms_spinbox.setValue(len(room_records))
+        # update_room_inputs will be triggered by valueChanged signal, clearing and recreating inputs
+
+        for i, record in enumerate(room_records):
+            if i >= len(self.room_entries):
+                # This should ideally not happen if num_rooms_spinbox.setValue triggers update_room_inputs correctly
+                # but as a safeguard, we can break or log.
+                print(f"Warning: More room records from Supabase than UI inputs available. Skipping record {i}.")
+                break
+
+            room_data_jsonb = record.get("room_data", {})
+            room_id = record.get("id") # Keep track of Supabase ID for updates
+
+            room_ui_entries = self.room_entries[i]
+            
+            # Set room name (from group box title)
+            room_group_widget = room_ui_entries['room_group']
+            room_group_widget.setTitle(room_data_jsonb.get('room_name', f"Room {i+1}"))
+
+            room_ui_entries['present_entry'].setText(str(room_data_jsonb.get('present_unit', '')))
+            room_ui_entries['previous_entry'].setText(str(room_data_jsonb.get('previous_unit', '')))
+            room_ui_entries['gas_bill_entry'].setText(str(room_data_jsonb.get('gas_bill', '')))
+            room_ui_entries['water_bill_entry'].setText(str(room_data_jsonb.get('water_bill', '')))
+            room_ui_entries['house_rent_entry'].setText(str(room_data_jsonb.get('house_rent', '')))
+            
+            # Store the Supabase ID with the UI entries for later updates
+            room_ui_entries['supabase_id'] = room_id
+
+            # Calculated fields are not set directly, they will be recalculated by calculate_rooms
+            # after all data is loaded.
+        
+        self.calculate_rooms() # Recalculate all rooms after loading data
+
+    def clear_room_inputs(self):
+        """Clears all input fields and calculated labels in the rooms tab."""
+        for room_data in self.room_entries:
+            room_data['present_entry'].clear()
+            room_data['previous_entry'].clear()
+            room_data['gas_bill_entry'].clear()
+            room_data['water_bill_entry'].clear()
+            room_data['house_rent_entry'].clear()
+            room_data['real_unit_label'].setText("N/A")
+            room_data['unit_bill_label'].setText("N/A")
+            room_data['grand_total_label'].setText("N/A")
+            room_data['room_group'].setTitle(f"Room {self.room_entries.index(room_data)+1}") # Reset title
+            if 'supabase_id' in room_data:
+                del room_data['supabase_id'] # Remove Supabase ID if clearing
 
     def get_all_room_bill_totals(self):
         """

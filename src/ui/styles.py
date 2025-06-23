@@ -645,12 +645,51 @@ def get_result_title_style():
 def get_result_value_style():
     # Define and return a string containing CSS-like styling for QLabel widgets used as result values
     tpl = textwrap.dedent("""\
-        QLabel {{
-            font-size: 26px;  /* Increased font size to 26px for maximum visibility */
-            font-weight: bold;  /* Make the text bold */
-            color: {text_primary};  /* Set text color to dark blue */
-            padding: 2px 0;  /* Add vertical padding */
-            qproperty-alignment: AlignCenter;  /* Qt-specific property for center alignment */
-        }}
+        font-size: 20px;
+        font-weight: bold;
+        color: {accent_primary};
         """)
     return tpl.format(**COLOR_VARS)
+
+@functools.lru_cache(maxsize=None)
+def get_source_combo_style():
+    """
+    Returns a distinct style for the source selection QComboBox.
+    """
+    down_arrow_path = resource_path("icons/down_arrow.png").replace('\\', '/')
+    tpl = textwrap.dedent("""\
+        QComboBox {{
+            border: 2px solid {accent_primary};
+            border-radius: 8px;
+            padding: 8px 12px;
+            background-color: {text_secondary};
+            font-size: 14px;
+            font-weight: bold;
+            color: {text_primary};
+        }}
+        QComboBox:hover {{
+            border-color: {hover_dark_blue};
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 25px;
+            border-left-width: 1px;
+            border-left-color: {accent_secondary};
+            border-left-style: solid;
+            border-top-right-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }}
+        QComboBox::down-arrow {{
+            image: url({down_arrow_path});
+            width: 16px;
+            height: 16px;
+        }}
+        QComboBox QAbstractItemView {{
+            border: 1px solid {accent_secondary};
+            background-color: {text_secondary};
+            color: {text_primary};
+            selection-background-color: {selected_light_blue};
+        }}
+        """)
+    return tpl.format(down_arrow_path=down_arrow_path, **COLOR_VARS)

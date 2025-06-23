@@ -13,7 +13,8 @@ from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QGridLayout, QGroupBox, QFormLayout, QMessageBox, QSizePolicy, QDialog,
-    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QComboBox
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -25,7 +26,7 @@ from reportlab.lib.enums import TA_CENTER
 
 from src.ui.styles import (
     get_room_selection_style, get_room_group_style, get_line_edit_style,
-    get_button_style, get_table_style, get_label_style
+    get_button_style, get_table_style, get_label_style, get_source_combo_style
 )
 from src.core.utils import resource_path, _clear_layout
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
@@ -58,11 +59,12 @@ class RentalInfoTab(QWidget):
         self.police_form_path_label = None
         self.rental_records_table = None
 
-        self.current_rental_id = None # To track if we are editing an existing record
+        self.current_rental_id = None # To track if we are editing an existing record (local DB ID)
+        self.current_supabase_id = None # To track if we are editing an existing record (Supabase ID)
 
         self.init_ui()
         self.setup_db_table()
-        self.load_rental_records()
+        self.load_rental_records() # Initial load will be from default source
 
     def init_ui(self):
         main_horizontal_layout = QHBoxLayout(self)
@@ -178,6 +180,13 @@ class RentalInfoTab(QWidget):
         table_group.setStyleSheet(get_room_selection_style())
         table_layout = QVBoxLayout(table_group)
 
+        # Add Load Source Combo Box
+        self.load_source_combo = QComboBox()
+        self.load_source_combo.addItems(["Local DB", "Cloud (Supabase)"])
+        self.load_source_combo.setStyleSheet(get_source_combo_style()) # Re-using button style for now
+        self.load_source_combo.currentIndexChanged.connect(self.load_rental_records)
+        table_layout.addWidget(self.load_source_combo)
+
         self.rental_records_table = QTableWidget()
         self.rental_records_table.setColumnCount(6) # ID, Name, Room, Advanced, Created, Updated
         self.rental_records_table.setHorizontalHeaderLabels(["ID", "Tenant Name", "Room Number", "Advanced Paid", "Created At", "Updated At"])
@@ -260,6 +269,10 @@ class RentalInfoTab(QWidget):
             QMessageBox.warning(self, "Input Error", "Tenant Name and Room Number cannot be empty.")
             return
 
+        if not self.main_window.supabase_manager.is_client_initialized() and self.load_source_combo.currentText() == "Cloud (Supabase)":
+            QMessageBox.warning(self, "Supabase Not Configured", "Supabase client is not initialized. Please configure Supabase in the settings tab.")
+            return
+
         try:
             advanced_paid = float(advanced_paid_text) if advanced_paid_text else 0.0
         except ValueError:
@@ -274,77 +287,227 @@ class RentalInfoTab(QWidget):
         current_time = datetime.now().isoformat()
 
         try:
+            # Data for Supabase
+            supabase_record_data = {
+                "tenant_name": tenant_name,
+                "room_number": room_number,
+                "advanced_paid": advanced_paid,
+                "photo_path": photo_path,
+                "nid_front_path": nid_front_path,
+                "nid_back_path": nid_back_path,
+                "police_form_path": police_form_path,
+                "is_archived": False # Always save as active initially
+            }
+
+            local_db_success = False
+            supabase_success = False
+            
+            # --- Save to Local DB ---
             if self.current_rental_id is not None:
-                # Update existing record
+                # Update existing local record
                 self.db_manager.execute_query(
                     """
                     UPDATE rentals SET
                         tenant_name = ?, room_number = ?, advanced_paid = ?,
                         photo_path = ?, nid_front_path = ?, nid_back_path = ?,
-                        police_form_path = ?, updated_at = ?
+                        police_form_path = ?, updated_at = ?, supabase_id = ?
                     WHERE id = ?
                     """,
                     (tenant_name, room_number, advanced_paid,
                      photo_path, nid_front_path, nid_back_path,
-                     police_form_path, current_time, self.current_rental_id)
+                     police_form_path, current_time, self.current_supabase_id, self.current_rental_id)
                 )
-                QMessageBox.information(self, "Success", "Rental record updated successfully!")
+                local_db_success = True
+                QMessageBox.information(self, "Local DB Success", "Rental record updated in local database!")
             else:
-                # Insert new record
-                self.db_manager.execute_query(
+                # Insert new local record
+                local_id = self.db_manager.execute_query(
                     """
                     INSERT INTO rentals (tenant_name, room_number, advanced_paid, photo_path, nid_front_path, nid_back_path, police_form_path, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (tenant_name, room_number, advanced_paid, photo_path, nid_front_path, nid_back_path, police_form_path, current_time, current_time)
                 )
-                QMessageBox.information(self, "Success", "Rental record saved successfully!")
-            
-            self.load_rental_records()
-            self.clear_form()
+                if local_id:
+                    self.current_rental_id = local_id # Set the ID for potential Supabase update
+                    local_db_success = True
+                    QMessageBox.information(self, "Local DB Success", "Rental record saved to local database!")
+                else:
+                    QMessageBox.critical(self, "Local DB Error", "Failed to save rental record to local database.")
+
+            # --- Save to Supabase ---
+            if self.main_window.supabase_manager.is_client_initialized():
+                supabase_id = self.main_window.supabase_manager.save_rental_record(supabase_record_data, self.current_supabase_id)
+                if supabase_id:
+                    self.current_supabase_id = supabase_id
+                    supabase_success = True
+                    QMessageBox.information(self, "Cloud Success", "Rental record saved/updated in Supabase!")
+                    
+                    # Update local record with Supabase ID if it's a new local record or Supabase ID changed
+                    if local_db_success and self.current_rental_id and (self.db_manager.execute_query("SELECT supabase_id FROM rentals WHERE id = ?", (self.current_rental_id,), fetch_one=True)[0] != str(supabase_id)):
+                        self.db_manager.execute_query(
+                            "UPDATE rentals SET supabase_id = ? WHERE id = ?",
+                            (str(supabase_id), self.current_rental_id)
+                        )
+                        print(f"Updated local record {self.current_rental_id} with Supabase ID {supabase_id}")
+                else:
+                    QMessageBox.critical(self, "Cloud Error", "Failed to save/update rental record in Supabase.")
+            else:
+                QMessageBox.warning(self, "Supabase Not Initialized", "Supabase client is not initialized. Skipping cloud save.")
+
+            if local_db_success or supabase_success:
+                self.load_rental_records()
+                self.clear_form()
             # Removed automatic PDF generation after saving/updating the record, as per user feedback.
             # PDF generation will now be triggered by a dedicated button in the record details dialog.
+
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred while saving rental record: {e}\n{traceback.format_exc()}")
 
         except Exception as e:
             QMessageBox.critical(self, "Database Error", f"Failed to save rental record: {e}")
             traceback.print_exc()
 
     def load_rental_records(self):
-        try:
-            records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC")
-            self.rental_records_table.clearContents() # Clear existing items and their data
-            self.rental_records_table.setRowCount(len(records))
-            for row_idx, record in enumerate(records):
-                for col_idx, data in enumerate(record[:6]): # Display first 6 columns in table
-                    item = QTableWidgetItem(str(data))
-                    self.rental_records_table.setItem(row_idx, col_idx, item)
-                # Store full paths in item data for later retrieval
-                self.rental_records_table.item(row_idx, 0).setData(Qt.UserRole, record) # Store full record in ID item
-        except Exception as e:
-            QMessageBox.critical(self, "Database Error", f"Failed to load rental records: {e}")
-            traceback.print_exc()
+        self.rental_records_table.clearContents()
+        self.rental_records_table.setRowCount(0)
+
+        selected_source = self.load_source_combo.currentText()
+        records = []
+
+        if selected_source == "Local DB":
+            try:
+                records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC")
+                print(f"Loaded {len(records)} records from Local DB.")
+            except Exception as e:
+                QMessageBox.critical(self, "Local DB Error", f"Failed to load rental records from local DB: {e}")
+                traceback.print_exc()
+                return
+        elif selected_source == "Cloud (Supabase)":
+            if not self.main_window.supabase_manager.is_client_initialized():
+                QMessageBox.warning(self, "Supabase Not Configured", "Supabase client is not initialized. Cannot load from cloud.")
+                return
+            try:
+                # Fetch non-archived records from Supabase
+                records = self.main_window.supabase_manager.get_rental_records(is_archived=False)
+                print(f"Loaded {len(records)} records from Supabase.")
+            except Exception as e:
+                QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {e}")
+                traceback.print_exc()
+                return
+        
+        if not records:
+            QMessageBox.information(self, "No Records", f"No active rental records found in {selected_source}.")
+            return
+
+        self.rental_records_table.setRowCount(len(records))
+        for row_idx, record in enumerate(records):
+            # Determine the ID and other fields based on source
+            if selected_source == "Local DB":
+                # SQLite record: (id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id)
+                display_id = record[0]
+                tenant_name = record[1]
+                room_number = record[2]
+                advanced_paid = record[3]
+                created_at = record[4]
+                updated_at = record[5]
+                full_record_data = record # Store the full SQLite row
+            else: # Cloud (Supabase)
+                # Supabase record (flattened dict from SupabaseManager.get_rental_records)
+                display_id = record.get("id")
+                tenant_name = record.get("tenant_name")
+                room_number = record.get("room_number")
+                advanced_paid = record.get("advanced_paid")
+                created_at = record.get("created_at")
+                updated_at = record.get("updated_at")
+                full_record_data = record # Store the full dictionary
+
+            self.rental_records_table.setItem(row_idx, 0, QTableWidgetItem(str(display_id)))
+            self.rental_records_table.setItem(row_idx, 1, QTableWidgetItem(str(tenant_name)))
+            self.rental_records_table.setItem(row_idx, 2, QTableWidgetItem(str(room_number)))
+            self.rental_records_table.setItem(row_idx, 3, QTableWidgetItem(str(advanced_paid)))
+            self.rental_records_table.setItem(row_idx, 4, QTableWidgetItem(str(created_at)))
+            self.rental_records_table.setItem(row_idx, 5, QTableWidgetItem(str(updated_at)))
+            
+            # Store the full record data (either SQLite row or Supabase dict) in the first column's UserRole
+            self.rental_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
 
     def show_record_details_dialog(self, index):
+        if not index.isValid():
+            return
+            
         selected_row = index.row()
-        record = self.rental_records_table.item(selected_row, 0).data(Qt.UserRole)
+        if selected_row < 0 or selected_row >= self.rental_records_table.rowCount():
+            return
+            
+        item = self.rental_records_table.item(selected_row, 0)
+        if not item:
+            print(f"No item found at row {selected_row}")
+            return
+            
+        record_data = item.data(Qt.UserRole)
+        if not record_data:
+            print(f"No record data found for row {selected_row}")
+            return
         
-        if record:
-            # Pass is_archived status to the dialog
-            is_archived = record[10] if len(record) > 10 else False
-            dialog = RentalRecordDialog(self, record_data=record, db_manager=self.db_manager, is_archived_record=bool(is_archived), main_window_ref=self.main_window)
+        selected_source = self.load_source_combo.currentText()
+
+        # Adapt record_data to a consistent format for the dialog
+        if selected_source == "Local DB":
+            # SQLite record: (id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id)
+            # Convert to dict for consistency with Supabase records in dialog
+            record_dict = {
+                "id": record_data[0],
+                "tenant_name": record_data[1],
+                "room_number": record_data[2],
+                "advanced_paid": record_data[3],
+                "created_at": record_data[4],
+                "updated_at": record_data[5],
+                "photo_path": record_data[6],
+                "nid_front_path": record_data[7],
+                "nid_back_path": record_data[8],
+                "police_form_path": record_data[9],
+                "is_archived": bool(record_data[10]),
+                "supabase_id": record_data[11]
+            }
+        else: # Cloud (Supabase) - already a flattened dict
+            record_dict = record_data
+            # Ensure local paths are empty strings if not present, as dialog expects paths
+            record_dict["photo_path"] = record_dict.get("photo_url", "")
+            record_dict["nid_front_path"] = record_dict.get("nid_front_url", "")
+            record_dict["nid_back_path"] = record_dict.get("nid_back_url", "")
+            record_dict["police_form_path"] = record_dict.get("police_form_url", "")
+
+        try:
+            dialog = RentalRecordDialog(
+                self,
+                record_data=record_dict, # Pass the consistent dictionary
+                db_manager=self.db_manager, # Local DB manager
+                supabase_manager=self.main_window.supabase_manager, # Supabase manager
+                is_archived_record=record_dict.get("is_archived", False),
+                main_window_ref=self.main_window,
+                current_source=selected_source # Pass the current source to the dialog
+            )
             dialog.exec_() # Show as modal dialog
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open record details: {e}")
+            print(f"Error opening rental record dialog: {e}\n{traceback.format_exc()}")
 
-    def load_record_into_form_for_edit(self, record_data):
+    def load_record_into_form_for_edit(self, record_data: dict):
         # This method is called from the dialog to load data for editing
-        self.current_rental_id = record_data[0] # ID
-        self.tenant_name_input.setText(record_data[1]) # Tenant Name
-        self.room_number_input.setText(record_data[2]) # Room Number
-        self.advanced_paid_input.setText(str(record_data[3])) # Advanced Paid
+        # record_data is expected to be a dictionary (either from local DB or Supabase, flattened)
+        self.current_rental_id = record_data.get("id") # Local DB ID
+        self.current_supabase_id = record_data.get("supabase_id") # Supabase ID
 
-        self.photo_path_label.setText(record_data[6] if record_data[6] else "No file selected")
-        self.nid_front_path_label.setText(record_data[7] if record_data[7] else "No file selected")
-        self.nid_back_path_label.setText(record_data[8] if record_data[8] else "No file selected")
-        self.police_form_path_label.setText(record_data[9] if record_data[9] else "No file selected")
+        self.tenant_name_input.setText(record_data.get("tenant_name", ""))
+        self.room_number_input.setText(record_data.get("room_number", ""))
+        self.advanced_paid_input.setText(str(record_data.get("advanced_paid", 0.0)))
+
+        # For image paths, prioritize local paths if available, otherwise use Supabase URLs
+        self.photo_path_label.setText(record_data.get("photo_path") or record_data.get("photo_url") or "No file selected")
+        self.nid_front_path_label.setText(record_data.get("nid_front_path") or record_data.get("nid_front_url") or "No file selected")
+        self.nid_back_path_label.setText(record_data.get("nid_back_path") or record_data.get("nid_back_url") or "No file selected")
+        self.police_form_path_label.setText(record_data.get("police_form_path") or record_data.get("police_form_url") or "No file selected")
         
         self.save_record_btn.setText("Update Record")
         self.tenant_name_input.setFocus() # Set focus back to the form
@@ -358,6 +521,7 @@ class RentalInfoTab(QWidget):
         self.nid_back_path_label.setText("No file selected")
         self.police_form_path_label.setText("No file selected")
         self.current_rental_id = None
+        self.current_supabase_id = None
         self.save_record_btn.setText("Save Record")
 
     def _handle_enter_pressed(self, current_index):
