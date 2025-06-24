@@ -91,10 +91,12 @@ class MeterCalculationApp(QMainWindow):
             return False
 
     def _initialize_supabase_client(self):
-        # The SupabaseManager handles its own initialization and client creation
-        # based on the config from DBManager.
-        # We just need to ensure it's initialized and check its status.
-        self.supabase_manager._initialize_supabase_client() # Re-initialize the manager's client
+        # Re-create the SupabaseManager so that it (re)initializes its client
+        # internally. This avoids calling its protected methods directly and
+        # keeps the encapsulation boundary intact.
+
+        self.supabase_manager = SupabaseManager()
+        
         if self.supabase_manager.is_client_initialized():
             # Set default load source to Cloud if Supabase is configured
             self.load_history_source_combo.setCurrentText("Load from Cloud")

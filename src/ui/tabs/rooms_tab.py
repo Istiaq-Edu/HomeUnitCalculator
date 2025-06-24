@@ -303,24 +303,35 @@ class RoomsTab(QWidget):
         Collects all room data from UI inputs and formats it for Supabase JSONB storage.
         Returns a list of dictionaries, each representing a room's data.
         """
-        room_data_list = []
+        room_data_list: list[dict] = []
+        errors: list[str] = []
+
         for i, room_data_entries in enumerate(self.room_entries):
             try:
-                room_name = room_data_entries['room_group'].title() # Get room name from group box title
-                present_unit = int(room_data_entries['present_entry'].text() or '0')
-                previous_unit = int(room_data_entries['previous_entry'].text() or '0')
-                gas_bill = float(room_data_entries['gas_bill_entry'].text() or '0.0')
-                water_bill = float(room_data_entries['water_bill_entry'].text() or '0.0')
-                house_rent = float(room_data_entries['house_rent_entry'].text() or '0.0')
+                room_name = room_data_entries["room_group"].title()  # Group box title
 
-                # Real Unit, Unit Bill, Grand Total are calculated values, not direct inputs
-                real_unit_text = room_data_entries['real_unit_label'].text()
-                unit_bill_text = room_data_entries['unit_bill_label'].text()
-                grand_total_text = room_data_entries['grand_total_label'].text()
+                present_unit = int(room_data_entries["present_entry"].text() or "0")
+                previous_unit = int(room_data_entries["previous_entry"].text() or "0")
+                gas_bill = float(room_data_entries["gas_bill_entry"].text() or "0.0")
+                water_bill = float(room_data_entries["water_bill_entry"].text() or "0.0")
+                house_rent = float(room_data_entries["house_rent_entry"].text() or "0.0")
+
+                # Calculated values
+                real_unit_text = room_data_entries["real_unit_label"].text()
+                unit_bill_text = room_data_entries["unit_bill_label"].text()
+                grand_total_text = room_data_entries["grand_total_label"].text()
 
                 real_unit = int(real_unit_text) if real_unit_text.isdigit() else 0
-                unit_bill = float(unit_bill_text.replace(" TK", "").strip()) if unit_bill_text and unit_bill_text not in ["N/A", "Incomplete"] else 0.0
-                grand_total = float(grand_total_text.replace(" TK", "").strip()) if grand_total_text and grand_total_text not in ["N/A", "Incomplete"] else 0.0
+                unit_bill = (
+                    float(unit_bill_text.replace(" TK", "").strip())
+                    if unit_bill_text and unit_bill_text not in ["N/A", "Incomplete"]
+                    else 0.0
+                )
+                grand_total = (
+                    float(grand_total_text.replace(" TK", "").strip())
+                    if grand_total_text and grand_total_text not in ["N/A", "Incomplete"]
+                    else 0.0
+                )
 
                 room_data_jsonb = {
                     "room_name": room_name,
@@ -331,13 +342,22 @@ class RoomsTab(QWidget):
                     "gas_bill": gas_bill,
                     "water_bill": water_bill,
                     "house_rent": house_rent,
-                    "grand_total": grand_total
+                    "grand_total": grand_total,
                 }
+
                 room_data_list.append(room_data_jsonb)
             except Exception as e:
-                QMessageBox.warning(self, "Data Collection Error", f"Error collecting data for Room {i+1}: {e}")
-                # Optionally, return an empty list or partial data if an error occurs
-                return []
+                # Collect error but continue processing the remaining rooms.
+                errors.append(f"Room {i+1}: {e}")
+
+        # After processing all rooms, inform the user if any room failed.
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Partial Data Collected",
+                "Some rooms had errors and were skipped:\n\n" + "\n".join(errors),
+            )
+
         return room_data_list
 
     def load_room_data_from_supabase_rows(self, room_records):

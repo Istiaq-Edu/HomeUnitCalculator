@@ -519,7 +519,7 @@ class MainTab(QWidget):
 
         try:
             # Fetch main calculation data
-            main_calc_record = self.main_window.supabase_manager.get_main_calculations(
+            main_calc_record = self.main_window.supabase_manager.get_main_calculation_by_month_year(
                 month=selected_month, 
                 year=selected_year
             )

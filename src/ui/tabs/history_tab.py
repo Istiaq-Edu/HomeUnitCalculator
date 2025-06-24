@@ -701,7 +701,8 @@ class HistoryTab(QWidget):
                         # Set month column
                         month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
                         month_item = QTableWidgetItem(month_year_str)
-                        month_item.setData(Qt.UserRole, main_row_data['csv_row'].get('id'))  # Store id for later operations
+                        row_calc_id = main_row_data['csv_row'].get('id')
+                        month_item.setData(Qt.UserRole, row_calc_id)  # Store the correct id for this row
                         self.main_history_table.setItem(row_idx, 0, month_item)
                         
                         # Set meter columns dynamically (skip zeros)
@@ -801,10 +802,16 @@ class HistoryTab(QWidget):
                 year=actual_year_filter
             )
 
-            if not main_calculations:
-                QMessageBox.information(self, "No Data", "No history records found in Supabase for the selected filters.")
-                return
+            # NEW: Sort the results chronologically so that months appear in natural order
+            if main_calculations:
+                main_calculations.sort(
+                    key=lambda m: (
+                        m.get("year", 0),
+                        self.MONTH_ORDER.get(m.get("month", ""), 0)
+                    )
+                )
 
+            # Build room rows AFTER sorting main_calculations so room data follows the same order
             all_room_rows = []
             for main_calc in main_calculations:
                 main_calc_id = main_calc.get("id")
@@ -850,7 +857,8 @@ class HistoryTab(QWidget):
 
                     month_year = f"{calc.get('month', 'N/A')} {calc.get('year', 'N/A')}"
                     month_item = QTableWidgetItem(month_year)
-                    month_item.setData(Qt.UserRole, main_calc_id)  # Store id for later operations
+                    row_calc_id = calc.get("id")
+                    month_item.setData(Qt.UserRole, row_calc_id)  # Store the correct id for this row
                     self.main_history_table.setItem(row_idx, 0, month_item)
 
                     for i in range(max_meters):
@@ -867,7 +875,16 @@ class HistoryTab(QWidget):
                     self.main_history_table.setItem(row_idx, base_col + 4, QTableWidgetItem(str(main_data.get("grand_total", ""))))
 
             if all_room_rows:
+                # Ensure room rows follow the same chronological order
+                all_room_rows.sort(
+                    key=lambda r: (
+                        r.get("year", 0),
+                        self.MONTH_ORDER.get(r.get("month", ""), 0)
+                    )
+                )
+
                 self.room_history_table.setRowCount(len(all_room_rows))
+                
                 for row_idx, room in enumerate(all_room_rows):
                     room_data = room.get("room_data", {})
                     if isinstance(room_data, str):
@@ -996,8 +1013,11 @@ class HistoryTab(QWidget):
             if dialog.exec_() == QDialog.Accepted:
                 self.load_history() # Refresh the table after changes are saved
         except Exception as e:
-            QMessageBox.critical(self, "Edit Record Error", f"An unexpected error occurred while editing record: {e}\n{traceback.format_exc()}")
-            room_data_list = self.main_window.supabase_manager.get_room_calculations(record_id)
+            QMessageBox.critical(
+                self,
+                "Edit Record Error",
+                f"An unexpected error occurred while editing record: {e}\n{traceback.format_exc()}"
+            )
 
     def handle_delete_record(self, record_id): # Actual logic for deleting
         if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():

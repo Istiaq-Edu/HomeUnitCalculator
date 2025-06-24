@@ -130,7 +130,9 @@ class SupabaseManager:
     def save_room_calculations(self, main_calc_id: int, room_data_list: list[dict]) -> bool:
         """
         Saves room calculation data to Supabase, handling image uploads.
-        Deletes existing room calculations for the given main_calc_id before inserting new ones.
+        Existing room calculations are **replaced** in a two-step process that mimics a
+        transaction: we first insert the new records and only if that succeeds do we
+        delete the previous ones. This prevents data loss if the insert fails.
         :param main_calc_id: The ID of the associated main calculation.
         :param room_data_list: A list of dictionaries, each containing room data and local image paths.
         :return: True if successful, False otherwise.
@@ -144,9 +146,19 @@ class SupabaseManager:
             return False
 
         try:
-            # Delete existing room calculations for this main_calc_id
-            self.supabase.table("room_calculations").delete().eq("main_calculation_id", main_calc_id).execute()
-            print(f"Deleted existing room calculations for main_calc_id: {main_calc_id}")
+            # Fetch the IDs of any existing records FIRST so we can remove them **after** a successful insert.
+            # This mimics a simple transaction-like behaviour to avoid permanent data loss if the insert fails.
+            old_records_resp = (
+                self.supabase.table("room_calculations")
+                .select("id")
+                .eq("main_calculation_id", main_calc_id)
+                .execute()
+            )
+
+            old_record_ids: list[int] = []
+            if old_records_resp and old_records_resp.data:
+                old_record_ids = [rec["id"] for rec in old_records_resp.data if "id" in rec]
+                print(f"Found {len(old_record_ids)} existing room calculations that will be deleted after a successful insert.")
 
             records_to_insert = []
             for room_data in room_data_list:
@@ -177,7 +189,28 @@ class SupabaseManager:
             if records_to_insert:
                 insert_response = self.supabase.table("room_calculations").insert(records_to_insert).execute()
                 if insert_response.data:
-                    print(f"Inserted {len(insert_response.data)} room calculation records.")
+                    print(
+                        f"Inserted {len(insert_response.data)} room calculation records."
+                    )
+
+                    # Only delete the old records **after** we know the insert succeeded.
+                    if old_record_ids:
+                        try:
+                            del_resp = (
+                                self.supabase.table("room_calculations")
+                                .delete()
+                                .in_("id", old_record_ids)
+                                .execute()
+                            )
+                            print(
+                                f"Deleted {len(old_record_ids)} old room calculation records after successful insert."
+                            )
+                        except Exception as delete_exc:
+                            # Log the failure but do not report overall failure; duplicates are easier to handle
+                            print(
+                                f"Warning: Insert succeeded but deleting old room calculation records failed: {delete_exc}"
+                            )
+
                     return True
                 else:
                     print(f"Failed to insert room calculation data: {insert_response.json()}")
@@ -193,12 +226,13 @@ class SupabaseManager:
             print(f"An unexpected error occurred saving room calculations: {e}")
             return False
 
-    def get_main_calculations(self, month: str, year: int) -> dict | None:
+    def get_main_calculation_by_month_year(self, month: str, year: int) -> dict | None:
         """
-        Retrieves a specific main calculation record from Supabase.
-        :param month: The month of the calculation.
-        :param year: The year of the calculation.
-        :return: The full main calculation record (including id, month, year, main_data), or None if not found.
+        Retrieve a single `main_calculations` row that matches the given month and year.
+
+        :param month: Month (e.g., "June").
+        :param year: Year (e.g., 2025).
+        :return: The full record including JSONB payload, or ``None`` if not found.
         """
         if not self.is_client_initialized():
             print("Supabase client not initialized. Cannot retrieve main calculation.")
@@ -317,6 +351,9 @@ class SupabaseManager:
                     return f"Error: Failed to upload image for {key}."
 
             # Step 2: Prepare the record for insertion/update
+            # Ensure the boolean property is a proper Python bool for Postgres boolean column
+            is_archived_val = bool(record_data.get("is_archived", False))
+
             record_to_save = {
                 "tenant_name": record_data.get("tenant_name"),
                 "room_number": record_data.get("room_number"),
@@ -325,22 +362,35 @@ class SupabaseManager:
                 "nid_front_url": image_urls.get("nid_front"),
                 "nid_back_url": image_urls.get("nid_back"),
                 "police_form_url": image_urls.get("police_form"),
-                "is_archived": record_data.get("is_archived", False),
+                "is_archived": is_archived_val,
                 "updated_at": datetime.now().isoformat()
             }
 
+            # For inserts, also populate created_at so ordering works even if the DB column lacks a default.
+            if not record_data.get("id"):
+                record_to_save["created_at"] = datetime.now().isoformat()
+
             # Step 3: Insert or Update the record
-            if record_data.get("id"):
-                # Update existing record by primary key id
-                response = self.supabase.table("rental_records").update(record_to_save).eq("id", record_data["id"]).execute()
+            if record_data.get("supabase_id"):
+                # Update existing record using its UUID supabase_id (more stable across environments)
+                response = (
+                    self.supabase
+                        .table("rental_records")
+                        .update(record_to_save, returning="representation")
+                        .eq("supabase_id", record_data["supabase_id"]).execute()
+                )
             else:
                 # Insert new record
-                response = self.supabase.table("rental_records").insert(record_to_save).execute()
+                response = (
+                    self.supabase
+                        .table("rental_records")
+                        .insert(record_to_save, returning="representation")
+                        .execute()
+                )
 
-            if response.data:
-                return f"Successfully saved record for {record_data.get('tenant_name')}."
+            if response.data and isinstance(response.data, list) and len(response.data) > 0:
+                return f"Successfully saved record for {record_data.get('tenant_name')}. (Cloud)"
             else:
-                # This path should ideally not be taken if exceptions are handled, but as a fallback.
                 return f"Error: Failed to save record to Supabase. Response: {response}"
 
         except Exception as e:
@@ -459,175 +509,3 @@ class SupabaseManager:
         except Exception as e:
             print(f"Unexpected error deleting calculation record: {e}")
             return False
-
-# Example usage (for testing purposes, can be removed later)
-if __name__ == "__main__":
-    print("Testing SupabaseManager...")
-    # Ensure you have a test_app_config.db with SUPABASE_URL and SUPABASE_KEY
-    # For local testing, you might need to manually set up a dummy db_manager or
-    # ensure your actual app_config.db has valid Supabase credentials.
-
-    # Dummy DBManager for testing if app_config.db is not available
-    class MockDBManager:
-        def get_config(self):
-            # Replace with your actual test Supabase URL and Key
-            return {
-                "SUPABASE_URL": "YOUR_SUPABASE_URL",
-                "SUPABASE_KEY": "YOUR_SUPABASE_ANON_KEY"
-            }
-
-    # Temporarily replace the real DBManager with the mock one for testing
-    # This is a hack for standalone testing and should not be done in production code
-    import sys
-    sys.modules['src.core.db_manager'] = MockDBManager()
-    from src.core.db_manager import DBManager as OriginalDBManager
-    OriginalDBManager = MockDBManager # Reassign to use the mock for this test block
-
-    # Create a dummy image file for testing upload
-    dummy_image_path = "dummy_image.jpg"
-    try:
-        from PIL import Image
-        img = Image.new('RGB', (60, 30), color = 'red')
-        img.save(dummy_image_path)
-        print(f"Created dummy image: {dummy_image_path}")
-    except ImportError:
-        print("Pillow not installed. Skipping dummy image creation. Image upload test will fail.")
-        dummy_image_path = None
-
-    manager = SupabaseManager()
-
-    if manager.is_client_initialized():
-        print("\nSupabase client initialized. Proceeding with tests.")
-
-        # Test saving main calculation
-        test_main_data = {
-            "month": "June",
-            "year": 2025,
-            "meter_readings": [100, 200, 300],
-            "diff_readings": [50, 60, 70],
-            "additional_amount": 150.0,
-            "total_unit_cost": 1500.0,
-            "total_diff_units": 180,
-            "per_unit_cost_calculated": 8.33,
-            "grand_total_bill": 1650.0,
-            "extra_field": "some_dynamic_value"
-        }
-        main_id = manager.save_main_calculation(test_main_data)
-        print(f"Saved main calculation with ID: {main_id}")
-
-        if main_id:
-            # Test saving room calculations with dummy image paths
-            test_room_data_list = [
-                {
-                    "room_name": "Room A",
-                    "present_unit": 50,
-                    "previous_unit": 20,
-                    "real_unit": 30,
-                    "unit_bill": 249.9,
-                    "gas_bill": 100.0,
-                    "water_bill": 50.0,
-                    "house_rent": 5000.0,
-                    "grand_total": 5399.9,
-                    "photo_path": dummy_image_path,
-                    "nid_front_path": dummy_image_path
-                },
-                {
-                    "room_name": "Room B",
-                    "present_unit": 120,
-                    "previous_unit": 70,
-                    "real_unit": 50,
-                    "unit_bill": 416.5,
-                    "gas_bill": 120.0,
-                    "water_bill": 60.0,
-                    "house_rent": 6000.0,
-                    "grand_total": 6596.5,
-                    "police_form_path": dummy_image_path
-                }
-            ]
-            rooms_saved = manager.save_room_calculations(main_id, test_room_data_list)
-            print(f"Room calculations saved: {rooms_saved}")
-
-            # Test retrieving main calculation
-            retrieved_main = manager.get_main_calculations("June", 2025)
-            print("\nRetrieved Main Calculation:")
-            print(json.dumps(retrieved_main, indent=2))
-            # assert retrieved_main == test_main_data # This assertion will fail due to ID and created_at/updated_at fields
-
-            # Test retrieving room calculations
-            retrieved_rooms = manager.get_room_calculations(main_id)
-            print("\nRetrieved Room Calculations:")
-            print(json.dumps(retrieved_rooms, indent=2))
-            assert len(retrieved_rooms) == 2
-            assert "photo_url" in retrieved_rooms[0]
-            assert "room_name" in retrieved_rooms[0]
-            assert retrieved_rooms[0]["room_name"] == "Room A"
-            assert retrieved_rooms[1]["room_name"] == "Room B"
-
-            # --- New Rental Record Tests ---
-            print("\n--- Testing Rental Records ---")
-            test_rental_data = {
-                "tenant_name": "John Doe",
-                "room_number": "C-205",
-                "advanced_paid": 1000.0,
-                "photo_path": dummy_image_path,
-                "nid_front_path": dummy_image_path
-            }
-            rental_id = manager.save_rental_record(test_rental_data, image_paths={"photo": dummy_image_path, "nid_front": dummy_image_path})
-            print(f"Saved rental record with ID: {rental_id}")
-
-            if rental_id:
-                # Test retrieving all rental records
-                all_rentals = manager.get_rental_records()
-                print("\nAll Rental Records:")
-                print(json.dumps(all_rentals, indent=2))
-                assert any(r['id'] == rental_id for r in all_rentals)
-
-                # Test retrieving non-archived rental records
-                active_rentals = manager.get_rental_records(is_archived=False)
-                print("\nActive Rental Records:")
-                print(json.dumps(active_rentals, indent=2))
-                assert any(r['id'] == rental_id for r in active_rentals)
-
-                # Test updating archive status
-                archive_success = manager.update_rental_record_archive_status(rental_id, True)
-                print(f"Archived record {rental_id}: {archive_success}")
-                assert archive_success
-
-                # Test retrieving archived rental records
-                archived_rentals = manager.get_rental_records(is_archived=True)
-                print("\nArchived Rental Records:")
-                print(json.dumps(archived_rentals, indent=2))
-                assert any(r['id'] == rental_id for r in archived_rentals)
-
-                # Test updating the record
-                updated_rental_data = {
-                    "tenant_name": "Jane Doe",
-                    "room_number": "C-205",
-                    "advanced_paid": 1200.0,
-                    "photo_path": None, # No new photo
-                    "nid_front_path": dummy_image_path # Re-upload same NID front
-                }
-                updated_id = manager.save_rental_record(updated_rental_data, image_paths={"photo": None, "nid_front": dummy_image_path})
-                print(f"Updated rental record with ID: {updated_id}")
-                assert updated_id == rental_id
-
-                # Test deleting the record
-                delete_success = manager.delete_rental_record(rental_id)
-                print(f"Deleted record {rental_id}: {delete_success}")
-                assert delete_success
-
-                # Verify deletion
-                remaining_rentals = manager.get_rental_records()
-                assert not any(r['id'] == rental_id for r in remaining_rentals)
-            else:
-                print("Skipping rental record tests due to save failure.")
-
-        else:
-            print("Skipping room calculation and retrieval tests due to main calculation save failure.")
-    else:
-        print("Supabase client not initialized. Skipping all SupabaseManager tests.")
-
-    # Clean up dummy image
-    if dummy_image_path and os.path.exists(dummy_image_path):
-        os.remove(dummy_image_path)
-        print(f"Cleaned up dummy image: {dummy_image_path}")
