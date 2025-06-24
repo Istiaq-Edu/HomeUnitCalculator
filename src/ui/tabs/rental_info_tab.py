@@ -32,7 +32,7 @@ from src.ui.styles import (
     get_checkbox_style
 )
 from src.core.utils import resource_path, _clear_layout
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, FluentProgressDialog
 from src.ui.dialogs import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 
@@ -425,13 +425,10 @@ class RentalInfoTab(QWidget):
             )
             return
 
-        # Display a simple modal progress dialog
-        self._progress_dialog = QProgressDialog(
-            "Fetching records from cloud…", None, 0, 0, self
+        # Display a non-blocking Fluent progress dialog
+        self._progress_dialog = FluentProgressDialog(
+            "Fetching records from cloud…", parent=self
         )
-        self._progress_dialog.setWindowTitle("Please Wait")
-        self._progress_dialog.setCancelButton(None)
-        self._progress_dialog.setWindowModality(Qt.WindowModal)
         self._progress_dialog.show()
 
         # Disable source combo to prevent re-entrancy

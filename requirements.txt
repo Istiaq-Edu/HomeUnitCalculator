@@ -5,3 +5,4 @@ python-dotenv
 postgrest
 cryptography
 keyring
+PyQt-Fluent-Widgets[full]>=1.7.0

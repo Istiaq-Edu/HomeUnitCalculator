@@ -23,6 +23,7 @@ from src.ui.styles import (
 )
 from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
+from src.ui.custom_widgets import FluentProgressDialog  # Avoid top-level import to keep optional
 
 class ArchivedInfoTab(QWidget):
     def __init__(self, main_window_ref):
@@ -105,10 +106,7 @@ class ArchivedInfoTab(QWidget):
             )
             return
 
-        self._progress_dialog = QProgressDialog("Fetching records from cloud…", None, 0, 0, self)
-        self._progress_dialog.setWindowTitle("Please Wait")
-        self._progress_dialog.setCancelButton(None)
-        self._progress_dialog.setWindowModality(Qt.WindowModal)
+        self._progress_dialog = FluentProgressDialog("Fetching records from cloud…", parent=self)
         self._progress_dialog.show()
 
         self.load_source_combo.setEnabled(False)

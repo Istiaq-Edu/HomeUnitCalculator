@@ -46,6 +46,37 @@ from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
 from src.ui.tabs.rental_info_tab import RentalInfoTab
 from src.ui.tabs.archived_info_tab import ArchivedInfoTab
 
+# Fluent design toast-like information bars (non-blocking replacements for QMessageBox.information)
+try:
+    from qfluentwidgets import InfoBar, InfoBarPosition  # type: ignore
+
+    def _non_blocking_information(parent, title, text, *_, **__):  # noqa: D401, ANN001
+        """Patched replacement for QMessageBox.information that shows a transient Fluent InfoBar.
+
+        Returns immediately with QMessageBox.Ok so that existing calling code keeps working
+        without modifications.
+        """
+        # Use success style for positive feedback; feel free to tweak orientation/position here
+        InfoBar.success(
+            title=title,
+            content=text,
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP_RIGHT,
+            duration=3000,  # auto-dismiss after 3 s; negative value means stay until closed
+            parent=parent,
+        )
+        return QMessageBox.Ok
+
+    # Monkey-patch only if it hasn't been patched yet (to avoid double-patching in tests)
+    if not getattr(QMessageBox.information, "__fluent_patched__", False):
+        _non_blocking_information.__fluent_patched__ = True  # type: ignore[attr-defined]
+        QMessageBox.information = _non_blocking_information  # type: ignore[assignment]
+except ImportError:
+    # If PyQt-Fluent-Widgets isn't installed, fall back silently to the default behaviour.
+    pass
+# ----------------------------------------------------------------------------------------------
+
 class MeterCalculationApp(QMainWindow):
     def __init__(self):
         super().__init__()
