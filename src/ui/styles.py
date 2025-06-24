@@ -27,6 +27,7 @@ _color_vars_tmp: dict[str, str] = {
     "disabled_bg": "#E5E7EB",
     "disabled_text": "#9CA3AF",
 }
+_color_vars_tmp["text_black"] = "#000000"
 
 # Expose as immutable, mutation-proof mapping
 COLOR_VARS: Mapping[str, str] = MappingProxyType(_color_vars_tmp.copy())
@@ -645,7 +646,10 @@ def get_result_title_style():
 def get_result_value_style():
     # Define and return a string containing CSS-like styling for QLabel widgets used as result values
     tpl = textwrap.dedent("""\
-        font-size: 20px;
+        color: {text_primary};  /* Dark blue text */
+        font-weight: bold;  /* Bold text */
+        font-size: 28px;  /* Significantly increased font size */
+        qproperty-alignment: AlignHCenter; /* Center align the text horizontally */
         font-weight: bold;
         color: {accent_primary};
         """)

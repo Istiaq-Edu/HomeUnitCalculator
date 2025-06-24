@@ -99,8 +99,15 @@ class EditRecordDialog(QDialog):
         scroll_area_rooms.setWidget(scroll_content_widget)
         rooms_main_layout.addWidget(scroll_area_rooms)
 
+        # Store original month/year for update
+        self.original_month = main_data.get('month')
+        self.original_year = main_data.get('year')
+
         for i, room_data in enumerate(room_data_list):
-            room_name = room_data.get('room_name', 'Unknown Room')
+            # Handle nested room_data dict returned from SupabaseManager
+            nested = room_data.get('room_data') if isinstance(room_data, dict) else None
+            rd = nested if isinstance(nested, dict) else room_data
+            room_name = rd.get('room_name', 'Unknown Room')
             room_edit_group = QGroupBox(room_name)
             room_edit_group.setStyleSheet(get_room_group_style())
             room_edit_form_layout = QFormLayout(room_edit_group)
@@ -112,13 +119,25 @@ class EditRecordDialog(QDialog):
             previous_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_previous")
             room_id = room_data.get('id') 
 
+            gas_bill_edit = CustomLineEdit()
+            gas_bill_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_gas")
+            water_bill_edit = CustomLineEdit()
+            water_bill_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_water")
+            house_rent_edit = CustomLineEdit()
+            house_rent_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_rent")
+
             room_edit_form_layout.addRow("Present Reading:", present_edit)
             room_edit_form_layout.addRow("Previous Reading:", previous_edit)
+            room_edit_form_layout.addRow("Gas Bill:", gas_bill_edit)
+            room_edit_form_layout.addRow("Water Bill:", water_bill_edit)
+            room_edit_form_layout.addRow("House Rent:", house_rent_edit)
 
             self.rooms_edit_layout.addWidget(room_edit_group)
             self.room_edit_widgets.append({
-                "room_id": room_id, "name": room_name, 
-                "present_edit": present_edit, "previous_edit": previous_edit
+                "room_id": room_id, "name": room_name,
+                "present_edit": present_edit, "previous_edit": previous_edit,
+                "gas_edit": gas_bill_edit, "water_edit": water_bill_edit,
+                "rent_edit": house_rent_edit
             })
             
         if not room_data_list:
@@ -189,7 +208,9 @@ class EditRecordDialog(QDialog):
             if i < len(meter_values) and pair_widgets['meter_edit']: pair_widgets['meter_edit'].setText(str(meter_values[i]))
             if i < len(diff_values) and pair_widgets['diff_edit']: pair_widgets['diff_edit'].setText(str(diff_values[i]))
                 
-        self.additional_amount_edit.setText(str(main_data.get("additional_amount", "") or ""))
+        # Support both new and legacy key names
+        aa_val = main_data.get("added_amount") if "added_amount" in main_data else main_data.get("additional_amount", "")
+        self.additional_amount_edit.setText(str(aa_val or ""))
         
         for i, room_widget_set in enumerate(self.room_edit_widgets):
             if i < len(room_data_list):
@@ -198,6 +219,11 @@ class EditRecordDialog(QDialog):
                 room_data_jsonb = room_record.get("room_data", {})
                 room_widget_set["present_edit"].setText(str(room_data_jsonb.get("present_unit", "") or ""))
                 room_widget_set["previous_edit"].setText(str(room_data_jsonb.get("previous_unit", "") or ""))
+                room_widget_set["gas_edit"].setText(str(room_data_jsonb.get("gas_bill", "") or ""))
+                room_widget_set["water_edit"].setText(str(room_data_jsonb.get("water_bill", "") or ""))
+                room_widget_set["rent_edit"].setText(str(room_data_jsonb.get("house_rent", "") or ""))
+                # Store entire original room_data for later preservation
+                room_widget_set["original_room_data"] = room_data_jsonb
                 # Store image paths for later use in save_changes
                 room_widget_set["photo_path"] = room_record.get("photo_url")
                 room_widget_set["nid_front_path"] = room_record.get("nid_front_url")
@@ -233,16 +259,26 @@ class EditRecordDialog(QDialog):
             per_unit_cost_calc = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0
             grand_total_bill = total_unit_cost + additional_amount
 
-            # Prepare main_data for JSONB column
+            # Prepare main_data for JSONB column with keys matching HistoryTab expectations
             updated_main_data_jsonb = {
+                "month": self.original_month,
+                "year": self.original_year,
                 "meter_readings": meter_vals,
                 "diff_readings": diff_vals,
-                "additional_amount": additional_amount,
+            }
+
+            for idx, val in enumerate(meter_vals):
+                updated_main_data_jsonb[f"meter_{idx+1}"] = val
+            for idx, val in enumerate(diff_vals):
+                updated_main_data_jsonb[f"diff_{idx+1}"] = val
+
+            updated_main_data_jsonb.update({
                 "total_unit_cost": total_unit_cost,
                 "total_diff_units": total_diff_units,
-                "per_unit_cost_calculated": per_unit_cost_calc,
-                "grand_total_bill": grand_total_bill,
-            }
+                "per_unit_cost": per_unit_cost_calc,
+                "added_amount": additional_amount,
+                "grand_total": grand_total_bill,
+            })
 
             updated_room_records_for_supabase = []
             for rws in self.room_edit_widgets:
@@ -255,18 +291,24 @@ class EditRecordDialog(QDialog):
                     return # Do not proceed with saving if validation fails
                 units_consumed = present - previous
                 cost = units_consumed * per_unit_cost_calc
+                gas_bill_val = _s_float(rws["gas_edit"].text(), default=0.0)
+                water_bill_val = _s_float(rws["water_edit"].text(), default=0.0)
+                rent_val = _s_float(rws["rent_edit"].text(), default=0.0)
+                grand_total_room = cost + gas_bill_val + water_bill_val + rent_val
                 
-                # Prepare room_data for JSONB column
-                room_data_jsonb = {
+                # Start from original room_data to preserve non-edited fields
+                room_data_jsonb = dict(rws.get("original_room_data", {}))
+                room_data_jsonb.update({
                     "room_name": rws["name"],
                     "present_unit": present,
                     "previous_unit": previous,
-                    "real_unit": units_consumed, # This is the "real unit" calculated
+                    "real_unit": units_consumed,
                     "unit_bill": cost,
-                    # Assuming gas_bill, water_bill, house_rent, grand_total are not editable in this dialog
-                    # If they are, you'd need to add QLineEdit for them and retrieve their values here.
-                    # For now, we'll omit them or fetch from original room_data if needed.
-                }
+                    "gas_bill": gas_bill_val,
+                    "water_bill": water_bill_val,
+                    "house_rent": rent_val,
+                    "grand_total": grand_total_room,
+                })
 
                 # Include local image paths (which are actually URLs from Supabase Storage)
                 # SupabaseManager will handle re-upload if paths change, or keep existing if same.
@@ -285,9 +327,7 @@ class EditRecordDialog(QDialog):
                 updated_room_records_for_supabase.append(room_record_to_save)
 
             # Update main_calculations using SupabaseManager
-            main_update_success = self.supabase_manager.save_main_calculation(
-                {"id": self.record_id, **updated_main_data_jsonb} # Pass ID for update
-            )
+            main_update_success = self.supabase_manager.save_main_calculation(updated_main_data_jsonb)
             
             if not main_update_success:
                 QMessageBox.critical(self, "Supabase Error", "Failed to update main calculation data.")
@@ -363,7 +403,7 @@ class HistoryTab(QWidget):
         # Use 0 as sentinel for "All"
         self.history_year_spinbox.setRange(0, 2100)
         self.history_year_spinbox.setSpecialValueText("All")
-        self.history_year_spinbox.setValue(0)          # default to "All", or keep current-year if preferred
+        self.history_year_spinbox.setValue(datetime.now().year)          # default to current year
         self.history_year_spinbox.setStyleSheet(get_month_info_style())
         filter_layout.addWidget(month_label)
         filter_layout.addWidget(self.history_month_combo)
@@ -660,7 +700,9 @@ class HistoryTab(QWidget):
                         
                         # Set month column
                         month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
-                        self.main_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
+                        month_item = QTableWidgetItem(month_year_str)
+                        month_item.setData(Qt.UserRole, main_row_data['csv_row'].get('id'))  # Store id for later operations
+                        self.main_history_table.setItem(row_idx, 0, month_item)
                         
                         # Set meter columns dynamically (skip zeros)
                         for i in range(max_meters):
@@ -807,7 +849,9 @@ class HistoryTab(QWidget):
                             main_data = {}
 
                     month_year = f"{calc.get('month', 'N/A')} {calc.get('year', 'N/A')}"
-                    self.main_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year))
+                    month_item = QTableWidgetItem(month_year)
+                    month_item.setData(Qt.UserRole, main_calc_id)  # Store id for later operations
+                    self.main_history_table.setItem(row_idx, 0, month_item)
 
                     for i in range(max_meters):
                         meter_val = str(main_data.get(f"meter_{i+1}", ""))
@@ -860,37 +904,44 @@ class HistoryTab(QWidget):
             self.calculate_and_display_totals_from_supabase_records([], []) # Clear totals
 
     def calculate_and_display_totals_from_supabase_records(self, main_calculations: list[dict], all_room_rows: list[dict]):
-        # ... function to calculate and display totals from Supabase data
-        total_grand_total_main = 0
-        total_grand_total_rooms = 0
-
-        # Sum grand_total from main_calculations
-        for calc in main_calculations:
-            main_data = calc.get("main_data", {})
-            if isinstance(main_data, str):
-                try:
-                    main_data = json.loads(main_data)
-                except json.JSONDecodeError:
-                    main_data = {}
-            total_grand_total_main += float(main_data.get("grand_total", 0))
-
-        # Sum grand_total from all_room_rows
+        grouped = {}
         for room in all_room_rows:
+            month = room.get("month")
+            year = room.get("year")
+            key = f"{month} {year}" if (month and year) else "Unknown"
+
             room_data = room.get("room_data", {})
             if isinstance(room_data, str):
                 try:
                     room_data = json.loads(room_data)
                 except json.JSONDecodeError:
                     room_data = {}
-            total_grand_total_rooms += float(room_data.get("grand_total", 0))
-        
-        difference = total_grand_total_main - total_grand_total_rooms
 
-        self.totals_table.setRowCount(1)
-        self.totals_table.setItem(0, 0, QTableWidgetItem(f"{total_grand_total_main:,.2f}"))
-        self.totals_table.setItem(0, 1, QTableWidgetItem(f"{total_grand_total_rooms:,.2f}"))
-        self.totals_table.setItem(0, 2, QTableWidgetItem(f"{difference:,.2f}"))
+            try:
+                grp = grouped.setdefault(key, {"house":0.0,"water":0.0,"gas":0.0,"unit":0.0})
+                grp["house"] += float(room_data.get("house_rent", 0) or 0)
+                grp["water"] += float(room_data.get("water_bill", 0) or 0)
+                grp["gas"]   += float(room_data.get("gas_bill", 0) or 0)
+                grp["unit"]  += float(room_data.get("unit_bill", 0) or 0)
+            except (ValueError, TypeError):
+                continue
 
+        # sort keys by year then month
+        def month_key(m):
+            parts=m.split();
+            if len(parts)==2:
+                mon,yr=parts; return (int(yr), self.MONTH_ORDER.get(mon,0))
+            return (0,0)
+        skeys=sorted(grouped.keys(), key=month_key)
+
+        self.totals_table.setRowCount(len(skeys))
+        for idx,k in enumerate(skeys):
+            self.totals_table.setItem(idx,0,QTableWidgetItem(k))
+            t=grouped[k]
+            self.totals_table.setItem(idx,1,QTableWidgetItem(f"{t['house']:.2f}"))
+            self.totals_table.setItem(idx,2,QTableWidgetItem(f"{t['water']:.2f}"))
+            self.totals_table.setItem(idx,3,QTableWidgetItem(f"{t['gas']:.2f}"))
+            self.totals_table.setItem(idx,4,QTableWidgetItem(f"{t['unit']:.2f}"))
 
     def handle_edit_selected_record(self):
         selected_items = self.main_history_table.selectedItems()
@@ -898,10 +949,8 @@ class HistoryTab(QWidget):
             QMessageBox.information(self, "No Selection", "Please select a record to edit.")
             return
         selected_row = selected_items[0].row()
-        # Assuming the ID is stored in a hidden column (e.g., column 5 as per load_history_tables_from_supabase)
-        # Or, if using Qt.UserRole, retrieve it like this:
-        record_id_item = self.main_history_table.item(selected_row, self.main_history_table.columnCount() - 1)
-        record_id = record_id_item.text() if record_id_item else None # Get ID from the hidden column
+        month_item = self.main_history_table.item(selected_row, 0)
+        record_id = month_item.data(Qt.UserRole) if month_item else None
         
         if record_id:
             if self.main_window.load_history_source_combo.currentText() == "Load from Cloud":
@@ -971,48 +1020,37 @@ class HistoryTab(QWidget):
     def calculate_and_display_totals(self, room_rows, get_csv_value):
         """Calculate and display totals for house rent, water bill, gas bill, and unit bill"""
         try:
-            total_house_rent = 0.0
-            total_water_bill = 0.0
-            total_gas_bill = 0.0
-            total_unit_bill = 0.0
-            
-            # The CSV structure has pre-calculated totals in the main calculation rows
-            # We need to extract these from the main rows, not calculate from individual rooms
-            processed_main_rows = set()  # To avoid double counting
-            
+            grouped = {}
             for room_row in room_rows:
-                # Check if this row has totals data (main calculation row)
-                csv_total_house_rent = get_csv_value(room_row, "Total House Rent", "")
-                csv_total_water_bill = get_csv_value(room_row, "Total Water Bill", "")
-                csv_total_gas_bill = get_csv_value(room_row, "Total Gas Bill", "")
-                csv_total_unit_bill = get_csv_value(room_row, "Total Room Unit Bill", "")
-                
-                # If this row has totals data and we haven't processed it yet
-                if csv_total_house_rent and csv_total_house_rent.strip():
-                    # Create a unique identifier for this main row to avoid duplicates
-                    month_val = get_csv_value(room_row, "Month", "")
-                    meter1_val = get_csv_value(room_row, "Meter-1", "")
-                    row_id = f"{month_val}_{meter1_val}"
-                    
-                    if row_id not in processed_main_rows:
-                        processed_main_rows.add(row_id)
-                        
-                        # Add the pre-calculated totals from this main row
-                        try:
-                            total_house_rent += float(csv_total_house_rent or "0")
-                            total_water_bill += float(csv_total_water_bill or "0")
-                            total_gas_bill += float(csv_total_gas_bill or "0")
-                            total_unit_bill += float(csv_total_unit_bill or "0")
-                        except (ValueError, TypeError):
-                            # If conversion fails, skip this row
-                            continue
-            
-            # Clear existing totals and add new row
-            self.totals_table.setRowCount(1)
-            self.totals_table.setItem(0, 0, QTableWidgetItem(f"{total_house_rent:.2f}"))
-            self.totals_table.setItem(0, 1, QTableWidgetItem(f"{total_water_bill:.2f}"))
-            self.totals_table.setItem(0, 2, QTableWidgetItem(f"{total_gas_bill:.2f}"))
-            self.totals_table.setItem(0, 3, QTableWidgetItem(f"{total_unit_bill:.2f}"))
+                month_val = get_csv_value(room_row, "Month", "").strip()
+                if month_val:
+                    key = month_val
+                    try:
+                        house = float(get_csv_value(room_row, "Total House Rent", "0"))
+                        water = float(get_csv_value(room_row, "Total Water Bill", "0"))
+                        gas = float(get_csv_value(room_row, "Total Gas Bill", "0"))
+                        unit = float(get_csv_value(room_row, "Total Room Unit Bill", "0"))
+                    except ValueError:
+                        continue
+                    grp = grouped.setdefault(key,{"house":0.0,"water":0.0,"gas":0.0,"unit":0.0})
+                    grp["house"]+=house; grp["water"]+=water; grp["gas"]+=gas; grp["unit"]+=unit
+
+            # sort keys by year then month
+            def month_key(m):
+                parts=m.split();
+                if len(parts)==2:
+                    mon,yr=parts; return (int(yr), self.MONTH_ORDER.get(mon,0))
+                return (0,0)
+            skeys=sorted(grouped.keys(), key=month_key)
+
+            self.totals_table.setRowCount(len(skeys))
+            for idx,k in enumerate(skeys):
+                self.totals_table.setItem(idx,0,QTableWidgetItem(k))
+                t=grouped[k]
+                self.totals_table.setItem(idx,1,QTableWidgetItem(f"{t['house']:.2f}"))
+                self.totals_table.setItem(idx,2,QTableWidgetItem(f"{t['water']:.2f}"))
+                self.totals_table.setItem(idx,3,QTableWidgetItem(f"{t['gas']:.2f}"))
+                self.totals_table.setItem(idx,4,QTableWidgetItem(f"{t['unit']:.2f}"))
             
         except Exception as e:
             # If there's an error calculating totals, just clear the table

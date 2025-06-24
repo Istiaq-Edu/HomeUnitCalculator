@@ -23,11 +23,9 @@ class SupabaseManager:
             print("Supabase URL/Key not found in local DB. Supabase features disabled.")
             return
 
-        print(f"DEBUG: Connecting to Supabase project with URL: {supabase_url}")
 
         try:
             self.supabase = create_client(supabase_url, supabase_key)
-            print("Supabase client initialized successfully from stored config.")
         except Exception as e:
             self.supabase = None
             print(f"Failed to initialize Supabase client: {e}")
@@ -146,41 +144,47 @@ class SupabaseManager:
             return False
 
         try:
-            with self.supabase.postgrest.transaction() as trx:
-                # Delete existing room calculations for this main_calc_id
-                trx.table("room_calculations").delete().eq("main_calculation_id", main_calc_id).execute()
-                print(f"Deleted existing room calculations for main_calc_id: {main_calc_id}")
+            # Delete existing room calculations for this main_calc_id
+            self.supabase.table("room_calculations").delete().eq("main_calculation_id", main_calc_id).execute()
+            print(f"Deleted existing room calculations for main_calc_id: {main_calc_id}")
 
-                records_to_insert = []
-                for room_data in room_data_list:
-                    # Upload images and get URLs
-                    photo_url = self.upload_image(room_data.get("photo_path")) if room_data.get("photo_path") else None
-                    nid_front_url = self.upload_image(room_data.get("nid_front_path")) if room_data.get("nid_front_path") else None
-                    nid_back_url = self.upload_image(room_data.get("nid_back_path")) if room_data.get("nid_back_path") else None
-                    police_form_url = self.upload_image(room_data.get("police_form_path")) if room_data.get("police_form_path") else None
+            records_to_insert = []
+            for room_data in room_data_list:
+                # Upload images and get URLs
+                photo_url = self.upload_image(room_data.get("photo_path")) if room_data.get("photo_path") else None
+                nid_front_url = self.upload_image(room_data.get("nid_front_path")) if room_data.get("nid_front_path") else None
+                nid_back_url = self.upload_image(room_data.get("nid_back_path")) if room_data.get("nid_back_path") else None
+                police_form_url = self.upload_image(room_data.get("police_form_path")) if room_data.get("police_form_path") else None
 
-                    # Prepare data for JSONB column and URL columns
-                    record = {
-                        "main_calculation_id": main_calc_id,
-                        "room_data": {k: v for k, v in room_data.items() if not k.endswith("_path")}, # Exclude local paths
-                        "photo_url": photo_url,
-                        "nid_front_url": nid_front_url,
-                        "nid_back_url": nid_back_url,
-                        "police_form_url": police_form_url
-                    }
-                    records_to_insert.append(record)
-                
-                if records_to_insert:
-                    insert_response = trx.table("room_calculations").insert(records_to_insert).execute()
-                    if insert_response.data:
-                        print(f"Inserted {len(insert_response.data)} room calculation records.")
-                        return True
-                    else:
-                        print(f"Failed to insert room calculation data: {insert_response.json()}")
-                        return False
+                # Determine the JSONB payload for room_data
+                if "room_data" in room_data and isinstance(room_data["room_data"], dict):
+                    room_jsonb = room_data["room_data"]
                 else:
-                    print("No room calculation records to insert.")
-                    return True # No rooms to insert, still considered successful
+                    # Build JSONB from all keys that are not image path references
+                    room_jsonb = {k: v for k, v in room_data.items() if not k.endswith("_path") and k != "room_data"}
+
+                # Prepare data for JSONB column and URL columns
+                record = {
+                    "main_calculation_id": main_calc_id,
+                    "room_data": room_jsonb,
+                    "photo_url": photo_url,
+                    "nid_front_url": nid_front_url,
+                    "nid_back_url": nid_back_url,
+                    "police_form_url": police_form_url
+                }
+                records_to_insert.append(record)
+            
+            if records_to_insert:
+                insert_response = self.supabase.table("room_calculations").insert(records_to_insert).execute()
+                if insert_response.data:
+                    print(f"Inserted {len(insert_response.data)} room calculation records.")
+                    return True
+                else:
+                    print(f"Failed to insert room calculation data: {insert_response.json()}")
+                    return False
+            else:
+                print("No room calculation records to insert.")
+                return True # No rooms to insert, still considered successful
 
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error saving room calculations: {e}")
@@ -259,9 +263,10 @@ class SupabaseManager:
         try:
             response = self.supabase.table("room_calculations").select("room_data, photo_url, nid_front_url, nid_back_url, police_form_url").eq("main_calculation_id", main_calculation_id).execute()
             if response.data:
+                # Keep room_data nested so that UI code can access it consistently
                 return [
                     {
-                        **record.get("room_data", {}),
+                        "room_data": record.get("room_data", {}),
                         "photo_url": record.get("photo_url"),
                         "nid_front_url": record.get("nid_front_url"),
                         "nid_back_url": record.get("nid_back_url"),
@@ -416,6 +421,43 @@ class SupabaseManager:
             return False
         except Exception as e:
             print(f"An unexpected error occurred deleting rental record: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Utility helpers used by HistoryTab (edit/delete operations)
+    # ------------------------------------------------------------------
+
+    def get_main_calculations_by_id(self, record_id: int | str) -> dict | None:
+        """Retrieve a single main_calculations row by primary-key id."""
+        if not self.is_client_initialized():
+            print("Supabase client not initialized. Cannot retrieve main calculation by id.")
+            return None
+        try:
+            response = self.supabase.table("main_calculations").select("*").eq("id", record_id).limit(1).execute()
+            return response.data[0] if response.data else None
+        except (APIError, AuthApiError) as e:
+            print(f"Supabase API error retrieving main calculation by id: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error retrieving main calculation by id: {e}")
+            return None
+
+    def delete_calculation_record(self, record_id: int | str) -> bool:
+        """Delete a main_calculations record and all associated room_calculations rows."""
+        if not self.is_client_initialized():
+            print("Supabase client not initialized. Cannot delete calculation record.")
+            return False
+        try:
+            # First remove room_calculations rows
+            self.supabase.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
+            # Then remove the main_calculations row
+            main_del_resp = self.supabase.table("main_calculations").delete().eq("id", record_id).execute()
+            return bool(main_del_resp.data)
+        except (APIError, AuthApiError) as e:
+            print(f"Supabase API error deleting calculation record: {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error deleting calculation record: {e}")
             return False
 
 # Example usage (for testing purposes, can be removed later)

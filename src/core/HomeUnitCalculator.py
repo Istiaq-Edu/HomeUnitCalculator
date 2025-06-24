@@ -6,8 +6,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 import json
 from datetime import datetime as dt_class
 
-print(f"Python Version: {sys.version}")
-print(f"Sys Path: {sys.path}")
 import functools
 import logging
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
@@ -98,7 +96,6 @@ class MeterCalculationApp(QMainWindow):
         # We just need to ensure it's initialized and check its status.
         self.supabase_manager._initialize_supabase_client() # Re-initialize the manager's client
         if self.supabase_manager.is_client_initialized():
-            print("Supabase client initialized successfully via SupabaseManager.")
             # Set default load source to Cloud if Supabase is configured
             self.load_history_source_combo.setCurrentText("Load from Cloud")
         else:
@@ -412,18 +409,31 @@ class MeterCalculationApp(QMainWindow):
                 try: return float(v) if v and v.strip() else default
                 except ValueError: return default
 
-            # Prepare main calculation data
+            meter_values = [_s_float(me.text()) for me in self.main_tab_instance.meter_entries]
+            diff_values = [_s_float(de.text()) for de in self.main_tab_instance.diff_entries]
+
+            # Build dictionary with both indexed keys (meter_1, diff_1, ...) and array versions for backward compatibility
             main_calc_data = {
                 "month": month,
                 "year": year,
-                "meter_readings": [_s_float(me.text()) for me in self.main_tab_instance.meter_entries],
-                "diff_readings": [_s_float(de.text()) for de in self.main_tab_instance.diff_entries],
-                "additional_amount": _s_float(self.main_tab_instance.additional_amount_input.text()),
+                "meter_readings": meter_values,
+                "diff_readings": diff_values,
+            }
+
+            # Add individual meter_i and diff_i keys expected by HistoryTab
+            for idx, val in enumerate(meter_values):
+                main_calc_data[f"meter_{idx+1}"] = val
+            for idx, val in enumerate(diff_values):
+                main_calc_data[f"diff_{idx+1}"] = val
+
+            # Additional summary fields using names expected by HistoryTab
+            main_calc_data.update({
                 "total_unit_cost": _s_float(self.main_tab_instance.total_unit_value_label.text().replace("TK", "").strip()),
                 "total_diff_units": _s_float(self.main_tab_instance.total_diff_value_label.text().replace("TK", "").strip()),
-                "per_unit_cost_calculated": _s_float(self.main_tab_instance.per_unit_cost_value_label.text().replace("TK", "").strip()),
-                "grand_total_bill": _s_float(self.main_tab_instance.in_total_value_label.text().replace("TK", "").strip()),
-            }
+                "per_unit_cost": _s_float(self.main_tab_instance.per_unit_cost_value_label.text().replace("TK", "").strip()),
+                "added_amount": _s_float(self.main_tab_instance.additional_amount_input.text()),
+                "grand_total": _s_float(self.main_tab_instance.in_total_value_label.text().replace("TK", "").strip()),
+            })
 
             # Check for incomplete room calculations before saving
             incomplete_rooms = []
