@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QGridLayout, QGroupBox, QFormLayout, QMessageBox, QSizePolicy, QDialog,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QComboBox, QCheckBox
+    QComboBox, QCheckBox, QProgressDialog
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -34,6 +34,7 @@ from src.ui.styles import (
 from src.core.utils import resource_path, _clear_layout
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
 from src.ui.dialogs import RentalRecordDialog
+from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 
 
 class RentalInfoTab(QWidget):
@@ -397,58 +398,104 @@ class RentalInfoTab(QWidget):
             QMessageBox.warning(self, "Partial Success", "Record may not have been saved to all selected locations.")
 
     def load_rental_records(self):
+        # Clear current table contents first
         self.rental_records_table.clearContents()
         self.rental_records_table.setRowCount(0)
 
         selected_source = self.load_source_combo.currentText()
-        records = []
 
         if selected_source == "Local DB":
+            # --- synchronous path (unchanged) ---
             try:
-                records = self.db_manager.execute_query("SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC")
+                records = self.db_manager.execute_query(
+                    "SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id "
+                    "FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC"
+                )
                 print(f"Loaded {len(records)} records from Local DB.")
+                self._populate_rental_table(selected_source, records)
             except Exception as e:
                 QMessageBox.critical(self, "Local DB Error", f"Failed to load rental records from local DB: {e}")
                 traceback.print_exc()
-                return
-        elif selected_source == "Cloud (Supabase)":
-            if not self.main_window.supabase_manager.is_client_initialized():
-                QMessageBox.warning(self, "Supabase Not Configured", "Supabase client is not initialized. Cannot load from cloud.")
-                return
-            try:
-                # Fetch non-archived records from Supabase
-                records = self.main_window.supabase_manager.get_rental_records(is_archived=False)
-                print(f"Loaded {len(records)} records from Supabase.")
-            except Exception as e:
-                QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {e}")
-                traceback.print_exc()
-                return
-        
+            return
+
+        # ---------- Cloud (Supabase) using background thread ----------
+        if not self.main_window.supabase_manager.is_client_initialized():
+            QMessageBox.warning(
+                self, "Supabase Not Configured", "Supabase client is not initialized. Cannot load from cloud."
+            )
+            return
+
+        # Display a simple modal progress dialog
+        self._progress_dialog = QProgressDialog(
+            "Fetching records from cloud…", None, 0, 0, self
+        )
+        self._progress_dialog.setWindowTitle("Please Wait")
+        self._progress_dialog.setCancelButton(None)
+        self._progress_dialog.setWindowModality(Qt.WindowModal)
+        self._progress_dialog.show()
+
+        # Disable source combo to prevent re-entrancy
+        self.load_source_combo.setEnabled(False)
+
+        # Start the background worker
+        self._fetch_worker = FetchSupabaseRentalRecordsWorker(
+            self.main_window.supabase_manager, is_archived=False, parent=self
+        )
+        self._fetch_worker.records_fetched.connect(
+            lambda recs: self._on_cloud_records_ready(recs, selected_source)
+        )
+        self._fetch_worker.error_occurred.connect(self._on_cloud_records_error)
+        self._fetch_worker.finished.connect(self._on_cloud_records_finished)
+        self._fetch_worker.start()
+
+    # ------------------------------------------------------------------
+    # Background-worker callbacks
+    # ------------------------------------------------------------------
+
+    def _on_cloud_records_ready(self, records, source):
+        """Handle successful retrieval of records."""
         if not records:
-            QMessageBox.information(self, "No Records", f"No active rental records found in {selected_source}.")
+            QMessageBox.information(self, "No Records", f"No active rental records found in {source}.")
+            return
+        self._populate_rental_table(source, records)
+
+    def _on_cloud_records_error(self, message: str):
+        QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {message}")
+
+    def _on_cloud_records_finished(self):
+        """Always called when worker thread ends—success or fail."""
+        self.load_source_combo.setEnabled(True)
+        if hasattr(self, "_progress_dialog") and self._progress_dialog is not None:
+            self._progress_dialog.close()
+            self._progress_dialog = None
+
+    # ------------------------------------------------------------------
+    # Helper to populate table (shared between local & cloud paths)  
+    # ------------------------------------------------------------------
+
+    def _populate_rental_table(self, source_label: str, records: list):
+        """Fill the QTableWidget with rental records."""
+        if not records:
+            QMessageBox.information(self, "No Records", f"No active rental records found in {source_label}.")
             return
 
         self.rental_records_table.setRowCount(len(records))
+
         for row_idx, record in enumerate(records):
-            # Determine the ID and other fields based on source
-            if selected_source == "Local DB":
-                # SQLite record: (id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id)
-                display_id = record[0]
-                tenant_name = record[1]
-                room_number = record[2]
-                advanced_paid = record[3]
-                created_at = record[4]
-                updated_at = record[5]
-                full_record_data = record # Store the full SQLite row
-            else: # Cloud (Supabase)
-                # Supabase record (flattened dict from SupabaseManager.get_rental_records)
+            if source_label == "Local DB":
+                # SQLite tuple; keep same unpacking as before
+                display_id, tenant_name, room_number, advanced_paid, created_at, updated_at = (
+                    record[0], record[1], record[2], record[3], record[4], record[5]
+                )
+                full_record_data = record  # full tuple
+            else:  # Cloud (Supabase) -> dict
                 display_id = record.get("id")
                 tenant_name = record.get("tenant_name")
                 room_number = record.get("room_number")
                 advanced_paid = record.get("advanced_paid")
                 created_at = record.get("created_at")
                 updated_at = record.get("updated_at")
-                full_record_data = record # Store the full dictionary
+                full_record_data = record
 
             self.rental_records_table.setItem(row_idx, 0, QTableWidgetItem(str(display_id)))
             self.rental_records_table.setItem(row_idx, 1, QTableWidgetItem(str(tenant_name)))
@@ -456,8 +503,8 @@ class RentalInfoTab(QWidget):
             self.rental_records_table.setItem(row_idx, 3, QTableWidgetItem(str(advanced_paid)))
             self.rental_records_table.setItem(row_idx, 4, QTableWidgetItem(str(created_at)))
             self.rental_records_table.setItem(row_idx, 5, QTableWidgetItem(str(updated_at)))
-            
-            # Store the full record data (either SQLite row or Supabase dict) in the first column's UserRole
+
+            # Attach raw data for later dialog
             self.rental_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
 
     def show_record_details_dialog(self, index):
