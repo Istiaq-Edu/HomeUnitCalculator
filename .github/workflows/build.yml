@@ -24,6 +24,8 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          # Build-only dependency: needed so Nuitka can convert the PNG icon → ICO at compile time
+          pip install imageio pillow
 
       # Build with Nuitka — the action handles installing Nuitka & C toolchains
       - name: Build executable with Nuitka
