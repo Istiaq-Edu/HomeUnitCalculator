@@ -35,6 +35,9 @@ jobs:
           enable-plugins: pyqt5          # auto-collect Qt plug-ins
           include-data-dir: |
             icons=icons
+          disable-console: true        # ← new
+          output-dir: build
+          windows-icon-from-ico: icons/icon.png   # Nuitka converts it
 
       # Remove the intermediate .dist folder — we only need the single EXE
       - name: Remove dist folder (keep only the EXE)
