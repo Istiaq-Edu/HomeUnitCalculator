@@ -3,10 +3,6 @@ name: Build HomeUnitCalculator Executable
 on:
   # Manual trigger remains
   workflow_dispatch:
-  # Automatic builds on pushes to main and dev and on PRs
-  push:
-    branches: [ main, dev ]
-  pull_request:
 
 jobs:
   build:
