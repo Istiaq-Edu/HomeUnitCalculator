@@ -33,7 +33,8 @@ jobs:
           script-name: src/core/HomeUnitCalculator.py
           mode: onefile                # single-file distribution
           enable-plugins: pyqt5          # auto-collect Qt plug-ins
-          output-dir: build             # easier artifact uploading
+          include-data-dir: |
+            icons=icons
 
       # Remove the intermediate .dist folder — we only need the single EXE
       - name: Remove dist folder (keep only the EXE)
