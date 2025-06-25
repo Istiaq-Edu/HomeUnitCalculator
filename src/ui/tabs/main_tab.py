@@ -338,7 +338,8 @@ class MainTab(QWidget):
                 meter_edit.setText(current_values[i])
             self.meter_entries.append(meter_edit)
         
-        # Navigation setup will be handled by main window after all tabs are created
+        # Re-configure navigation whenever widgets change
+        self.setup_navigation_main_tab()
 
     def update_diff_inputs(self, value=None):
         num_diffs = value if value is not None else self.diff_count_spinbox.value()
@@ -358,7 +359,8 @@ class MainTab(QWidget):
                 diff_edit.setText(current_values[i])
             self.diff_entries.append(diff_edit)
         
-        # Navigation setup will be handled by main window after all tabs are created
+        # Re-configure navigation whenever widgets change
+        self.setup_navigation_main_tab()
         
     def _clear_layout(self, layout):
         if layout is not None:
@@ -578,9 +580,58 @@ class MainTab(QWidget):
             QMessageBox.critical(self, "Load Error", f"Failed to load data from Cloud: {e}\n{traceback.format_exc()}")
 
     def setup_navigation_main_tab(self):
-        # Example of setting up navigation within MainTab
-        # This would involve setting tab order or connecting signals for focus changes
-        pass # Placeholder for actual navigation logic
+        """Configure Enter / Up / Down focus navigation for Main tab fields.
+
+        Order:
+            meter-1 → diff-1 → meter-2 → diff-2 → … → meter-N → diff-N → additional_amount
+
+        • Enter / Down moves focus to next widget in the sequence (wrap-around).
+        • Up moves focus to the previous widget in the sequence (wrap-around).
+        """
+        if not (self.meter_entries or self.diff_entries or self.additional_amount_input):
+            return  # Nothing to wire up yet
+
+        meters = self.meter_entries
+        diffs = self.diff_entries
+        aa    = self.additional_amount_input
+
+        # ── Enter / Return sequence (already OK) ────────────────────────────
+        enter_seq = []
+        max_len = max(len(meters), len(diffs))
+        for i in range(max_len):
+            if i < len(meters):
+                enter_seq.append(meters[i])
+            if i < len(diffs):
+                enter_seq.append(diffs[i])
+        if aa:
+            enter_seq.append(aa)
+
+        # ── Up / Down sequences (column-wise) ──────────────────────────────
+        #   Up:  … m2 → m1 → AA → d3 → d2 → d1 → m3 … (wrap)
+        up_seq = list(reversed(meters))
+        if aa:
+            up_seq.append(aa)
+        up_seq.extend(reversed(diffs))
+
+        down_seq = list(reversed(up_seq))
+
+        # Helper to link navigation for a given mapping list
+        def _link_sequence(seq, attr_name):
+            if not seq:
+                return
+            length = len(seq)
+            for idx, w in enumerate(seq):
+                nxt = seq[(idx + 1) % length]
+                setattr(w, attr_name, nxt)
+
+        # Apply mappings
+        _link_sequence(enter_seq, 'next_widget_on_enter')
+        _link_sequence(up_seq,    'up_widget')
+        _link_sequence(down_seq,  'down_widget')
+
+        # Ensure initial focus inside the tab if none is currently in sequence
+        if self.focusWidget() not in enter_seq:
+            enter_seq[0].setFocus()
 
     # Dummy classes for testing purposes
 if __name__ == '__main__':

@@ -167,6 +167,9 @@ class RoomsTab(QWidget):
         for col in range(3):
             self.rooms_scroll_layout.setColumnStretch(col, 1)
         
+        # Re-configure navigation whenever room widgets change
+        self.setup_navigation_rooms_tab()
+
         # The layout and scroll widget were attached during initialisation (lines 60-61).
         # Navigation setup will be handled by main window after all tabs are created.
 
@@ -458,6 +461,35 @@ class RoomsTab(QWidget):
             "total_gas_bill": total_gas_bill,
             "total_room_unit_bill": total_room_unit_bill
         }
+
+    def setup_navigation_rooms_tab(self):
+        """Configure focus navigation (Enter / Up / Down) across all room input fields."""
+        nav_sequence = []
+        # Build sequence: present → previous → gas → water → house for each room in order
+        for room in self.room_entries:
+            nav_sequence.extend([
+                room['present_entry'],
+                room['previous_entry'],
+                room['gas_bill_entry'],
+                room['water_bill_entry'],
+                room['house_rent_entry'],
+            ])
+
+        if not nav_sequence:
+            return
+
+        length = len(nav_sequence)
+        for idx, widget in enumerate(nav_sequence):
+            next_idx = (idx + 1) % length
+            prev_idx = (idx - 1) % length
+
+            widget.next_widget_on_enter = nav_sequence[next_idx]
+            widget.down_widget = nav_sequence[next_idx]
+            widget.up_widget = nav_sequence[prev_idx]
+
+        # Focus first field if current focus not within rooms tab
+        if self.focusWidget() not in nav_sequence:
+            nav_sequence[0].setFocus()
 
 if __name__ == '__main__':
     # This part is for testing the RoomsTab independently if needed

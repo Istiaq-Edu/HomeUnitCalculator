@@ -40,11 +40,11 @@ class CustomLineEdit(QLineEdit):
 
         target_widget = None
         if key == Qt.Key_Up:
-            target_widget = self.up_widget
+            target_widget = self.up_widget or self.findNextWidget(forward=False)
         elif key == Qt.Key_Down:
-            target_widget = self.down_widget
+            target_widget = self.down_widget or self.findNextWidget(forward=True)
         elif key in (Qt.Key_Return, Qt.Key_Enter):
-            target_widget = self.next_widget_on_enter
+            target_widget = self.next_widget_on_enter or self.findNextWidget(forward=True)
         
         if target_widget:
             target_widget.setFocus()

@@ -115,10 +115,17 @@ class RentalInfoTab(QWidget):
             self.advanced_paid_input
         ]
 
-        # Set up keyboard navigation for input fields
-        for i, field in enumerate(self.input_fields):
-            field.returnPressed.connect(lambda i=i: self._handle_enter_pressed(i))
-            field.installEventFilter(self) # Install event filter for arrow keys
+        # ─── Configure CustomLineEdit navigation (Enter / Up / Down) ───
+        for idx, fld in enumerate(self.input_fields):
+            next_fld = self.input_fields[(idx + 1) % len(self.input_fields)]
+            prev_fld = self.input_fields[(idx - 1) % len(self.input_fields)]
+
+            fld.next_widget_on_enter = next_fld   # Enter → next
+            fld.down_widget = next_fld            # ↓ → next
+            fld.up_widget = prev_fld              # ↑ → previous
+
+        # Give initial focus to the first field when the tab opens
+        self.tenant_name_input.setFocus()
 
         # Image Uploads Group
         image_upload_group = QGroupBox("Document Upload")
@@ -602,32 +609,30 @@ class RentalInfoTab(QWidget):
 
     def _handle_enter_pressed(self, current_index):
         """Handles Enter key press for sequential focus movement."""
-        if current_index < len(self.input_fields) - 1:
-            self.input_fields[current_index + 1].setFocus()
-            if isinstance(self.input_fields[current_index + 1], QLineEdit):
-                self.input_fields[current_index + 1].selectAll()
-            return True # Event handled
-        else:
-            # If it's the last input field, move focus to the Save Record button
-            self.save_record_btn.setFocus()
-        return False # Event not handled, continue normal processing
+        last_idx = len(self.input_fields) - 1
+        # Cycle only within the three input fields
+        target = self.input_fields[(current_index + 1) % (last_idx + 1)]
+        target.setFocus()
+        if isinstance(target, QLineEdit):
+            target.selectAll()
+        return True  # Event handled – stop further processing
 
     def eventFilter(self, obj, event):
         """Filters events to handle Up/Down arrow key navigation."""
         if event.type() == QEvent.KeyPress and obj in self.input_fields:
             current_index = self.input_fields.index(obj)
             if event.key() == Qt.Key_Down:
-                if current_index < len(self.input_fields) - 1:
-                    self.input_fields[current_index + 1].setFocus()
-                    if isinstance(self.input_fields[current_index + 1], QLineEdit):
-                        self.input_fields[current_index + 1].selectAll()
-                    return True # Event handled
+                target = self.input_fields[(current_index + 1) % len(self.input_fields)]
+                target.setFocus()
+                if isinstance(target, QLineEdit):
+                    target.selectAll()
+                return True  # Event handled
             elif event.key() == Qt.Key_Up:
-                if current_index > 0:
-                    self.input_fields[current_index - 1].setFocus()
-                    if isinstance(self.input_fields[current_index - 1], QLineEdit):
-                        self.input_fields[current_index - 1].selectAll()
-                    return True # Event handled
+                target = self.input_fields[(current_index - 1) % len(self.input_fields)]
+                target.setFocus()
+                if isinstance(target, QLineEdit):
+                    target.selectAll()
+                return True  # Event handled
         return super().eventFilter(obj, event)
 
     def _rel_to(self, p: Path, root: Path) -> bool:

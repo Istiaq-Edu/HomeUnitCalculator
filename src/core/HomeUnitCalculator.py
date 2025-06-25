@@ -112,6 +112,15 @@ class MeterCalculationApp(QMainWindow):
         self.init_ui()
         self.setup_navigation()
         self.center_window()
+        self.refresh_all_rental_tabs()
+
+        # Global keyboard shortcuts
+        try:
+            from src.ui.keyboard_navigation import KeyboardNavigationManager
+
+            self._kb_nav_manager = KeyboardNavigationManager(self)
+        except Exception as nav_exc:  # pragma: no cover – keep UI alive even if navigation fails
+            print(f"Keyboard navigation failed to initialise: {nav_exc}")
 
     def check_internet_connectivity(self):
         import socket

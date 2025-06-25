@@ -161,43 +161,51 @@ class EditRecordDialog(QDialog):
         self._setup_navigation_edit_dialog()
 
     def _setup_navigation_edit_dialog(self):
-        meter_diff_edits = [pair['meter_edit'] for pair in self.meter_diff_edit_widgets] + \
-                           [pair['diff_edit'] for pair in self.meter_diff_edit_widgets]
-        aa = self.additional_amount_edit
         save_btn = self.save_button
-        
-        all_line_edits_in_dialog = meter_diff_edits + [aa]
-        for room_set in self.room_edit_widgets:
-            all_line_edits_in_dialog.extend([room_set["present_edit"], room_set["previous_edit"]])
 
-        for widget in all_line_edits_in_dialog:
-            if widget:
-                widget.next_widget_on_enter = None
-                widget.up_widget = None
-                widget.down_widget = None
-                widget.left_widget = None # Ensure these are cleared
-                widget.right_widget = None # Ensure these are cleared
-        
-        if isinstance(save_btn, CustomNavButton): save_btn.next_widget_on_enter = None
+        # ----------------- gather editable widgets -----------------
+        meter_diff_seq: list[CustomLineEdit] = []
+        for pair in self.meter_diff_edit_widgets:
+            meter_diff_seq.extend([pair['meter_edit'], pair['diff_edit']])
 
-        enter_sequence = meter_diff_edits + [aa]
+        aa = self.additional_amount_edit
+
+        room_seq: list[CustomLineEdit] = []
         for room_set in self.room_edit_widgets:
-            enter_sequence.extend([room_set["present_edit"], room_set["previous_edit"]])
-        
-        for i, widget in enumerate(enter_sequence):
-            widget.next_widget_on_enter = enter_sequence[i+1] if i < len(enter_sequence) - 1 else save_btn
-        
-        if isinstance(save_btn, CustomNavButton) and enter_sequence:
+            room_seq.extend([
+                room_set["present_edit"],
+                room_set["previous_edit"],
+                room_set["gas_edit"],
+                room_set["water_edit"],
+                room_set["rent_edit"],
+            ])
+
+        enter_sequence = meter_diff_seq + [aa] + room_seq
+
+        # Ensure every widget starts with a clean slate
+        for w in enter_sequence:
+            for attr in ("next_widget_on_enter", "up_widget", "down_widget", "left_widget", "right_widget"):
+                setattr(w, attr, None)
+
+        if isinstance(save_btn, CustomNavButton):
+            save_btn.next_widget_on_enter = None
+
+        # ----------------- Enter key mapping -----------------
+        for idx, w in enumerate(enter_sequence):
+            w.next_widget_on_enter = enter_sequence[idx + 1] if idx < len(enter_sequence) - 1 else save_btn
+
+        if isinstance(save_btn, CustomNavButton):
             save_btn.next_widget_on_enter = enter_sequence[0]
 
-        # Simplified Up/Down navigation (single loop through all fields)
-        up_down_sequence = enter_sequence # Use the same sequence for Up/Down for simplicity here
-        if up_down_sequence:
-            for i, widget in enumerate(up_down_sequence):
-                widget.down_widget = up_down_sequence[(i + 1) % len(up_down_sequence)]
-                widget.up_widget = up_down_sequence[(i - 1 + len(up_down_sequence)) % len(up_down_sequence)]
-        
-        if enter_sequence: enter_sequence[0].setFocus()
+        # ----------------- Up/Down arrow mapping -----------------
+        length = len(enter_sequence)
+        for idx, w in enumerate(enter_sequence):
+            w.down_widget = enter_sequence[(idx + 1) % length]
+            w.up_widget   = enter_sequence[(idx - 1 + length) % length]
+
+        # ----------------- initial focus -----------------
+        if enter_sequence:
+            enter_sequence[0].setFocus()
 
     def populate_data(self, main_data, room_data_list):
         # Extract data from main_data JSONB structure
