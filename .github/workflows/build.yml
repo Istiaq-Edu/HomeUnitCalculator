@@ -1,33 +1,50 @@
-name: Build EXE
+name: Build HomeUnitCalculator Executable
 
 on:
-  workflow_dispatch: # This allows manual triggering of the workflow
-
+  # Manual trigger remains
+  workflow_dispatch:
+  # Automatic builds on pushes to main and dev and on PRs
+  push:
+    branches: [ main, dev ]
+  pull_request:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x'  # Adjust to your project's Python version
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
 
-    - name: Install dependencies
-      run: |
-        pip install pyinstaller
-        pip install -r requirements.txt
+      - name: Install project dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Build EXE
-      run: |
-        pyinstaller --onefile --windowed --add-data "icons:icons" --icon=icons/icon.png HomeUnitCalculator.py  # Create the .exe
+      # Build with Nuitka — the action handles installing Nuitka & C toolchains
+      - name: Build executable with Nuitka
+        uses: Nuitka/Nuitka-Action@main
+        with:
+          nuitka-version: main          # latest develop/nightly branch
+          script-name: src/core/HomeUnitCalculator.py
+          mode: onefile                # single-file distribution
+          enable-plugin: pyqt5          # auto-collect Qt plug-ins
+          output-dir: build             # easier artifact uploading
 
-    - name: Upload EXE
-      uses: actions/upload-artifact@v4
-      with:
-        name: HomeUnitCalculator-exe
-        path: dist/HomeUnitCalculator.exe  # Upload the .exe file as an artifact
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeUnitCalculator-${{ runner.os }}
+          path: |
+            build/**
