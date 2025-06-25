@@ -16,21 +16,28 @@ def resource_path(relative_path):
         any(char in relative_path for char in ['\\', ':', '*', '?', '"', '<', '>', '|'])):
         raise ValueError(f"Invalid relative path: {relative_path}")
     
+    # 1) Nuitka onefile sets this environment variable to the temp unpack dir
+    nuitka_parent = os.environ.get("NUITKA_ONEFILE_PARENT")
+    if nuitka_parent:
+        base_path_candidate = os.path.join(nuitka_parent, relative_path)
+        if os.path.exists(base_path_candidate):
+            return base_path_candidate
+
     try:
-        # Try to get the base path from PyInstaller's temp folder
-        base_path = sys._MEIPASS
+        # 2) PyInstaller onefile sets sys._MEIPASS
+        base_path = sys._MEIPASS  # type: ignore
     except AttributeError:
-        # If not running as a PyInstaller executable, use the script directory
-        # Get the project root more robustly
+        # 3) Fallback: walk up from current file looking for project root marker
         current_file = os.path.abspath(__file__)
-        # Look for a marker file to identify project root (requirements.txt, .git, etc.)
         base_path = current_file
         while base_path != os.path.dirname(base_path):  # Stop at filesystem root
             base_path = os.path.dirname(base_path)
             if os.path.exists(os.path.join(base_path, 'requirements.txt')):
                 break
+            # If we find the 'icons' folder at this level, treat it as root
+            if os.path.isdir(os.path.join(base_path, 'icons')):
+                break
         else:
-            # Fallback to the directory containing this utils.py file
             base_path = os.path.dirname(current_file)
             logging.warning(f"Could not find project root marker, using fallback: {base_path}")
 
