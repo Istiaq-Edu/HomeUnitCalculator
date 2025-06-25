@@ -32,12 +32,16 @@ jobs:
           nuitka-version: main          # latest develop/nightly branch
           script-name: src/core/HomeUnitCalculator.py
           mode: onefile                # single-file distribution
-          enable-plugin: pyqt5          # auto-collect Qt plug-ins
+          enable-plugins: pyqt5          # auto-collect Qt plug-ins
           output-dir: build             # easier artifact uploading
+
+      # Remove the intermediate .dist folder — we only need the single EXE
+      - name: Remove dist folder (keep only the EXE)
+        run: Remove-Item -Recurse -Force build\HomeUnitCalculator.dist
+        shell: pwsh
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
         with:
           name: HomeUnitCalculator-${{ runner.os }}
-          path: |
-            build/**
+          path: build/HomeUnitCalculator.exe
