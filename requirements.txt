@@ -6,3 +6,4 @@ postgrest
 cryptography
 keyring
 PyQt-Fluent-Widgets[full]>=1.7.0
+websockets==10.4
