@@ -683,7 +683,11 @@ def get_source_combo_style():
     
 @functools.lru_cache(maxsize=None)
 def get_checkbox_style():
-    return textwrap.dedent(f"""\
+    # Precompute the icon path to avoid using backslashes inside the f-string expression.
+    icon_path = resource_path('icons/save_icon.png').replace('\\', '/')
+
+    return textwrap.dedent(
+        f"""\
         QCheckBox {{
             spacing: 10px;
             color: {COLOR_VARS['text_primary']};
@@ -703,6 +707,7 @@ def get_checkbox_style():
         QCheckBox::indicator:checked {{
             background-color: {COLOR_VARS['accent_primary']};
             border: 2px solid {COLOR_VARS['accent_primary']};
-            image: url({resource_path('icons/save_icon.png').replace('\\', '/')});
+            image: url("{icon_path}");
         }}
-    """)
+        """
+    )
