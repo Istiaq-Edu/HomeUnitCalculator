@@ -10,7 +10,11 @@ import urllib.parse
 import re
 
 # Suppress SSL certificate warnings when verify=False is used in requests
-import urllib3
+try:
+    import urllib3
+except ModuleNotFoundError:
+    import requests.packages.urllib3 as urllib3  # type: ignore
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent

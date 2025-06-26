@@ -17,7 +17,12 @@ from src.ui.styles import (
 from src.ui.custom_widgets import CustomNavButton
 
 # Suppress SSL certificate warnings when verify=False is used in requests
-import urllib3
+try:
+    import urllib3
+except ModuleNotFoundError:
+    # Fallback: urllib3 may be vendored inside requests in some environments / PyInstaller builds
+    import requests.packages.urllib3 as urllib3  # type: ignore
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Define a namedtuple for rental records for clearer access
