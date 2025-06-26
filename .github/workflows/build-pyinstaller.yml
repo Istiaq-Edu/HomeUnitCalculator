@@ -1,9 +1,12 @@
 name: Build • PyInstaller
 
 on:
-  # Run manually from the GitHub Actions tab.  Add "push"/"pull_request" if you
-  # want it to trigger automatically.
+  # Run manually, and also automatically on every commit to the dev or main branches.
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - dev
 
 jobs:
   build:
