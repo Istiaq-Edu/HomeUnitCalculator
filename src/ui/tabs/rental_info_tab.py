@@ -43,6 +43,13 @@ from src.core.utils import resource_path, _clear_layout
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, FluentProgressDialog
 from src.ui.dialogs import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
+# >>> ADD
+# Fluent-widgets progress bar
+try:
+    from qfluentwidgets import IndeterminateProgressBar  # type: ignore
+except ImportError:
+    IndeterminateProgressBar = None  # type: ignore
+# <<< ADD
 
 
 class RentalInfoTab(QWidget):
@@ -61,6 +68,16 @@ class RentalInfoTab(QWidget):
         super().__init__()
         self.main_window = main_window_ref
         self.db_manager = self.main_window.db_manager
+        # >>> ADD
+        # Ensure the image storage directory exists right at start-up so that
+        # subsequent save operations don't fail due to a missing folder.
+        try:
+            self.IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception as dir_e:
+            print(f"Warning: could not create image storage dir: {dir_e}")
+        # Inline progress bar reference (for cloud fetch)
+        self._inline_progress_bar = None
+        # <<< ADD
 
         self.tenant_name_input = None
         self.room_number_input = None
@@ -235,6 +252,10 @@ class RentalInfoTab(QWidget):
         table_group = QGroupBox("Existing Rental Records")
         table_group.setStyleSheet(get_room_selection_style())
         table_layout = QVBoxLayout(table_group)
+        # >>> ADD
+        # Expose the layout so we can insert/remove the progress bar later
+        self.table_layout = table_layout
+        # <<< ADD
 
         # Add Load Source Combo Box
         self.load_source_combo = QComboBox()
@@ -377,10 +398,10 @@ class RentalInfoTab(QWidget):
                     if self.db_manager.cursor.rowcount == 0:
                         try:
                             new_id = self.db_manager.insert_rental_record(record_data)
-                            # Update the current_rental_id so subsequent edits update correctly
                             self.current_rental_id = new_id
                         except Exception as ins_e:
-                            raise ins_e
+                            print(f"Local insert fallback failed: {ins_e}")
+                            local_save_success = False
                 else:
                     self.db_manager.insert_rental_record(record_data)
                 print("Record saved to local DB successfully.")
@@ -459,11 +480,15 @@ class RentalInfoTab(QWidget):
             )
             return
 
-        # Display a non-blocking Fluent progress dialog
-        self._progress_dialog = FluentProgressDialog(
-            "Fetching records from cloud…", parent=self
-        )
-        self._progress_dialog.show()
+        # ---------- Inline Fluent progress bar ----------
+        # >>> ADD BLOCK
+        if IndeterminateProgressBar is not None and self._inline_progress_bar is None:
+            self._inline_progress_bar = IndeterminateProgressBar(parent=self)
+            self._inline_progress_bar.setFixedHeight(4)
+            self._inline_progress_bar.start()
+            # Insert just below the source combo (index 1)
+            self.table_layout.insertWidget(1, self._inline_progress_bar)
+        # <<< ADD BLOCK
 
         # Disable source combo to prevent re-entrancy
         self.load_source_combo.setEnabled(False)
@@ -492,13 +517,25 @@ class RentalInfoTab(QWidget):
 
     def _on_cloud_records_error(self, message: str):
         QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {message}")
+        # >>> ADD
+        # Ensure we tidy up the progress bar even on error
+        if self._inline_progress_bar is not None:
+            self._inline_progress_bar.stop()
+            self.table_layout.removeWidget(self._inline_progress_bar)
+            self._inline_progress_bar.deleteLater()
+            self._inline_progress_bar = None
+        # <<< ADD
 
     def _on_cloud_records_finished(self):
         """Always called when worker thread ends—success or fail."""
         self.load_source_combo.setEnabled(True)
-        if hasattr(self, "_progress_dialog") and self._progress_dialog is not None:
-            self._progress_dialog.close()
-            self._progress_dialog = None
+        # >>> MODIFY
+        if self._inline_progress_bar is not None:
+            self._inline_progress_bar.stop()
+            self.table_layout.removeWidget(self._inline_progress_bar)
+            self._inline_progress_bar.deleteLater()
+            self._inline_progress_bar = None
+        # <<< MODIFY
 
     # ------------------------------------------------------------------
     # Helper to populate table (shared between local & cloud paths)  

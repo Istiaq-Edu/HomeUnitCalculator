@@ -24,6 +24,13 @@ from src.ui.styles import (
 from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.custom_widgets import FluentProgressDialog  # Avoid top-level import to keep optional
+# >>> ADD
+# Optional Fluent-widgets progress bar (inline)
+try:
+    from qfluentwidgets import IndeterminateProgressBar  # type: ignore
+except ImportError:
+    IndeterminateProgressBar = None  # type: ignore
+# <<< ADD
 
 class ArchivedInfoTab(QWidget):
     def __init__(self, main_window_ref):
@@ -32,6 +39,9 @@ class ArchivedInfoTab(QWidget):
         self.db_manager = self.main_window.db_manager
 
         self.archived_records_table = None
+        # >>> ADD
+        self._inline_progress_bar = None  # For inline cloud-fetch indicator
+        # <<< ADD
 
         self.init_ui()
         self.setup_db_table() # Ensure rentals table exists and has is_archived column
@@ -45,6 +55,9 @@ class ArchivedInfoTab(QWidget):
         table_group = QGroupBox("Archived Rental Records")
         table_group.setStyleSheet(get_room_selection_style())
         table_layout = QVBoxLayout(table_group)
+        # >>> ADD
+        self.table_layout = table_layout  # expose to insert/remove progress bar
+        # <<< ADD
 
         # Add Load Source Combo Box
         self.load_source_combo = QComboBox()
@@ -106,8 +119,13 @@ class ArchivedInfoTab(QWidget):
             )
             return
 
-        self._progress_dialog = FluentProgressDialog("Fetching records from cloud…", parent=self)
-        self._progress_dialog.show()
+        # ---------- Inline Fluent progress bar ----------
+        if IndeterminateProgressBar is not None and self._inline_progress_bar is None:
+            self._inline_progress_bar = IndeterminateProgressBar(parent=self)
+            self._inline_progress_bar.setFixedHeight(4)
+            self._inline_progress_bar.start()
+            # Insert just below the source combo (index 1)
+            self.table_layout.insertWidget(1, self._inline_progress_bar)
 
         self.load_source_combo.setEnabled(False)
 
@@ -131,12 +149,24 @@ class ArchivedInfoTab(QWidget):
 
     def _on_archived_cloud_error(self, message: str):
         QMessageBox.critical(self, "Cloud DB Error", f"Failed to load archived rental records from Supabase: {message}")
+        # >>> ADD
+        # Clean up the progress bar on error
+        if self._inline_progress_bar is not None:
+            self._inline_progress_bar.stop()
+            self.table_layout.removeWidget(self._inline_progress_bar)
+            self._inline_progress_bar.deleteLater()
+            self._inline_progress_bar = None
+        # <<< ADD
 
     def _on_archived_cloud_finished(self):
         self.load_source_combo.setEnabled(True)
-        if hasattr(self, "_progress_dialog") and self._progress_dialog is not None:
-            self._progress_dialog.close()
-            self._progress_dialog = None
+        # >>> MODIFY
+        if self._inline_progress_bar is not None:
+            self._inline_progress_bar.stop()
+            self.table_layout.removeWidget(self._inline_progress_bar)
+            self._inline_progress_bar.deleteLater()
+            self._inline_progress_bar = None
+        # <<< MODIFY
 
     def _populate_archived_table(self, source_label: str, records: list):
         if not records:

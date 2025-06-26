@@ -267,7 +267,7 @@ class DBManager:
         Extra keys are ignored.
         """
         insert_sql = (
-            "INSERT INTO rentals (tenant_name, room_number, advanced_paid, "
+            "INSERT OR REPLACE INTO rentals (tenant_name, room_number, advanced_paid, "
             "photo_path, nid_front_path, nid_back_path, police_form_path, "
             "created_at, updated_at, is_archived, supabase_id) "
             "VALUES (:tenant_name, :room_number, :advanced_paid, :photo_path, "

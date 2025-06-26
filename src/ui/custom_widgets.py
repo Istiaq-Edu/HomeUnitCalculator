@@ -2,7 +2,7 @@ from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer
 from PyQt5.QtGui import QIcon, QPainter # QFont was not used by these specific widgets but good to have
 from PyQt5.QtWidgets import (
     QLineEdit, QSizePolicy, QScrollArea, QSpinBox, QAbstractSpinBox, 
-    QStyleOptionSpinBox, QStyle, QPushButton, QDialog, QVBoxLayout, QLabel
+    QStyleOptionSpinBox, QStyle, QPushButton, QDialog, QVBoxLayout, QLabel, QProgressBar
 )
 # Assuming styles.py and utils.py will be in the same directory or Python path
 # If they are in subdirectories, the import paths might need adjustment, e.g., from .styles import ...
@@ -363,8 +363,17 @@ class FluentProgressDialog(QDialog):
         layout.setAlignment(Qt.AlignCenter)
 
         if IndeterminateProgressBar is not None:
-            self._bar = IndeterminateProgressBar(start=True, parent=self)
+            self._bar = IndeterminateProgressBar(parent=self)
+            self._bar.setFixedWidth(180)
+            # ensure bar starts animating
+            self._bar.start()
             layout.addWidget(self._bar, 0, Qt.AlignCenter)
+        else:
+            # Fallback: a simple Qt busy bar
+            fallback = QProgressBar(self)
+            fallback.setRange(0, 0)
+            fallback.setFixedWidth(180)
+            layout.addWidget(fallback, 0, Qt.AlignCenter)
 
         label = QLabel(message, self)
         label.setAlignment(Qt.AlignCenter)
