@@ -8,6 +8,7 @@ import shutil # Import shutil for file operations
 import uuid # Import uuid for generating unique filenames
 import urllib.parse
 import re
+import requests  # Used for downloading remote images
 
 # Suppress SSL certificate warnings when verify=False is used in requests
 try:
@@ -375,13 +376,23 @@ class RentalInfoTab(QWidget):
             "is_archived": 1 if self.current_is_archived else 0
         }
         
+        # >>> ADD
+        # If saving to PC, make sure any remote URLs are cached locally so the
+        # record remains viewable offline. We keep a separate copy so the cloud
+        # upload (if requested) can still reference the original URLs and avoid
+        # duplicate uploads.
+        local_record_data = record_data.copy()
+        if save_to_pc:
+            for key in ("photo_path", "nid_front_path", "nid_back_path", "police_form_path"):
+                local_record_data[key] = self._ensure_local_copy(local_record_data.get(key))
+        # <<< ADD
+
         local_save_success = True
         cloud_save_success = True
         
         if save_to_pc:
             try:
                 if self.current_rental_id:
-                    # Use execute_query for the update
                     update_query = """
                         UPDATE rentals SET
                             tenant_name = :tenant_name, room_number = :room_number,
@@ -391,19 +402,16 @@ class RentalInfoTab(QWidget):
                             is_archived = :is_archived
                         WHERE id = :id
                     """
-                    self.db_manager.execute_query(update_query, record_data)
-
-                    # If the update did not affect any row (e.g. the record was loaded from
-                    # Supabase and doesn't yet exist locally), fall back to an insert.
+                    self.db_manager.execute_query(update_query, local_record_data)
                     if self.db_manager.cursor.rowcount == 0:
                         try:
-                            new_id = self.db_manager.insert_rental_record(record_data)
+                            new_id = self.db_manager.insert_rental_record(local_record_data)
                             self.current_rental_id = new_id
                         except Exception as ins_e:
                             print(f"Local insert fallback failed: {ins_e}")
                             local_save_success = False
                 else:
-                    self.db_manager.insert_rental_record(record_data)
+                    self.db_manager.insert_rental_record(local_record_data)
                 print("Record saved to local DB successfully.")
             except Exception as e:
                 local_save_success = False
@@ -418,10 +426,7 @@ class RentalInfoTab(QWidget):
                         "nid_back": record_data.get("nid_back_path"),
                         "police_form": record_data.get("police_form_path"),
                     }
-                    # SupabaseManager's save_rental_record handles both insert and update
                     result = self.main_window.supabase_manager.save_rental_record(record_data, image_paths)
-                    
-                    # Ensure result is a string before checking its content
                     if isinstance(result, str) and "Successfully" in result:
                         print("Record saved to Supabase successfully.")
                     else:
@@ -1023,3 +1028,31 @@ class RentalInfoTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "PDF Generation Error", f"Failed to generate PDF: {e}\n{traceback.format_exc()}")
             return None
+
+    def _ensure_local_copy(self, path_str: str | None) -> str | None:
+        """If *path_str* is an http/https URL, download it into IMAGE_STORAGE_DIR
+        and return the local file path. Otherwise return *path_str* unchanged.
+        """
+        if not path_str or not path_str.lower().startswith("http"):
+            return path_str  # Already local (or empty)
+
+        try:
+            # Ensure storage dir exists
+            self.IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+            # Derive file extension from URL path or default to .img
+            parsed = urllib.parse.urlparse(path_str)
+            ext = Path(parsed.path).suffix or ".img"
+            local_name = f"{uuid.uuid4()}{ext}"
+            dest = self.IMAGE_STORAGE_DIR / local_name
+
+            if not dest.exists():
+                resp = requests.get(path_str, timeout=15, verify=False)
+                resp.raise_for_status()
+                dest.write_bytes(resp.content)
+                print(f"Downloaded remote image to {dest}")
+            return str(dest)
+        except Exception as dl_exc:
+            # If download fails keep original URL so record isn't lost
+            print(f"Warning: could not cache remote image {path_str}: {dl_exc}")
+            return path_str
