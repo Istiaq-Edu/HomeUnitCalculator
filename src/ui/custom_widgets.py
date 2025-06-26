@@ -351,6 +351,11 @@ class FluentProgressDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
+        # Semi-transparent dark background so the dialog stands out
+        self.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 160); color: white; border-radius: 8px;"
+        )
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 32, 32, 32)
         layout.setSpacing(16)

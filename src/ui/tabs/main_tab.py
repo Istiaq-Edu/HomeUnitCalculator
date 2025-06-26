@@ -470,7 +470,7 @@ class MainTab(QWidget):
                         break # Found main data and collected all associated rooms, exit outer loop
 
                 if not main_data_row:
-                    QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
+                    QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
                     return
                 
                 # Load main tab data
@@ -562,7 +562,7 @@ class MainTab(QWidget):
             )
 
             if not main_calc_record:
-                QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month} {selected_year} in the cloud.")
+                QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month} {selected_year} in the cloud.")
                 return
 
             main_data = main_calc_record.get("main_data", {})

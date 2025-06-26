@@ -125,7 +125,7 @@ class ArchivedInfoTab(QWidget):
 
     def _on_archived_cloud_ready(self, records, source):
         if not records:
-            QMessageBox.information(self, "No Records", f"No archived rental records found in {source}.")
+            # Message already displayed by caller (load_archived_records or worker callback)
             return
         self._populate_archived_table(source, records)
 
@@ -140,7 +140,7 @@ class ArchivedInfoTab(QWidget):
 
     def _populate_archived_table(self, source_label: str, records: list):
         if not records:
-            QMessageBox.information(self, "No Records", f"No archived rental records found in {source_label}.")
+            # Message already displayed by caller (load_archived_records or worker callback)
             return
 
         self.archived_records_table.setRowCount(len(records))

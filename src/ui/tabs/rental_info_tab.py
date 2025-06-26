@@ -476,7 +476,7 @@ class RentalInfoTab(QWidget):
     def _on_cloud_records_ready(self, records, source):
         """Handle successful retrieval of records."""
         if not records:
-            QMessageBox.information(self, "No Records", f"No active rental records found in {source}.")
+            # Message already displayed by caller (load_rental_records or worker callback)
             return
         self._populate_rental_table(source, records)
 
@@ -497,7 +497,7 @@ class RentalInfoTab(QWidget):
     def _populate_rental_table(self, source_label: str, records: list):
         """Fill the QTableWidget with rental records."""
         if not records:
-            QMessageBox.information(self, "No Records", f"No active rental records found in {source_label}.")
+            # Message already displayed by caller (load_rental_records or worker callback)
             return
 
         self.rental_records_table.setRowCount(len(records))
