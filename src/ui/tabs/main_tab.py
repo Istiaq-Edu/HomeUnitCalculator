@@ -375,8 +375,23 @@ class MainTab(QWidget):
 
     def calculate_main(self):
         try:
-            meter_readings = [int(meter_edit.text()) if meter_edit.text() else 0 for meter_edit in self.meter_entries]
-            diff_readings = [int(diff_edit.text()) if diff_edit.text() else 0 for diff_edit in self.diff_entries]
+            def _to_int_safe(txt: str) -> int:
+                """Convert text to int, accepting float strings (e.g. '123.0').
+
+                Returns 0 for empty strings and raises ValueError for truly invalid
+                formats so that the outer except can handle the error display."""
+                if not txt or not txt.strip():
+                    return 0
+                try:
+                    return int(txt)
+                except ValueError:
+                    try:
+                        return int(float(txt))  # Handles "123.0"
+                    except ValueError:
+                        raise
+
+            meter_readings = [_to_int_safe(meter_edit.text()) for meter_edit in self.meter_entries]
+            diff_readings = [_to_int_safe(diff_edit.text()) for diff_edit in self.diff_entries]
             additional_amount = self.get_additional_amount()
 
             total_unit = sum(meter_readings)
@@ -486,9 +501,29 @@ class MainTab(QWidget):
                 self.diff_count_spinbox.setValue(min(num_diffs,  max_diffs))
 
                 for i, val_str in enumerate(meter_values_csv[:num_meters]):
-                    if i < len(self.meter_entries): self.meter_entries[i].setText(val_str)
+                    if i < len(self.meter_entries):
+                        # Normalize numeric values so that "123.0" → "123" while preserving
+                        # any truly non-integer strings (unlikely given validators).
+                        display_val = str(val_str)
+                        try:
+                            num_val = float(val_str)
+                            # If the float is effectively an int (e.g. 123.0) drop the decimal part
+                            if num_val.is_integer():
+                                display_val = str(int(num_val))
+                        except (ValueError, TypeError):
+                            # Leave display_val as-is if it is not a plain number
+                            pass
+                        self.meter_entries[i].setText(display_val)
                 for i, val_str in enumerate(diff_values_csv[:num_diffs]):
-                    if i < len(self.diff_entries): self.diff_entries[i].setText(val_str)
+                    if i < len(self.diff_entries):
+                        display_val = str(val_str)
+                        try:
+                            num_val = float(val_str)
+                            if num_val.is_integer():
+                                display_val = str(int(num_val))
+                        except (ValueError, TypeError):
+                            pass
+                        self.diff_entries[i].setText(display_val)
                     
                 self.additional_amount_input.setText(get_csv_value(main_data_row, "Added Amount", "0"))
 
@@ -551,29 +586,73 @@ class MainTab(QWidget):
             self.diff_count_spinbox.setValue(num_diffs)
             
             for i, val in enumerate(meter_values):
-                if i < len(self.meter_entries): self.meter_entries[i].setText(str(val))
+                if i < len(self.meter_entries):
+                    # Normalize numeric values so that "123.0" → "123" while preserving
+                    # any truly non-integer strings (unlikely given validators).
+                    display_val = str(val)
+                    try:
+                        num_val = float(val)
+                        # If the float is effectively an int (e.g. 123.0) drop the decimal part
+                        if num_val.is_integer():
+                            display_val = str(int(num_val))
+                    except (ValueError, TypeError):
+                        # Leave display_val as-is if it is not a plain number
+                        pass
+                    self.meter_entries[i].setText(display_val)
             for i, val in enumerate(diff_values):
-                if i < len(self.diff_entries): self.diff_entries[i].setText(str(val))
+                if i < len(self.diff_entries):
+                    display_val = str(val)
+                    try:
+                        num_val = float(val)
+                        if num_val.is_integer():
+                            display_val = str(int(num_val))
+                    except (ValueError, TypeError):
+                        pass
+                    self.diff_entries[i].setText(display_val)
                 
-            self.additional_amount_input.setText(str(main_data.get("additional_amount", "0")))
+            # Support both legacy 'added_amount' and new 'additional_amount' keys
+            add_amt = main_data.get("additional_amount", main_data.get("added_amount", "0"))
+            self.additional_amount_input.setText(str(add_amt))
 
             # Fetch and load room data
             main_calc_id = main_calc_record.get("id")
             if main_calc_id:
                 room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
                 if room_records:
-                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_records))
-                    for i, room_rec in enumerate(room_records):
-                        room_data = room_rec.get("room_data", {})
-                        if isinstance(room_data, str):
-                            try:
-                                room_data = json.loads(room_data)
-                            except json.JSONDecodeError:
-                                room_data = {}
-                        if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_supabase_record'):
-                            self.main_window.rooms_tab_instance.load_room_data_from_supabase_record(room_data, i)
+                    # RoomsTab already provides a helper that takes the full list.
+                    if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_supabase_rows'):
+                        self.main_window.rooms_tab_instance.load_room_data_from_supabase_rows(room_records)
+                    else:
+                        # Fallback: minimal per-record population to avoid data loss
+                        self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_records))
+                        for i, room_rec in enumerate(room_records):
+                            room_data = room_rec.get("room_data", {})
+                            if isinstance(room_data, str):
+                                try:
+                                    room_data = json.loads(room_data)
+                                except json.JSONDecodeError:
+                                    room_data = {}
+                            # Directly call setter fields if loader helper missing
+                            if i < len(self.main_window.rooms_tab_instance.room_entries):
+                                re = self.main_window.rooms_tab_instance.room_entries[i]
+                                re['present_entry'].setText(str(room_data.get('present_unit', '')))
+                                re['previous_entry'].setText(str(room_data.get('previous_unit', '')))
+                                re['gas_bill_entry'].setText(str(room_data.get('gas_bill', '')))
+                                re['water_bill_entry'].setText(str(room_data.get('water_bill', '')))
+                                re['house_rent_entry'].setText(str(room_data.get('house_rent', '')))
+                    # After populating, ensure calculations refresh
+                    self.main_window.rooms_tab_instance.calculate_rooms()
 
             self.calculate_main() # Recalculate results based on loaded data
+
+            # Recalculate room bills now that per-unit cost is up-to-date
+            if hasattr(self.main_window.rooms_tab_instance, 'calculate_rooms'):
+                try:
+                    self.main_window.rooms_tab_instance.calculate_rooms()
+                except Exception as calc_err:
+                    # Log but don't block main load flow; user will see message from RoomsTab
+                    print(f"Warning: rooms_tab_instance.calculate_rooms raised: {calc_err}")
+
             QMessageBox.information(self, "Load Successful", f"Data for {selected_month} {selected_year} loaded from the cloud.")
 
         except Exception as e:

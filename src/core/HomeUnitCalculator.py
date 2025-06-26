@@ -474,6 +474,7 @@ class MeterCalculationApp(QMainWindow):
                 "total_diff_units": _s_float(self.main_tab_instance.total_diff_value_label.text().replace("TK", "").strip()),
                 "per_unit_cost": _s_float(self.main_tab_instance.per_unit_cost_value_label.text().replace("TK", "").strip()),
                 "added_amount": _s_float(self.main_tab_instance.additional_amount_input.text()),
+                "additional_amount": _s_float(self.main_tab_instance.additional_amount_input.text()),
                 "grand_total": _s_float(self.main_tab_instance.in_total_value_label.text().replace("TK", "").strip()),
             })
 

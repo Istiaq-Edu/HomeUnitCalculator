@@ -206,49 +206,55 @@ class RoomsTab(QWidget):
                 unit_bill_label = room_data['unit_bill_label']
                 grand_total_label = room_data['grand_total_label']
 
-                if present_text and previous_text:
+                def _to_int_safe(txt: str):
+                    if not txt or not txt.strip():
+                        return 0
                     try:
-                        present_unit = int(present_text)
-                        previous_unit = int(previous_text)
+                        return int(txt)
                     except ValueError:
-                        raise ValueError(
-                            f"Non-numeric input in Room {i+1}. "
-                            f"Present: '{present_text}', Previous: '{previous_text}'"
-                        )
-
-                    if present_unit < 0 or previous_unit < 0:
-                        raise ValueError(f"Negative readings not allowed in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
-                    
-                    if present_unit < previous_unit:
-                        raise ValueError(f"Present reading cannot be less than previous reading in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
-
-                    real_unit = present_unit - previous_unit
-                    unit_bill = round(real_unit * per_unit_cost, 2)
-
-                    def _to_amount(txt, field_name):
-                        if not txt:
-                            return 0.0
                         try:
-                            value = float(txt)
+                            return int(float(txt))  # Handles '123.0'
                         except ValueError:
-                            raise ValueError(f"{field_name} must be a number in Room {i+1}: '{txt}'") from None
-                        if value < 0:
-                            raise ValueError(f"{field_name} cannot be negative in Room {i+1}: {value}")
-                        return value
+                            raise
 
-                    gas_bill   = _to_amount(gas_bill_text,   "Gas Bill")
-                    water_bill = _to_amount(water_bill_text, "Water Bill")
-                    house_rent = _to_amount(house_rent_text, "House Rent")
+                try:
+                    present_unit = _to_int_safe(present_text)
+                    previous_unit = _to_int_safe(previous_text)
+                except ValueError:
+                    raise ValueError(
+                        f"Non-numeric input in Room {i+1}. "
+                        f"Present: '{present_text}', Previous: '{previous_text}'"
+                    )
 
-                    grand_total = unit_bill + gas_bill + water_bill + house_rent
+                if present_unit < 0 or previous_unit < 0:
+                    raise ValueError(f"Negative readings not allowed in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
+                
+                if present_unit < previous_unit:
+                    raise ValueError(f"Present reading cannot be less than previous reading in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
 
-                    real_unit_label.setText(f"{real_unit}")
-                    unit_bill_label.setText(f"{unit_bill:.2f} TK")
-                    grand_total_label.setText(f"{grand_total:.2f} TK")
-                else:
-                    real_unit_label.setText("Incomplete")
-                    unit_bill_label.setText("Incomplete")
-                    grand_total_label.setText("Incomplete")
+                real_unit = present_unit - previous_unit
+                unit_bill = round(real_unit * per_unit_cost, 2)
+
+                def _to_amount(txt, field_name):
+                    if not txt:
+                        return 0.0
+                    try:
+                        value = float(txt)
+                    except ValueError:
+                        raise ValueError(f"{field_name} must be a number in Room {i+1}: '{txt}'") from None
+                    if value < 0:
+                        raise ValueError(f"{field_name} cannot be negative in Room {i+1}: {value}")
+                    return value
+
+                gas_bill   = _to_amount(gas_bill_text,   "Gas Bill")
+                water_bill = _to_amount(water_bill_text, "Water Bill")
+                house_rent = _to_amount(house_rent_text, "House Rent")
+
+                grand_total = unit_bill + gas_bill + water_bill + house_rent
+
+                real_unit_label.setText(f"{real_unit}")
+                unit_bill_label.setText(f"{unit_bill:.2f} TK")
+                grand_total_label.setText(f"{grand_total:.2f} TK")
         except ValueError as ve:
             QMessageBox.warning(self, "Calculation Error", f"Error in room calculation: {ve}")
         except Exception as e:
@@ -393,8 +399,18 @@ class RoomsTab(QWidget):
             room_group_widget = room_ui_entries['room_group']
             room_group_widget.setTitle(room_data_jsonb.get('room_name', f"Room {i+1}"))
 
-            room_ui_entries['present_entry'].setText(str(room_data_jsonb.get('present_unit', '')))
-            room_ui_entries['previous_entry'].setText(str(room_data_jsonb.get('previous_unit', '')))
+            def _to_int_str_safe(val):
+                """Return a string representation of an integer, accepting float strings like '123.0'."""
+                try:
+                    num = float(val)
+                    if num.is_integer():
+                        return str(int(num))
+                    return str(int(num))  # Non-integer floats are rounded down – adjust if needed
+                except (ValueError, TypeError):
+                    return str(val)
+
+            room_ui_entries['present_entry'].setText(_to_int_str_safe(room_data_jsonb.get('present_unit', '')))
+            room_ui_entries['previous_entry'].setText(_to_int_str_safe(room_data_jsonb.get('previous_unit', '')))
             room_ui_entries['gas_bill_entry'].setText(str(room_data_jsonb.get('gas_bill', '')))
             room_ui_entries['water_bill_entry'].setText(str(room_data_jsonb.get('water_bill', '')))
             room_ui_entries['house_rent_entry'].setText(str(room_data_jsonb.get('house_rent', '')))
