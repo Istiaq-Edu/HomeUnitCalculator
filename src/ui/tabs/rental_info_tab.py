@@ -9,6 +9,10 @@ import uuid # Import uuid for generating unique filenames
 import urllib.parse
 import re
 
+# Suppress SSL certificate warnings when verify=False is used in requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 from PyQt5.QtCore import Qt, QRegExp, QEvent
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap # Keep QPixmap for _validate_image_file
 from reportlab.lib.utils import ImageReader # Added ImageReader
@@ -721,7 +725,8 @@ class RentalInfoTab(QWidget):
                 if not ext or any(c in ext for c in "?&#%"):
                     ext = ".jpg"
 
-                r = requests.get(image_path, timeout=10)
+                # Disable TLS certificate verification to avoid failures in bundled executables
+                r = requests.get(image_path, timeout=10, verify=False)
                 if r.status_code == 200:
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
                     tmp.write(r.content)

@@ -16,6 +16,10 @@ from src.ui.styles import (
 )
 from src.ui.custom_widgets import CustomNavButton
 
+# Suppress SSL certificate warnings when verify=False is used in requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # Define a namedtuple for rental records for clearer access
 RentalRecord = namedtuple('RentalRecord', [
     'id', 'tenant_name', 'room_number', 'advanced_paid', 'created_at',
@@ -207,7 +211,8 @@ class RentalRecordDialog(QDialog):
             if path and path.startswith("http"):
                 try:
                     import requests
-                    resp = requests.get(path, timeout=5)
+                    # Disable TLS certificate verification to avoid failures in bundled executables
+                    resp = requests.get(path, timeout=5, verify=False)
                     if resp.status_code == 200:
                         pixmap = QPixmap()
                         pixmap.loadFromData(resp.content)
