@@ -371,6 +371,16 @@ class RentalInfoTab(QWidget):
                         WHERE id = :id
                     """
                     self.db_manager.execute_query(update_query, record_data)
+
+                    # If the update did not affect any row (e.g. the record was loaded from
+                    # Supabase and doesn't yet exist locally), fall back to an insert.
+                    if self.db_manager.cursor.rowcount == 0:
+                        try:
+                            new_id = self.db_manager.insert_rental_record(record_data)
+                            # Update the current_rental_id so subsequent edits update correctly
+                            self.current_rental_id = new_id
+                        except Exception as ins_e:
+                            raise ins_e
                 else:
                     self.db_manager.insert_rental_record(record_data)
                 print("Record saved to local DB successfully.")
