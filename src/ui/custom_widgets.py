@@ -348,7 +348,8 @@ class FluentProgressDialog(QDialog):
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint
         )
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # Keep window opaque so our custom background colour is visible
+        # self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
         # Semi-transparent dark background so the dialog stands out

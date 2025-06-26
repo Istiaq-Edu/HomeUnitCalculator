@@ -68,10 +68,44 @@ try:
         )
         return QMessageBox.Ok
 
+    def _non_blocking_warning(parent, title, text, *_, **__):  # noqa: D401, ANN001
+        """Replacement for QMessageBox.warning → yellow InfoBar."""
+        InfoBar.warning(
+            title=title,
+            content=text,
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP_RIGHT,
+            duration=4000,
+            parent=parent,
+        )
+        return QMessageBox.Ok
+
+    def _non_blocking_critical(parent, title, text, *_, **__):  # noqa: D401, ANN001
+        """Replacement for QMessageBox.critical → red InfoBar."""
+        InfoBar.error(
+            title=title,
+            content=text,
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP_RIGHT,
+            duration=6000,
+            parent=parent,
+        )
+        return QMessageBox.Ok
+
     # Monkey-patch only if it hasn't been patched yet (to avoid double-patching in tests)
     if not getattr(QMessageBox.information, "__fluent_patched__", False):
         _non_blocking_information.__fluent_patched__ = True  # type: ignore[attr-defined]
         QMessageBox.information = _non_blocking_information  # type: ignore[assignment]
+
+    if not getattr(QMessageBox.warning, "__fluent_patched__", False):
+        _non_blocking_warning.__fluent_patched__ = True  # type: ignore[attr-defined]
+        QMessageBox.warning = _non_blocking_warning  # type: ignore[assignment]
+
+    if not getattr(QMessageBox.critical, "__fluent_patched__", False):
+        _non_blocking_critical.__fluent_patched__ = True  # type: ignore[attr-defined]
+        QMessageBox.critical = _non_blocking_critical  # type: ignore[assignment]
 except ImportError:
     # If PyQt-Fluent-Widgets isn't installed, fall back silently to the default behaviour.
     pass

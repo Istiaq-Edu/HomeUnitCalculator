@@ -260,6 +260,23 @@ class DBManager:
             self.cursor = None
             print("Database connection closed.")
 
+    def insert_rental_record(self, record_data: dict) -> int:
+        """Insert a new rental record and return its new row-id.
+
+        ``record_data`` follows the structure assembled in RentalInfoTab.save_rental_record.
+        Extra keys are ignored.
+        """
+        insert_sql = (
+            "INSERT INTO rentals (tenant_name, room_number, advanced_paid, "
+            "photo_path, nid_front_path, nid_back_path, police_form_path, "
+            "created_at, updated_at, is_archived, supabase_id) "
+            "VALUES (:tenant_name, :room_number, :advanced_paid, :photo_path, "
+            ":nid_front_path, :nid_back_path, :police_form_path, :created_at, :updated_at, "
+            ":is_archived, :supabase_id)"
+        )
+        # Execute and return the lastrowid
+        return int(self.execute_query(insert_sql, record_data))
+
 if __name__ == "__main__":
     # Example usage and testing
     print("Testing db_manager.py...")
