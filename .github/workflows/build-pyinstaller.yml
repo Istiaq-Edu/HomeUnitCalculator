@@ -1,12 +1,8 @@
 name: Build • PyInstaller
 
 on:
-  # Run manually, and also automatically on every commit to the dev or main branches.
+  # Manual trigger only
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - dev
 
 jobs:
   build:
@@ -28,13 +24,7 @@ jobs:
           pip install pyinstaller pillow
 
       - name: Build one-file executable
-        # PowerShell is the default shell on Windows runners; a single-line command
-        # avoids line-continuation issues.
-        run: |
-          pyinstaller --noconsole --onefile \
-                      --icon=icons/icon.png \
-                      --add-data "icons;icons" \
-                      src/core/HomeUnitCalculator.py
+        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" src/core/HomeUnitCalculator.py
 
       - name: Upload artifact (single EXE)
         uses: actions/upload-artifact@v4
