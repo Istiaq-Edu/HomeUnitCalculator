@@ -407,7 +407,16 @@ class RentalInfoTab(QWidget):
         if local_save_success and cloud_save_success:
             QMessageBox.information(self, "Success", "Rental record saved successfully.")
             self.clear_form()
-            self.load_rental_records() # Refresh the table
+
+            # If user chose to save only locally, ensure we refresh from Local DB to prevent an unnecessary
+            # cloud fetch that might hang if network connectivity is poor.
+            if save_to_pc and not save_to_cloud:
+                # Temporarily block signals to avoid double invocation of load_rental_records()
+                self.load_source_combo.blockSignals(True)
+                self.load_source_combo.setCurrentText("Local DB")
+                self.load_source_combo.blockSignals(False)
+
+            self.load_rental_records()  # Refresh the table with the currently selected source
             self.main_window.refresh_all_rental_tabs()
         else:
             QMessageBox.warning(self, "Partial Success", "Record may not have been saved to all selected locations.")
