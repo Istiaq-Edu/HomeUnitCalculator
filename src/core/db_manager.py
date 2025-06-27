@@ -65,7 +65,8 @@ class DBManager:
                     police_form_path TEXT,
                     created_at TEXT,
                     updated_at TEXT,
-                    is_archived INTEGER DEFAULT 0
+                    is_archived INTEGER DEFAULT 0,
+                    supabase_id TEXT UNIQUE -- New column for Supabase ID
                 )
             """)
             # Add is_archived column if it doesn't exist (for backward compatibility)
@@ -84,6 +85,32 @@ class DBManager:
                         print("Column 'is_archived' already exists, skipping addition.")
                     else:
                         raise # Re-raise other operational errors
+            
+            # Add supabase_id column and its unique index if they don't exist
+            if 'supabase_id' not in column_names:
+                try:
+                    # Add the column without the UNIQUE constraint first
+                    self.execute_query("""
+                        ALTER TABLE rentals ADD COLUMN supabase_id TEXT;
+                    """)
+                    print("Added 'supabase_id' column to rentals table.")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e):
+                        raise # Re-raise other operational errors
+            
+            # Now, create a unique index on the column.
+            # This is the recommended way to add a unique constraint to an existing table in SQLite.
+            try:
+                self.execute_query("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_rentals_supabase_id ON rentals (supabase_id);
+                """)
+                print("Ensured unique index exists for 'supabase_id'.")
+            except sqlite3.OperationalError as e:
+                # This might fail if there are duplicate values in existing rows (e.g., all NULLs).
+                # Depending on the desired behavior, you might want to handle this.
+                # For now, we'll print a warning.
+                print(f"Could not create unique index on 'supabase_id'. This may be because of existing duplicate values. Error: {e}")
+
             print("Rentals table bootstrap completed.")
         except Exception as e:
             print(f"Database Error: Failed to bootstrap rentals table: {e}")
@@ -232,6 +259,23 @@ class DBManager:
             self.conn = None
             self.cursor = None
             print("Database connection closed.")
+
+    def insert_rental_record(self, record_data: dict) -> int:
+        """Insert a new rental record and return its new row-id.
+
+        ``record_data`` follows the structure assembled in RentalInfoTab.save_rental_record.
+        Extra keys are ignored.
+        """
+        insert_sql = (
+            "INSERT OR REPLACE INTO rentals (tenant_name, room_number, advanced_paid, "
+            "photo_path, nid_front_path, nid_back_path, police_form_path, "
+            "created_at, updated_at, is_archived, supabase_id) "
+            "VALUES (:tenant_name, :room_number, :advanced_paid, :photo_path, "
+            ":nid_front_path, :nid_back_path, :police_form_path, :created_at, :updated_at, "
+            ":is_archived, :supabase_id)"
+        )
+        # Execute and return the lastrowid
+        return int(self.execute_query(insert_sql, record_data))
 
 if __name__ == "__main__":
     # Example usage and testing

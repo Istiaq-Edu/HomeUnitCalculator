@@ -8,3 +8,4 @@ __pycache__/
 *.pdf
 data/
 data/images/
+tests/

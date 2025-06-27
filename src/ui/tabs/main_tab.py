@@ -38,6 +38,7 @@ class MainTab(QWidget):
         self.additional_amount_value_label = None
         self.in_total_value_label = None
         self.main_calculate_button = None
+        self.save_to_cloud_button = None # New button for saving to cloud
         
         self.load_month_combo = None
         self.load_year_spinbox = None
@@ -167,12 +168,14 @@ class MainTab(QWidget):
         results_group = self.create_results_group()
         main_layout.addWidget(results_group)
 
+        button_layout = QHBoxLayout()
         self.main_calculate_button = CustomNavButton("Calculate")
         self.main_calculate_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
         self.main_calculate_button.clicked.connect(self.calculate_main)
         self.main_calculate_button.setStyleSheet(get_button_style())
         self.main_calculate_button.setFixedHeight(50)
-        main_layout.addWidget(self.main_calculate_button)
+        button_layout.addWidget(self.main_calculate_button)
+        main_layout.addLayout(button_layout)
         
         self.update_meter_inputs(3)
         self.update_diff_inputs(3)
@@ -335,7 +338,8 @@ class MainTab(QWidget):
                 meter_edit.setText(current_values[i])
             self.meter_entries.append(meter_edit)
         
-        # Navigation setup will be handled by main window after all tabs are created
+        # Re-configure navigation whenever widgets change
+        self.setup_navigation_main_tab()
 
     def update_diff_inputs(self, value=None):
         num_diffs = value if value is not None else self.diff_count_spinbox.value()
@@ -355,7 +359,8 @@ class MainTab(QWidget):
                 diff_edit.setText(current_values[i])
             self.diff_entries.append(diff_edit)
         
-        # Navigation setup will be handled by main window after all tabs are created
+        # Re-configure navigation whenever widgets change
+        self.setup_navigation_main_tab()
         
     def _clear_layout(self, layout):
         if layout is not None:
@@ -370,8 +375,23 @@ class MainTab(QWidget):
 
     def calculate_main(self):
         try:
-            meter_readings = [int(meter_edit.text()) if meter_edit.text() else 0 for meter_edit in self.meter_entries]
-            diff_readings = [int(diff_edit.text()) if diff_edit.text() else 0 for diff_edit in self.diff_entries]
+            def _to_int_safe(txt: str) -> int:
+                """Convert text to int, accepting float strings (e.g. '123.0').
+
+                Returns 0 for empty strings and raises ValueError for truly invalid
+                formats so that the outer except can handle the error display."""
+                if not txt or not txt.strip():
+                    return 0
+                try:
+                    return int(txt)
+                except ValueError:
+                    try:
+                        return int(float(txt))  # Handles "123.0"
+                    except ValueError:
+                        raise
+
+            meter_readings = [_to_int_safe(meter_edit.text()) for meter_edit in self.meter_entries]
+            diff_readings = [_to_int_safe(diff_edit.text()) for diff_edit in self.diff_entries]
             additional_amount = self.get_additional_amount()
 
             total_unit = sum(meter_readings)
@@ -397,9 +417,9 @@ class MainTab(QWidget):
         if source == "Load from PC (CSV)":
             self.load_info_to_inputs_from_csv(selected_month, selected_year)
         elif source == "Load from Cloud":
-            if self.main_window.supabase and self.main_window.check_internet_connectivity():
+            if self.main_window.supabase_manager.is_client_initialized() and self.main_window.check_internet_connectivity():
                 self.load_info_to_inputs_from_supabase(selected_month, selected_year)
-            elif not self.main_window.supabase:
+            elif not self.main_window.supabase_manager.is_client_initialized():
                 QMessageBox.warning(self, "Supabase Not Configured", "Supabase is not configured. Please go to the 'Supabase Config' tab.")
             else: # No internet
                  QMessageBox.warning(self, "Network Error", 
@@ -450,7 +470,7 @@ class MainTab(QWidget):
                         break # Found main data and collected all associated rooms, exit outer loop
 
                 if not main_data_row:
-                    QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
+                    QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
                     return
                 
                 # Load main tab data
@@ -481,9 +501,29 @@ class MainTab(QWidget):
                 self.diff_count_spinbox.setValue(min(num_diffs,  max_diffs))
 
                 for i, val_str in enumerate(meter_values_csv[:num_meters]):
-                    if i < len(self.meter_entries): self.meter_entries[i].setText(val_str)
+                    if i < len(self.meter_entries):
+                        # Normalize numeric values so that "123.0" → "123" while preserving
+                        # any truly non-integer strings (unlikely given validators).
+                        display_val = str(val_str)
+                        try:
+                            num_val = float(val_str)
+                            # If the float is effectively an int (e.g. 123.0) drop the decimal part
+                            if num_val.is_integer():
+                                display_val = str(int(num_val))
+                        except (ValueError, TypeError):
+                            # Leave display_val as-is if it is not a plain number
+                            pass
+                        self.meter_entries[i].setText(display_val)
                 for i, val_str in enumerate(diff_values_csv[:num_diffs]):
-                    if i < len(self.diff_entries): self.diff_entries[i].setText(val_str)
+                    if i < len(self.diff_entries):
+                        display_val = str(val_str)
+                        try:
+                            num_val = float(val_str)
+                            if num_val.is_integer():
+                                display_val = str(int(num_val))
+                        except (ValueError, TypeError):
+                            pass
+                        self.diff_entries[i].setText(display_val)
                     
                 self.additional_amount_input.setText(get_csv_value(main_data_row, "Added Amount", "0"))
 
@@ -510,103 +550,167 @@ class MainTab(QWidget):
             QMessageBox.critical(self, "Load Error", f"Failed to load data from CSV: {e}\n{traceback.format_exc()}")
 
     def load_info_to_inputs_from_supabase(self, selected_month, selected_year):
-        if not self.main_window.supabase:
+        if not self.main_window.supabase_manager.is_client_initialized():
             QMessageBox.critical(self, "Supabase Error", "Supabase client is not initialized.")
             return
 
         try:
-            response_main = self.main_window.supabase.table("main_calculations") \
-                                .select("*") \
-                                .eq("month", selected_month) \
-                                .eq("year", selected_year) \
-                                .limit(1) \
-                                .execute()
+            # Fetch main calculation data
+            main_calc_record = self.main_window.supabase_manager.get_main_calculation_by_month_year(
+                month=selected_month, 
+                year=selected_year
+            )
 
-            if not response_main.data:
-                QMessageBox.information(self, "Data Not Found", f"No data found for {selected_month} {selected_year} in Cloud.")
+            if not main_calc_record:
+                QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month} {selected_year} in the cloud.")
                 return
 
-            main_data = response_main.data[0]
+            main_data = main_calc_record.get("main_data", {})
+            if isinstance(main_data, str):
+                try:
+                    main_data = json.loads(main_data)
+                except json.JSONDecodeError:
+                    main_data = {}
+
+            # Load main tab data
+            self.month_combo.setCurrentText(selected_month)
+            self.year_spinbox.setValue(selected_year)
             
-            self.month_combo.setCurrentText(main_data.get("month", selected_month))
-            self.year_spinbox.setValue(main_data.get("year", selected_year))
-
-            meter_json = main_data.get("extra_meter_readings") or "[]"
-            diff_json  = main_data.get("extra_diff_readings")  or "[]"
-            try:
-                meter_readings = json.loads(meter_json)
-                diff_readings  = json.loads(diff_json)
-            except (TypeError, json.JSONDecodeError):
-                QMessageBox.warning(
-                    self, "Load Error",
-                    "Corrupted extra meter/diff readings detected in cloud data; "
-                    "those fields will be ignored."
-                )
-                meter_readings, diff_readings = [], []
-
-            # Prepend fixed meters/diffs if they exist
-            meter_readings = [main_data.get(f"meter{i+1}_reading", 0) for i in range(3)] + meter_readings
-            diff_readings = [main_data.get(f"diff{i+1}", 0) for i in range(3)] + diff_readings
-
-            # Update spinbox counts
-            num_meters = len(meter_readings)
-            num_diffs = len(diff_readings)
-
-            self.meter_count_spinbox.setValue(min(num_meters, self.meter_count_spinbox.maximum()))
-            self.diff_count_spinbox.setValue(min(num_diffs, self.diff_count_spinbox.maximum()))
-
-            # Populate meter and diff entries
-            for i, val in enumerate(meter_readings):
+            meter_values = main_data.get("meter_readings", [])
+            diff_values = main_data.get("diff_readings", [])
+            
+            num_meters = len(meter_values)
+            num_diffs = len(diff_values)
+            
+            self.meter_count_spinbox.setValue(num_meters)
+            self.diff_count_spinbox.setValue(num_diffs)
+            
+            for i, val in enumerate(meter_values):
                 if i < len(self.meter_entries):
-                    self.meter_entries[i].setText("" if val in (None, "") else str(val))
-            for i, val in enumerate(diff_readings):
+                    # Normalize numeric values so that "123.0" → "123" while preserving
+                    # any truly non-integer strings (unlikely given validators).
+                    display_val = str(val)
+                    try:
+                        num_val = float(val)
+                        # If the float is effectively an int (e.g. 123.0) drop the decimal part
+                        if num_val.is_integer():
+                            display_val = str(int(num_val))
+                    except (ValueError, TypeError):
+                        # Leave display_val as-is if it is not a plain number
+                        pass
+                    self.meter_entries[i].setText(display_val)
+            for i, val in enumerate(diff_values):
                 if i < len(self.diff_entries):
-                    self.diff_entries[i].setText("" if val in (None, "") else str(val))
-
-            self.additional_amount_input.setText("" if main_data.get("additional_amount", 0.0) in (None, "") else str(main_data.get("additional_amount", 0.0)))
-            
-            # Load room data from Supabase
-            response_rooms = self.main_window.supabase.table("room_calculations") \
-                                .select("*") \
-                                .eq("main_calculation_id", main_data['id']) \
-                                .order("room_name", desc=False) \
-                                .execute()
-            
-            if response_rooms.data:
-                room_data_from_supabase = response_rooms.data
-                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_data_from_supabase))
+                    display_val = str(val)
+                    try:
+                        num_val = float(val)
+                        if num_val.is_integer():
+                            display_val = str(int(num_val))
+                    except (ValueError, TypeError):
+                        pass
+                    self.diff_entries[i].setText(display_val)
                 
-                for i, room_db_data in enumerate(room_data_from_supabase):
-                    if i < len(self.main_window.rooms_tab_instance.room_entries):
-                        room_ui_data = self.main_window.rooms_tab_instance.room_entries[i]
-                        
-                        room_ui_data['present_entry'].setText(str(room_db_data.get('present_reading_room', '0')))
-                        room_ui_data['previous_entry'].setText(str(room_db_data.get('previous_reading_room', '0')))
-                        room_ui_data['gas_bill_entry'].setText(str(room_db_data.get('gas_bill', '0.00')))
-                        room_ui_data['water_bill_entry'].setText(str(room_db_data.get('water_bill', '0.00')))
-                        room_ui_data['house_rent_entry'].setText(str(room_db_data.get('house_rent', '0.00')))
-                        
-                        # Set room name if available in the UI group box
-                        room_group_widget = self.main_window.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
-                        if isinstance(room_group_widget, QGroupBox):
-                            room_group_widget.setTitle(room_db_data.get('room_name', f"Room {i+1}"))
-                
-                self.main_window.rooms_tab_instance.calculate_rooms()
-            else:
-                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1)
-                self.main_window.rooms_tab_instance.calculate_rooms()
+            # Support both legacy 'added_amount' and new 'additional_amount' keys
+            add_amt = main_data.get("additional_amount", main_data.get("added_amount", "0"))
+            self.additional_amount_input.setText(str(add_amt))
 
-            QMessageBox.information(self, "Load Successful", f"Data for {selected_month} {selected_year} loaded from Cloud.")
+            # Fetch and load room data
+            main_calc_id = main_calc_record.get("id")
+            if main_calc_id:
+                room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
+                if room_records:
+                    # RoomsTab already provides a helper that takes the full list.
+                    if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_supabase_rows'):
+                        self.main_window.rooms_tab_instance.load_room_data_from_supabase_rows(room_records)
+                    else:
+                        # Fallback: minimal per-record population to avoid data loss
+                        self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_records))
+                        for i, room_rec in enumerate(room_records):
+                            room_data = room_rec.get("room_data", {})
+                            if isinstance(room_data, str):
+                                try:
+                                    room_data = json.loads(room_data)
+                                except json.JSONDecodeError:
+                                    room_data = {}
+                            # Directly call setter fields if loader helper missing
+                            if i < len(self.main_window.rooms_tab_instance.room_entries):
+                                re = self.main_window.rooms_tab_instance.room_entries[i]
+                                re['present_entry'].setText(str(room_data.get('present_unit', '')))
+                                re['previous_entry'].setText(str(room_data.get('previous_unit', '')))
+                                re['gas_bill_entry'].setText(str(room_data.get('gas_bill', '')))
+                                re['water_bill_entry'].setText(str(room_data.get('water_bill', '')))
+                                re['house_rent_entry'].setText(str(room_data.get('house_rent', '')))
+                    # After populating, ensure calculations refresh
+                    self.main_window.rooms_tab_instance.calculate_rooms()
 
-        except APIError as e:
-            QMessageBox.critical(self, "Supabase API Error", f"Supabase API error: {e.message}\n{traceback.format_exc()}")
+            self.calculate_main() # Recalculate results based on loaded data
+
+            # Recalculate room bills now that per-unit cost is up-to-date
+            if hasattr(self.main_window.rooms_tab_instance, 'calculate_rooms'):
+                try:
+                    self.main_window.rooms_tab_instance.calculate_rooms()
+                except Exception as calc_err:
+                    # Log but don't block main load flow; user will see message from RoomsTab
+                    print(f"Warning: rooms_tab_instance.calculate_rooms raised: {calc_err}")
+
+            QMessageBox.information(self, "Load Successful", f"Data for {selected_month} {selected_year} loaded from the cloud.")
+
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to load data from Cloud: {e}\n{traceback.format_exc()}")
 
     def setup_navigation_main_tab(self):
-        # Example of setting up navigation within MainTab
-        # This would involve setting tab order or connecting signals for focus changes
-        pass # Placeholder for actual navigation logic
+        """Configure Enter / Up / Down focus navigation for Main tab fields.
+
+        Order:
+            meter-1 → diff-1 → meter-2 → diff-2 → … → meter-N → diff-N → additional_amount
+
+        • Enter / Down moves focus to next widget in the sequence (wrap-around).
+        • Up moves focus to the previous widget in the sequence (wrap-around).
+        """
+        if not (self.meter_entries or self.diff_entries or self.additional_amount_input):
+            return  # Nothing to wire up yet
+
+        meters = self.meter_entries
+        diffs = self.diff_entries
+        aa    = self.additional_amount_input
+
+        # ── Enter / Return sequence (already OK) ────────────────────────────
+        enter_seq = []
+        max_len = max(len(meters), len(diffs))
+        for i in range(max_len):
+            if i < len(meters):
+                enter_seq.append(meters[i])
+            if i < len(diffs):
+                enter_seq.append(diffs[i])
+        if aa:
+            enter_seq.append(aa)
+
+        # ── Up / Down sequences (column-wise) ──────────────────────────────
+        #   Up:  … m2 → m1 → AA → d3 → d2 → d1 → m3 … (wrap)
+        up_seq = list(reversed(meters))
+        if aa:
+            up_seq.append(aa)
+        up_seq.extend(reversed(diffs))
+
+        down_seq = list(reversed(up_seq))
+
+        # Helper to link navigation for a given mapping list
+        def _link_sequence(seq, attr_name):
+            if not seq:
+                return
+            length = len(seq)
+            for idx, w in enumerate(seq):
+                nxt = seq[(idx + 1) % length]
+                setattr(w, attr_name, nxt)
+
+        # Apply mappings
+        _link_sequence(enter_seq, 'next_widget_on_enter')
+        _link_sequence(up_seq,    'up_widget')
+        _link_sequence(down_seq,  'down_widget')
+
+        # Ensure initial focus inside the tab if none is currently in sequence
+        if self.focusWidget() not in enter_seq:
+            enter_seq[0].setFocus()
 
     # Dummy classes for testing purposes
 if __name__ == '__main__':

@@ -1,0 +1,33 @@
+name: Build • PyInstaller
+
+on:
+  # Manual trigger only
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # Keep in sync with project requirement
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          # Build-only tools
+          pip install pyinstaller pillow
+
+      - name: Build one-file executable
+        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" src/core/HomeUnitCalculator.py
+
+      - name: Upload artifact (single EXE)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeUnitCalculator-PyInstaller-${{ runner.os }}
+          path: dist/HomeUnitCalculator.exe 

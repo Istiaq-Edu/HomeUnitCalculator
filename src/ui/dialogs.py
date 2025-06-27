@@ -16,28 +16,59 @@ from src.ui.styles import (
 )
 from src.ui.custom_widgets import CustomNavButton
 
+# Suppress SSL certificate warnings when verify=False is used in requests
+try:
+    import urllib3
+except ModuleNotFoundError:
+    # Fallback: urllib3 may be vendored inside requests in some environments / PyInstaller builds
+    import requests.packages.urllib3 as urllib3  # type: ignore
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # Define a namedtuple for rental records for clearer access
 RentalRecord = namedtuple('RentalRecord', [
     'id', 'tenant_name', 'room_number', 'advanced_paid', 'created_at',
     'updated_at', 'photo_path', 'nid_front_path', 'nid_back_path',
-    'police_form_path', 'is_archived'
+    'police_form_path', 'is_archived', 'supabase_id', # Added supabase_id
+    'photo_url', 'nid_front_url', 'nid_back_url', 'police_form_url' # Added Supabase URLs
 ])
 
 class RentalRecordDialog(QDialog):
-    def __init__(self, parent=None, record_data=None, db_manager=None, is_archived_record=False, main_window_ref=None):
+    def __init__(self, parent=None, record_data=None, db_manager=None, supabase_manager=None, is_archived_record=False, main_window_ref=None, current_source="Local DB", supabase_id=None):
         super().__init__(parent)
         self.setWindowTitle("Rental Record Details")
-        self.setGeometry(200, 200, 800, 600)
+        self.setMinimumSize(500, 600)
         if db_manager is None:
             raise ValueError("db_manager is required for dialog operations")
         if record_data is None:
             raise ValueError("record_data is required to display record details")
         
         self.db_manager = db_manager
-        # Convert record_data to namedtuple for clearer access
-        self.record_data = RentalRecord(*record_data) if record_data else None
+        self.supabase_manager = supabase_manager # New: SupabaseManager instance
+        # record_data is now expected to be a dictionary for consistency
+        # Convert dictionary to namedtuple, providing defaults for new fields
+        self.record_data = RentalRecord(
+            id=record_data.get('id'),
+            tenant_name=record_data.get('tenant_name'),
+            room_number=record_data.get('room_number'),
+            advanced_paid=record_data.get('advanced_paid'),
+            created_at=record_data.get('created_at'),
+            updated_at=record_data.get('updated_at'),
+            photo_path=record_data.get('photo_path'),
+            nid_front_path=record_data.get('nid_front_path'),
+            nid_back_path=record_data.get('nid_back_path'),
+            police_form_path=record_data.get('police_form_path'),
+            is_archived=record_data.get('is_archived'),
+            supabase_id=record_data.get('supabase_id'), # New
+            photo_url=record_data.get('photo_url'), # New
+            nid_front_url=record_data.get('nid_front_url'), # New
+            nid_back_url=record_data.get('nid_back_url'), # New
+            police_form_url=record_data.get('police_form_url') # New
+        )
         self.is_archived_record = is_archived_record
         self.main_window = main_window_ref # Store reference to main window
+        self.current_source = current_source # New: To know if record came from Local DB or Supabase
+        self.supabase_id = supabase_id or record_data.get("supabase_id")
 
         self.init_ui()
         if self.record_data:
@@ -164,20 +195,43 @@ class RentalRecordDialog(QDialog):
             "nid_back": self.nid_back_preview_label,
             "police_form": self.police_form_preview_label
         }
-        image_paths = {
-            "photo": self.record_data.photo_path,
-            "nid_front": self.record_data.nid_front_path,
-            "nid_back": self.record_data.nid_back_path,
-            "police_form": self.record_data.police_form_path
-        }
+        image_paths = {}
+        if self.current_source == "Local DB":
+            image_paths = {
+                "photo": self.record_data.photo_path,
+                "nid_front": self.record_data.nid_front_path,
+                "nid_back": self.record_data.nid_back_path,
+                "police_form": self.record_data.police_form_path
+            }
+        else: # Cloud (Supabase)
+            image_paths = {
+                "photo": self.record_data.photo_url,
+                "nid_front": self.record_data.nid_front_url,
+                "nid_back": self.record_data.nid_back_url,
+                "police_form": self.record_data.police_form_url
+            }
 
         for img_type, label in image_labels.items():
             path = image_paths[img_type]
-            if path and self._is_safe_path(path) and os.path.exists(path):
+            if path and path.startswith("http"):
+                try:
+                    import requests
+                    # Disable TLS certificate verification to avoid failures in bundled executables
+                    resp = requests.get(path, timeout=5, verify=False)
+                    if resp.status_code == 200:
+                        pixmap = QPixmap()
+                        pixmap.loadFromData(resp.content)
+                        label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                        label.setText("")
+                    else:
+                        label.setText(f"No {img_type.replace('_', ' ').title()}")
+                except Exception as e:
+                    label.setText(f"No {img_type.replace('_', ' ').title()}")
+            elif path and self._is_safe_path(path) and os.path.exists(path):
                 pixmap = QPixmap(path)
                 if not pixmap.isNull():
                     label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                    label.setText("") # Clear "No Photo" text
+                    label.setText("")
                 else:
                     label.setText(f"Invalid {img_type.replace('_', ' ').title()}")
             else:
@@ -253,23 +307,63 @@ class RentalRecordDialog(QDialog):
     def edit_record(self):
         # Load data back into the main form for editing
         if self.parent() and hasattr(self.parent(), 'load_record_into_form_for_edit'):
-            # Pass the namedtuple directly
-            self.parent().load_record_into_form_for_edit(self.record_data)
+            # Pass the record_data (which is already a dictionary from RentalInfoTab)
+            # The RentalInfoTab's load_record_into_form_for_edit expects a dictionary
+            # and handles the conversion to its internal QLineEdit values.
+            self.parent().load_record_into_form_for_edit(self.record_data._asdict()) # Convert namedtuple back to dict
             self.accept() # Close the dialog
         else:
             QMessageBox.critical(self, "Error", "Edit function not accessible.")
 
     def delete_record(self):
         reply = QMessageBox.question(self, "Confirm Delete",
-                                     f"Are you sure you want to delete the record for '{self.record_data.tenant_name}' (Room: {self.record_data.room_number})?",
+                                     f"Are you sure you want to delete the record for '{self.record_data.tenant_name}' (Room: {self.record_data.room_number}) from {self.current_source}?",
                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             try:
-                # Get file paths before deleting the record from DB
-                photo_path = self.record_data.photo_path
-                nid_front_path = self.record_data.nid_front_path
-                nid_back_path = self.record_data.nid_back_path
-                police_form_path = self.record_data.police_form_path
+                if self.current_source == "Local DB":
+                    # Get file paths before deleting the record from DB
+                    photo_path = self.record_data.photo_path
+                    nid_front_path = self.record_data.nid_front_path
+                    nid_back_path = self.record_data.nid_back_path
+                    police_form_path = self.record_data.police_form_path
+
+                    # Delete the record from the local database
+                    self.db_manager.execute_query("DELETE FROM rentals WHERE id = ?", (self.record_data.id,))
+                    QMessageBox.information(self, "Success", "Record deleted from local database.")
+
+                    # Attempt to delete associated local files after successful database deletion
+                    files_to_delete = [photo_path, nid_front_path, nid_back_path, police_form_path]
+                    for f_path in files_to_delete:
+                        if f_path and os.path.exists(f_path) and self._is_safe_path(f_path):
+                            try:
+                                os.remove(f_path)
+                                print(f"Deleted associated local file: {f_path}")
+                            except Exception as file_e:
+                                print(f"Warning: Failed to delete associated local file {f_path}: {file_e}")
+                elif self.current_source == "Cloud (Supabase)":
+                    if self.supabase_manager and self.record_data.supabase_id:
+                        success = self.supabase_manager.delete_rental_record(self.record_data.supabase_id)
+                        if success:
+                            QMessageBox.information(self, "Success", "Record deleted from Supabase.")
+                            # Optionally, delete the corresponding local record if it exists
+                            if self.record_data.id:
+                                self.db_manager.execute_query("DELETE FROM rentals WHERE id = ?", (self.record_data.id,))
+                                print(f"Also deleted corresponding local record ID: {self.record_data.id}")
+                        else:
+                            QMessageBox.critical(self, "Cloud Error", "Failed to delete record from Supabase.")
+                            return # Do not proceed to refresh if Supabase deletion failed
+                    else:
+                        QMessageBox.warning(self, "Supabase Error", "Supabase manager not available or record has no Supabase ID.")
+                        return # Do not proceed to refresh if Supabase deletion cannot be attempted
+                
+                # Refresh all rental tabs via the main window
+                if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
+                    self.main_window.refresh_all_rental_tabs()
+                self.accept() # Close the dialog
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete record: {e}")
+                traceback.print_exc()
 
                 # Delete the record from the database
                 self.db_manager.execute_query("DELETE FROM rentals WHERE id = ?", (self.record_data.id,))
@@ -297,25 +391,19 @@ class RentalRecordDialog(QDialog):
 
 
     def toggle_archive_status(self):
-        record_id = self.record_data.id
-        current_status = self.record_data.is_archived
-        
-        new_status = 1 if current_status == 0 else 0
-        action_text = "archive" if new_status == 1 else "unarchive"
-        
-        reply = QMessageBox.question(self, f"Confirm {action_text.capitalize()}",
-                                     f"Are you sure you want to {action_text} the record for '{self.record_data.tenant_name}' (Room: {self.record_data.room_number})?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            try:
-                self.db_manager.execute_query("UPDATE rentals SET is_archived = ?, updated_at = ? WHERE id = ?",
-                                             (new_status, datetime.now().isoformat(), record_id))
-                QMessageBox.information(self, "Success", f"Record {action_text}d successfully.")
+        print(f"Toggling archive status for Supabase record ID: {self.supabase_id}")
+        if self.supabase_manager.is_client_initialized():
+            success = self.supabase_manager.update_rental_record_archive_status(self.supabase_id, not self.is_archived_record)
+            if success:
+                QMessageBox.information(self, "Success", f"Record has been {'archived' if not self.is_archived_record else 'unarchived'} in the cloud.")
+                self.is_archived_record = not self.is_archived_record
                 
-                # Refresh all rental tabs via the main window
-                if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
+                # Refresh the main window's tabs
+                if self.main_window:
                     self.main_window.refresh_all_rental_tabs()
+                
                 self.accept() # Close the dialog
-            except Exception as e:
-                QMessageBox.critical(self, "Database Error", f"Failed to {action_text} record: {e}")
-                traceback.print_exc()
+            else:
+                QMessageBox.critical(self, "Supabase Error", "Failed to update record in Supabase.")
+        else:
+            QMessageBox.warning(self, "Supabase Error", "Supabase client not configured.")

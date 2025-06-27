@@ -2,7 +2,7 @@ from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer
 from PyQt5.QtGui import QIcon, QPainter # QFont was not used by these specific widgets but good to have
 from PyQt5.QtWidgets import (
     QLineEdit, QSizePolicy, QScrollArea, QSpinBox, QAbstractSpinBox, 
-    QStyleOptionSpinBox, QStyle, QPushButton
+    QStyleOptionSpinBox, QStyle, QPushButton, QDialog, QVBoxLayout, QLabel, QProgressBar
 )
 # Assuming styles.py and utils.py will be in the same directory or Python path
 # If they are in subdirectories, the import paths might need adjustment, e.g., from .styles import ...
@@ -40,11 +40,11 @@ class CustomLineEdit(QLineEdit):
 
         target_widget = None
         if key == Qt.Key_Up:
-            target_widget = self.up_widget
+            target_widget = self.up_widget or self.findNextWidget(forward=False)
         elif key == Qt.Key_Down:
-            target_widget = self.down_widget
+            target_widget = self.down_widget or self.findNextWidget(forward=True)
         elif key in (Qt.Key_Return, Qt.Key_Enter):
-            target_widget = self.next_widget_on_enter
+            target_widget = self.next_widget_on_enter or self.findNextWidget(forward=True)
         
         if target_widget:
             target_widget.setFocus()
@@ -321,3 +321,69 @@ class CustomNavButton(QPushButton):
 
         # For other keys (like Tab), let the default QPushButton behavior occur.
         super().keyPressEvent(event)
+
+# ===================== Fluent-Widgets Progress Dialog =====================
+try:
+    from qfluentwidgets import IndeterminateProgressBar  # type: ignore
+except ImportError:  # Graceful degradation if library missing
+    IndeterminateProgressBar = None  # type: ignore
+
+
+class FluentProgressDialog(QDialog):
+    """A minimal frameless dialog with an indeterminate Fluent progress bar.
+
+    It replicates the role of :class:`QProgressDialog` but with Fluent design
+    aesthetics and without any buttons to press. Use it as a context manager
+    or manage its lifecycle manually. Example::
+
+        dlg = FluentProgressDialog("Uploading…", parent=self)
+        dlg.show()
+        # … do work …
+        dlg.close()
+    """
+
+    def __init__(self, message: str = "Please wait…", parent=None):  # noqa: D401
+        super().__init__(parent)
+        # Frameless & translucent to feel lighter
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint
+        )
+        # Keep window opaque so our custom background colour is visible
+        # self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)
+
+        # Semi-transparent dark background so the dialog stands out
+        self.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 160); color: white; border-radius: 8px;"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(32, 32, 32, 32)
+        layout.setSpacing(16)
+        layout.setAlignment(Qt.AlignCenter)
+
+        if IndeterminateProgressBar is not None:
+            self._bar = IndeterminateProgressBar(parent=self)
+            self._bar.setFixedWidth(180)
+            # ensure bar starts animating
+            self._bar.start()
+            layout.addWidget(self._bar, 0, Qt.AlignCenter)
+        else:
+            # Fallback: a simple Qt busy bar
+            fallback = QProgressBar(self)
+            fallback.setRange(0, 0)
+            fallback.setFixedWidth(180)
+            layout.addWidget(fallback, 0, Qt.AlignCenter)
+
+        label = QLabel(message, self)
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+
+    # Allow ``with FluentProgressDialog(...) as dlg:`` usage
+    def __enter__(self):  # noqa: D401
+        self.show()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):  # noqa: D401
+        self.close()
+        return False

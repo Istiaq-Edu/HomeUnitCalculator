@@ -26,6 +26,7 @@ _color_vars_tmp: dict[str, str] = {
     "selected_light_blue": "#60A5FA",
     "disabled_bg": "#E5E7EB",
     "disabled_text": "#9CA3AF",
+    "text_black": "#000000",
 }
 
 # Expose as immutable, mutation-proof mapping
@@ -646,11 +647,67 @@ def get_result_value_style():
     # Define and return a string containing CSS-like styling for QLabel widgets used as result values
     tpl = textwrap.dedent("""\
         QLabel {{
-            font-size: 26px;  /* Increased font size to 26px for maximum visibility */
-            font-weight: bold;  /* Make the text bold */
-            color: {text_primary};  /* Set text color to dark blue */
-            padding: 2px 0;  /* Add vertical padding */
-            qproperty-alignment: AlignCenter;  /* Qt-specific property for center alignment */
+            color: {text_primary};  /* Dark blue text */
+            font-weight: bold;  /* Bold text */
+            font-size: 28px;  /* Significantly increased font size */
+            qproperty-alignment: AlignHCenter; /* Center align the text horizontally */
+            color: {accent_primary};
         }}
         """)
     return tpl.format(**COLOR_VARS)
+
+@functools.lru_cache(maxsize=None)
+def get_source_combo_style():
+    # Down arrow icon path
+    down_arrow_path = resource_path("icons/down_arrow.png").replace("\\", "/")
+    
+    return textwrap.dedent(f"""\
+        QComboBox {{
+            border: 1px solid {COLOR_VARS['accent_primary']};
+            border-radius: 4px;
+            padding: 5px;
+            background-color: {COLOR_VARS['bg_secondary']};
+            color: {COLOR_VARS['text_primary']};
+            font-weight: bold;
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 20px;
+            border-left-width: 1px;
+            border-left-color: {COLOR_VARS['accent_primary']};
+            border-left-style: solid;
+            image: url({down_arrow_path});
+        }}
+    """)
+    
+@functools.lru_cache(maxsize=None)
+def get_checkbox_style():
+    # Precompute the icon path to avoid using backslashes inside the f-string expression.
+    icon_path = resource_path('icons/save_icon.png').replace('\\', '/')
+
+    return textwrap.dedent(
+        f"""\
+        QCheckBox {{
+            spacing: 10px;
+            color: {COLOR_VARS['text_primary']};
+            font-weight: bold;
+            font-size: 14px;
+        }}
+        QCheckBox::indicator {{
+            width: 20px;
+            height: 20px;
+            border: 2px solid {COLOR_VARS['accent_primary']};
+            border-radius: 5px;
+            background-color: {COLOR_VARS['bg_primary']};
+        }}
+        QCheckBox::indicator:hover {{
+            border: 2px solid {COLOR_VARS['hover_dark_blue']};
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {COLOR_VARS['accent_primary']};
+            border: 2px solid {COLOR_VARS['accent_primary']};
+            image: url("{icon_path}");
+        }}
+        """
+    )
