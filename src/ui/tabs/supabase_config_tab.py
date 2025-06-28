@@ -4,16 +4,13 @@ import re
 import sqlite3 # Added import for sqlite3
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QLabel,
-    QLineEdit, QPushButton, QMessageBox, QApplication
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
+    QMessageBox, QApplication
 )
-
-# Assuming these modules are in the same directory or accessible in PYTHONPATH
-from src.ui.styles import (
-    get_header_style, get_group_box_style, get_line_edit_style,
-    get_button_style
+from qfluentwidgets import (
+    CardWidget, LineEdit, PushButton, PrimaryPushButton,
+    TitleLabel, BodyLabel
 )
-# Note: resource_path from utils might be needed if icons were used here, but they aren't in this tab.
 
 class SupabaseConfigTab(QWidget):
     def __init__(self, main_window_ref):
@@ -35,54 +32,51 @@ class SupabaseConfigTab(QWidget):
         layout.setContentsMargins(50, 50, 50, 50)
         layout.setSpacing(20)
 
-        header_label = QLabel("Supabase Configuration")
-        header_label.setStyleSheet(get_header_style())
+        header_label = TitleLabel("Supabase Configuration")
         header_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(header_label)
 
-        config_group = QGroupBox("Supabase Credentials")
-        config_group.setStyleSheet(get_group_box_style())
-        config_layout = QFormLayout(config_group)
+        config_group = CardWidget()
+        outer_layout = QVBoxLayout(config_group)
+        outer_layout.addWidget(TitleLabel("Supabase Credentials"))
+
+        config_layout = QFormLayout()
         config_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        outer_layout.addLayout(config_layout)
 
         # Supabase URL Input
         url_input_layout = QHBoxLayout()
-        self.supabase_url_input = QLineEdit()
+        self.supabase_url_input = LineEdit()
         self.supabase_url_input.setPlaceholderText("Enter your Supabase Project URL")
-        self.supabase_url_input.setStyleSheet(get_line_edit_style())
         self.supabase_url_input.setToolTip("e.g., https://your-project-ref.supabase.co")
-        self.supabase_url_input.setEchoMode(QLineEdit.Password) # Mask input
+        self.supabase_url_input.setEchoMode(LineEdit.Password) # Mask input
         url_input_layout.addWidget(self.supabase_url_input)
 
-        self.toggle_url_visibility_button = QPushButton("Show")
+        self.toggle_url_visibility_button = PushButton("Show")
         self.toggle_url_visibility_button.setCheckable(True)
         self.toggle_url_visibility_button.setFixedWidth(60)
-        self.toggle_url_visibility_button.setStyleSheet("QPushButton { background-color: #555; color: white; border: none; border-radius: 4px; padding: 5px; } QPushButton:checked { background-color: #007bff; }")
         self.toggle_url_visibility_button.clicked.connect(lambda: self._toggle_password_visibility(self.supabase_url_input, self.toggle_url_visibility_button))
         url_input_layout.addWidget(self.toggle_url_visibility_button)
-        config_layout.addRow("Supabase URL:", url_input_layout)
+        config_layout.addRow(BodyLabel("Supabase URL:"), url_input_layout)
 
         # Supabase Key Input
         key_input_layout = QHBoxLayout()
-        self.supabase_key_input = QLineEdit()
+        self.supabase_key_input = LineEdit()
         self.supabase_key_input.setPlaceholderText("Enter your Supabase Anon Key")
-        self.supabase_key_input.setStyleSheet(get_line_edit_style())
         self.supabase_key_input.setToolTip("e.g., eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
-        self.supabase_key_input.setEchoMode(QLineEdit.Password) # Mask input
+        self.supabase_key_input.setEchoMode(LineEdit.Password) # Mask input
         key_input_layout.addWidget(self.supabase_key_input)
 
-        self.toggle_key_visibility_button = QPushButton("Show")
+        self.toggle_key_visibility_button = PushButton("Show")
         self.toggle_key_visibility_button.setCheckable(True)
         self.toggle_key_visibility_button.setFixedWidth(60)
-        self.toggle_key_visibility_button.setStyleSheet("QPushButton { background-color: #555; color: white; border: none; border-radius: 4px; padding: 5px; } QPushButton:checked { background-color: #007bff; }")
         self.toggle_key_visibility_button.clicked.connect(lambda: self._toggle_password_visibility(self.supabase_key_input, self.toggle_key_visibility_button))
         key_input_layout.addWidget(self.toggle_key_visibility_button)
-        config_layout.addRow("Supabase Anon Key:", key_input_layout)
+        config_layout.addRow(BodyLabel("Supabase Anon Key:"), key_input_layout)
 
         layout.addWidget(config_group)
 
-        self.save_supabase_config_button = QPushButton("Save Supabase Configuration")
-        self.save_supabase_config_button.setStyleSheet(get_button_style())
+        self.save_supabase_config_button = PrimaryPushButton("Save Supabase Configuration")
         self.save_supabase_config_button.setFixedHeight(40)
         self.save_supabase_config_button.clicked.connect(self.save_supabase_config)
         layout.addWidget(self.save_supabase_config_button)
@@ -95,10 +89,10 @@ class SupabaseConfigTab(QWidget):
     def _toggle_password_visibility(self, line_edit, button):
         """Toggles the echo mode of a QLineEdit between Normal and Password."""
         if button.isChecked():
-            line_edit.setEchoMode(QLineEdit.Normal)
+            line_edit.setEchoMode(LineEdit.Normal)
             button.setText("Hide")
         else:
-            line_edit.setEchoMode(QLineEdit.Password)
+            line_edit.setEchoMode(LineEdit.Password)
             button.setText("Show")
 
     def _load_supabase_config_to_ui(self):

@@ -11,9 +11,9 @@ import logging
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
 from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QGridLayout, QGroupBox, QFormLayout, QFileDialog,
-    QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QFrame, QShortcut,
+    QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QShortcut,
     QAbstractSpinBox, QStyleOptionSpinBox, QStyle, QDesktopWidget, QSizePolicy, QDialog, QAbstractItemView
 )
 from reportlab.lib.units import inch
@@ -31,25 +31,23 @@ from src.core.db_manager import DBManager
 from src.core.encryption_utils import EncryptionUtil
 from src.core.key_manager import get_or_create_key
 from src.core.supabase_manager import SupabaseManager # New import
-from src.ui.styles import (
-    get_stylesheet, get_header_style, get_group_box_style,
-    get_line_edit_style, get_button_style, get_results_group_style,
-    get_room_group_style, get_month_info_style, get_table_style, get_label_style, get_custom_spinbox_style,
-    get_room_selection_style, get_result_title_style, get_result_value_style
-)
 from src.core.utils import resource_path
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
 from src.ui.tabs.main_tab import MainTab
 from src.ui.tabs.rooms_tab import RoomsTab
 from src.ui.tabs.history_tab import HistoryTab, EditRecordDialog # EditRecordDialog is imported from history_tab
 from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
 from src.ui.tabs.rental_info_tab import RentalInfoTab
 from src.ui.tabs.archived_info_tab import ArchivedInfoTab
+from qfluentwidgets import (
+    InfoBar, InfoBarPosition,
+    NavigationInterface, NavigationItemPosition,
+    FluentIcon, setTheme, Theme, isDarkTheme,
+    stacked_widget, ComboBox, PushButton
+)
 
 # Fluent design toast-like information bars (non-blocking replacements for QMessageBox.information)
 try:
-    from qfluentwidgets import InfoBar, InfoBarPosition  # type: ignore
-
     def _non_blocking_information(parent, title, text, *_, **__):  # noqa: D401, ANN001
         """Patched replacement for QMessageBox.information that shows a transient Fluent InfoBar.
 
@@ -116,8 +114,18 @@ class MeterCalculationApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Home Unit Calculator")
         self.setGeometry(100, 100, 1300, 860)
-        self.setStyleSheet(get_stylesheet())
-        self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
+
+        # Set a modern font using a stylesheet for better consistency
+        self.setStyleSheet("font: 9pt 'Segoe UI', 'Arial';")
+
+        setTheme(Theme.LIGHT)
+        # Use Fluent icon as window icon for consistency with Fluent design
+        try:
+            # Prefer a Fluent icon if available (fallback to existing PNG)
+            self.setWindowIcon(FluentIcon.CALCULATOR.icon())
+        except Exception:
+            # Fallback – retain legacy icon if Fluent icon retrieval fails
+            self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
 
         # Ensure the data/images directory exists
         self.image_storage_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'data', 'images')
@@ -127,13 +135,11 @@ class MeterCalculationApp(QMainWindow):
         self.encryption_util = EncryptionUtil()
         self.supabase_manager = SupabaseManager() # Initialize SupabaseManager
         
-        self.load_info_source_combo = QComboBox()
+        self.load_info_source_combo = ComboBox()
         self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
-        self.load_info_source_combo.setStyleSheet(get_month_info_style())
         
-        self.load_history_source_combo = QComboBox()
+        self.load_history_source_combo = ComboBox()
         self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
-        self.load_history_source_combo.setStyleSheet(get_month_info_style())
 
         self.main_tab_instance = MainTab(self)
         self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self)
@@ -141,6 +147,9 @@ class MeterCalculationApp(QMainWindow):
         self.supabase_config_tab_instance = SupabaseConfigTab(self)
         self.rental_info_tab_instance = RentalInfoTab(self)
         self.archived_info_tab_instance = ArchivedInfoTab(self)
+        
+        self.stacked_widget = stacked_widget.StackedWidget(self)
+        self.navigation_view = NavigationInterface(self, showMenuButton=True, showReturnButton=True)
 
         self._initialize_supabase_client()
         self.init_ui()
@@ -180,43 +189,20 @@ class MeterCalculationApp(QMainWindow):
             self.load_history_source_combo.setCurrentText("Load from PC (CSV)")
 
     def init_ui(self):
-        central_widget = QWidget(self)
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        header = QLabel("Meter Calculation Application")
-        header.setStyleSheet(get_header_style())
-        main_layout.addWidget(header)
-
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet("QTabWidget::pane { border: 0; }")
-
-        self.tab_widget.addTab(self.main_tab_instance, "Main Calculation")
-        self.tab_widget.addTab(self.rooms_tab_instance, "Room Calculations")
-        self.tab_widget.addTab(self.history_tab_instance, "Calculation History")
-        self.tab_widget.addTab(self.supabase_config_tab_instance, "Supabase Config")
-        self.tab_widget.addTab(self.rental_info_tab_instance, "Rental Info")
-        self.tab_widget.addTab(self.archived_info_tab_instance, "Archived Info")
-        
-        # Connection is done in setup_navigation() with guard
-        main_layout.addWidget(self.tab_widget)
-
         # Create buttons but don't add them to the main layout yet
         self.save_pdf_button = QPushButton("Save as PDF")
         self.save_pdf_button.setObjectName("savePdfButton")
-        self.save_pdf_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
+        self.save_pdf_button.setIcon(FluentIcon.SAVE.icon())
         self.save_pdf_button.clicked.connect(self.save_to_pdf)
 
         self.save_csv_button = QPushButton("Save as CSV")
         self.save_csv_button.setObjectName("saveCsvButton")
-        self.save_csv_button.setIcon(QIcon(resource_path("icons/save_icon.png")))
+        self.save_csv_button.setIcon(FluentIcon.SAVE.icon())
         self.save_csv_button.clicked.connect(self.save_calculation_to_csv)
 
         self.save_cloud_button = QPushButton("Save to Cloud")
         self.save_cloud_button.setObjectName("saveCloudButton")
-        self.save_cloud_button.setIcon(QIcon(resource_path("icons/database_icon.png")))
+        self.save_cloud_button.setIcon(FluentIcon.CLOUD_DOWNLOAD.icon())
         self.save_cloud_button.clicked.connect(self.save_calculation_to_supabase)
 
         # Create a layout for these buttons
@@ -224,20 +210,133 @@ class MeterCalculationApp(QMainWindow):
         self.save_buttons_layout.addWidget(self.save_pdf_button)
         self.save_buttons_layout.addWidget(self.save_csv_button)
         self.save_buttons_layout.addWidget(self.save_cloud_button)
-        
-        # Add the button layout to the main layout
-        main_layout.addLayout(self.save_buttons_layout)
 
-        # Connect tab change signal to update button visibility
-        self.tab_widget.currentChanged.connect(self.update_save_buttons_visibility)
-        self.update_save_buttons_visibility(self.tab_widget.currentIndex()) # Set initial visibility
+        # Spacer then theme toggle button
+        self.save_buttons_layout.addStretch(1)
+
+        self.theme_toggle_button = PushButton("Theme: Light")
+        self.theme_toggle_button.setObjectName("themeToggleButton")
+        self.theme_toggle_button.setIcon(FluentIcon.BRIGHTNESS.icon())
+        self.theme_toggle_button.clicked.connect(self.toggle_theme_cycle)
+        self.save_buttons_layout.addWidget(self.theme_toggle_button)
+
+        # Track theme state (0 = Light, 1 = Dark, 2 = Auto/System)
+        self._theme_cycle_index = 0  # Start in Light
+
+        # Inject theme button into MainTab's save row (after MainTab created)
+        try:
+            self.main_tab_instance.add_theme_toggle_button(self.theme_toggle_button)
+        except Exception:
+            pass
+
+        self.init_navigation()
+
+        # ------------------------------------------------------------------
+        # Construct central layout: Navigation sidebar + stacked content area
+        # ------------------------------------------------------------------
+        central_container = QWidget(self)
+        h_layout = QHBoxLayout(central_container)
+        h_layout.setContentsMargins(0, 0, 0, 0)
+
+        # sidebar navigation
+        h_layout.addWidget(self.navigation_view, 0)
+
+        # Right-hand side: top save-buttons bar + stacked widget
+        right_container = QWidget(central_container)
+        v_layout = QVBoxLayout(right_container)
+        v_layout.setContentsMargins(8, 8, 8, 8)
+
+        # wrap save buttons in a widget so we can easily hide/show the bar
+        self._save_bar_widget = QWidget(right_container)
+        self._save_bar_widget.setLayout(self.save_buttons_layout)
+        v_layout.addWidget(self._save_bar_widget, 0, Qt.AlignLeft)
+        # Hide global save buttons bar; buttons now live inside MainTab
+        self._save_bar_widget.hide()
+
+        # main stacked interfaces
+        v_layout.addWidget(self.stacked_widget, 1)
+
+        h_layout.addWidget(right_container, 1)
+
+        # Set the composed widget as the central widget of the window
+        self.setCentralWidget(central_container)
+
+    def init_navigation(self):
+        # add navigation items
+        self.add_navigation_item(
+            self.main_tab_instance,
+            "MainId",
+            "Main Calculation",
+            FluentIcon.HOME,
+            "Main Calculation Interface",
+        )
+        self.add_navigation_item(
+            self.rooms_tab_instance,
+            "RoomsId",
+            "Room Calculations",
+            FluentIcon.BOOK_SHELF,
+            "Room Calculations Interface",
+        )
+        self.add_navigation_item(
+            self.history_tab_instance,
+            "HistoryId",
+            "Calculation History",
+            FluentIcon.CALENDAR,
+            "Calculation History Interface",
+        )
+        self.add_navigation_item(
+            self.rental_info_tab_instance,
+            "RentalId",
+            "Rental Info",
+            FluentIcon.FOLDER,
+            "Rental Info Interface",
+        )
+        self.add_navigation_item(
+            self.archived_info_tab_instance,
+            "ArchivedId",
+            "Archived Info",
+            FluentIcon.ALBUM,
+            "Archived Info Interface",
+        )
+        self.add_navigation_item(
+            self.supabase_config_tab_instance,
+            "SupabaseId",
+            "Supabase Config",
+            FluentIcon.SETTING,
+            "Supabase Config Interface",
+            position=NavigationItemPosition.BOTTOM
+        )
+
+        self.stacked_widget.currentChanged.connect(self.on_current_interface_changed)
+        self.navigation_view.setCurrentItem(self.main_tab_instance.objectName())
+        self.update_save_buttons_visibility(self.stacked_widget.currentIndex())
+
+    def add_navigation_item(self, interface, object_name, text, icon, tooltip, position=NavigationItemPosition.TOP):
+        interface.setObjectName(object_name)
+        self.stacked_widget.addWidget(interface)
+        self.navigation_view.addItem(
+            routeKey=object_name,
+            text=text,
+            icon=icon,
+            tooltip=tooltip,
+            position=position,
+            onClick=lambda: self.on_navigation_item_clicked(interface)
+        )
+
+    def on_navigation_item_clicked(self, interface):
+        self.stacked_widget.setCurrentWidget(interface)
+
+    def on_current_interface_changed(self, index):
+        self.update_save_buttons_visibility(index)
+        current_widget = self.stacked_widget.widget(index)
+        if hasattr(current_widget, 'set_focus_on_tab_change'):
+            current_widget.set_focus_on_tab_change()
 
     def update_save_buttons_visibility(self, index):
-        # Get the name of the current tab
-        current_tab_name = self.tab_widget.tabText(index)
+        current_widget = self.stacked_widget.widget(index)
         
         # Define which tabs should show the buttons
-        if current_tab_name in ["Main Calculation", "Room Calculations"]:
+        if isinstance(current_widget, (MainTab, RoomsTab)):
             self.save_pdf_button.show()
             self.save_csv_button.show()
             self.save_cloud_button.show()
@@ -578,14 +677,14 @@ class MeterCalculationApp(QMainWindow):
             QMessageBox.critical(self, "Supabase Save Error", f"Failed to save data to Supabase: {e}\n{traceback.format_exc()}")
 
     def setup_navigation(self):
-        # Connect tab change signal to a handler that sets focus
-        self.tab_widget.currentChanged.connect(self.set_focus_on_tab_change)
+        # Connect stacked widget change to focus-management helper
+        self.stacked_widget.currentChanged.connect(self.set_focus_on_tab_change)
 
-        # Set initial focus based on the currently active tab
-        self.set_focus_on_tab_change(self.tab_widget.currentIndex())
+        # Initialise focus for the first interface
+        self.set_focus_on_tab_change(self.stacked_widget.currentIndex())
 
     def set_focus_on_tab_change(self, index):
-        current_tab = self.tab_widget.widget(index)
+        current_tab = self.stacked_widget.widget(index)
         if isinstance(current_tab, MainTab):
             self.main_tab_instance.meter_entries[0].setFocus()
         elif isinstance(current_tab, RoomsTab):
@@ -615,6 +714,24 @@ class MeterCalculationApp(QMainWindow):
             self.archived_info_tab_instance.load_archived_records()
         except Exception as e:
             logging.error(f"Error refreshing rental tabs: {e}")
+
+    # ───────────────────────────────── Theme Handling ────────────────────────────
+    def toggle_theme_cycle(self):
+        """Cycle through Light → Dark → System(Auto) themes."""
+        self._theme_cycle_index = (self._theme_cycle_index + 1) % 3
+
+        if self._theme_cycle_index == 0:  # Light
+            setTheme(Theme.LIGHT)
+            self.theme_toggle_button.setText("Theme: Light")
+            self.theme_toggle_button.setIcon(FluentIcon.BRIGHTNESS.icon())
+        elif self._theme_cycle_index == 1:  # Dark
+            setTheme(Theme.DARK)
+            self.theme_toggle_button.setText("Theme: Dark")
+            self.theme_toggle_button.setIcon(FluentIcon.CONSTRACT.icon())
+        else:  # Auto / System
+            setTheme(Theme.AUTO)
+            self.theme_toggle_button.setText("Theme: System")
+            self.theme_toggle_button.setIcon(FluentIcon.BRIGHTNESS.icon())
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
