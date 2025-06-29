@@ -10,7 +10,7 @@ from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFormLayout, QMessageBox, QSizePolicy,
-    QGridLayout, QBoxLayout  # Added QBoxLayout for harmonisation helper
+    QGridLayout, QBoxLayout, QFrame  # Added QBoxLayout for harmonisation helper
 )
 from postgrest.exceptions import APIError
 from qfluentwidgets import (
@@ -60,7 +60,24 @@ class MainTab(QWidget):
         new_top_row_layout.setSpacing(8)
 
         date_selection_group = CardWidget()
-        date_selection_filter_layout = QHBoxLayout(date_selection_group)
+        date_selection_layout = QVBoxLayout(date_selection_group)
+        date_selection_layout.setContentsMargins(8, 8, 8, 8)
+        date_selection_layout.setSpacing(4)
+
+        period_title = TitleLabel("Billing Period")
+        period_title.setAlignment(Qt.AlignCenter)
+        period_title.setStyleSheet("font-size:24px;font-weight:bold;")
+        date_selection_layout.addWidget(period_title)
+
+        period_line = QFrame()
+        period_line.setFrameShape(QFrame.HLine)
+        period_line.setFrameShadow(QFrame.Plain)
+        period_line.setStyleSheet("color:#aaaaaa;")
+        date_selection_layout.addWidget(period_line)
+
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(8)
+        controls_layout.addStretch(1)
 
         month_label = BodyLabel("Month:")
         self.month_combo = ComboBox()
@@ -74,27 +91,39 @@ class MainTab(QWidget):
         self.year_spinbox.setRange(2000, 2100)
         self.year_spinbox.setValue(datetime.now().year)
 
-        date_selection_filter_layout.addWidget(month_label)
-        date_selection_filter_layout.addWidget(self.month_combo)
-        date_selection_filter_layout.addSpacing(20)
-        date_selection_filter_layout.addWidget(year_label)
-        date_selection_filter_layout.addWidget(self.year_spinbox)
-        date_selection_filter_layout.addStretch(1)
+        controls_layout.addWidget(month_label)
+        controls_layout.addWidget(self.month_combo)
+        controls_layout.addSpacing(20)
+        controls_layout.addWidget(year_label)
+        controls_layout.addWidget(self.year_spinbox)
+        controls_layout.addStretch(1)
+        controls_card = CardWidget()
+        controls_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        controls_layout.setContentsMargins(8, 6, 8, 6)
+        controls_card.setLayout(controls_layout)
+        date_selection_layout.addWidget(controls_card)
         new_top_row_layout.addWidget(date_selection_group, 1)
 
         moved_load_options_group = CardWidget()
         moved_load_options_internal_layout = QVBoxLayout(moved_load_options_group)
+        moved_load_options_internal_layout.setContentsMargins(8,8,8,8)
+        moved_load_options_internal_layout.setSpacing(4)
+
+        load_title = TitleLabel("Load Data")
+        load_title.setAlignment(Qt.AlignCenter)
+        load_title.setStyleSheet("font-size:24px;font-weight:bold;")
+        moved_load_options_internal_layout.addWidget(load_title)
+
+        load_line = QFrame()
+        load_line.setFrameShape(QFrame.HLine)
+        load_line.setFrameShadow(QFrame.Plain)
+        load_line.setStyleSheet("color:#aaaaaa;")
+        moved_load_options_internal_layout.addWidget(load_line)
 
         load_info_group = self.create_load_info_group()
         moved_load_options_internal_layout.addWidget(load_info_group)
 
-        source_info_layout = QHBoxLayout()
-        source_info_layout.setSpacing(8)
-        source_info_label = BodyLabel("Source for 'Load' Button:")
-        source_info_layout.addWidget(source_info_label)
-        source_info_layout.addWidget(self.main_window.load_info_source_combo)
-        source_info_layout.addStretch(1)
-        moved_load_options_internal_layout.addLayout(source_info_layout)
+
         new_top_row_layout.addWidget(moved_load_options_group, 1)
         main_layout.addLayout(new_top_row_layout)
 
@@ -104,12 +133,20 @@ class MainTab(QWidget):
         meter_group.setLayout(QVBoxLayout())
         meter_group.layout().setContentsMargins(8, 8, 8, 8)
         meter_group.layout().setSpacing(4)
-        meter_group.layout().addWidget(TitleLabel("Meter Readings"))
+        meter_title = TitleLabel("Meter Readings")
+        meter_title.setAlignment(Qt.AlignCenter)
+        meter_title.setStyleSheet("font-size:32px;font-weight:bold;")
+        meter_group.layout().addWidget(meter_title)
+        meter_line = QFrame()
+        meter_line.setFrameShape(QFrame.HLine)
+        meter_line.setFrameShadow(QFrame.Plain)
+        meter_line.setStyleSheet("color:#aaaaaa;")
+        meter_group.layout().addWidget(meter_line)
         meter_scroll = AutoScrollArea()
         meter_scroll.setWidgetResizable(True)
         meter_container = QWidget()
-        self.meter_layout = QFormLayout(meter_container)
-        self.meter_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.meter_layout = QVBoxLayout(meter_container)
+        self.meter_layout.setSpacing(12)
         meter_scroll.setWidget(meter_container)
         meter_group.layout().addWidget(meter_scroll)
         # Give Meter Readings group more horizontal space
@@ -119,12 +156,20 @@ class MainTab(QWidget):
         diff_group.setLayout(QVBoxLayout())
         diff_group.layout().setContentsMargins(8, 8, 8, 8)
         diff_group.layout().setSpacing(4)
-        diff_group.layout().addWidget(TitleLabel("Difference Readings"))
+        diff_title = TitleLabel("Difference Readings")
+        diff_title.setAlignment(Qt.AlignCenter)
+        diff_title.setStyleSheet("font-size:32px;font-weight:bold;")
+        diff_group.layout().addWidget(diff_title)
+        diff_line = QFrame()
+        diff_line.setFrameShape(QFrame.HLine)
+        diff_line.setFrameShadow(QFrame.Plain)
+        diff_line.setStyleSheet("color:#aaaaaa;")
+        diff_group.layout().addWidget(diff_line)
         diff_scroll = AutoScrollArea()
         diff_scroll.setWidgetResizable(True)
         diff_container = QWidget()
-        self.diff_layout = QFormLayout(diff_container)
-        self.diff_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.diff_layout = QVBoxLayout(diff_container)
+        self.diff_layout.setSpacing(12)
         diff_scroll.setWidget(diff_container)
         diff_group.layout().addWidget(diff_scroll)
         # Give Difference Readings group more horizontal space
@@ -212,6 +257,12 @@ class MainTab(QWidget):
         self._save_buttons_row = save_buttons_row  # store for later insertion
 
         main_layout.addLayout(save_buttons_row)
+
+        # Adjust vertical stretch to give the results group more height and reduce empty space above
+        main_layout.setStretch(1, 3)  # Middle row (meter/diff/additional)
+        main_layout.setStretch(2, 1)  # Results group
+        main_layout.setStretch(3, 0)  # Calculate button row stays minimal
+        main_layout.setStretch(4, 0)  # Save buttons row stays minimal
         
         self.update_meter_inputs(3)
         self.update_diff_inputs(3)
@@ -354,6 +405,7 @@ class MainTab(QWidget):
         load_info_group = CardWidget()
         load_info_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         load_info_layout = QHBoxLayout(load_info_group)
+        load_info_layout.setContentsMargins(8, 6, 8, 6)
 
         load_month_label = BodyLabel("Month:")
         self.load_month_combo = ComboBox()
@@ -376,6 +428,8 @@ class MainTab(QWidget):
         load_info_layout.addWidget(load_year_label)
         load_info_layout.addWidget(self.load_year_spinbox)
         load_info_layout.addSpacing(20)
+        load_info_layout.addWidget(self.main_window.load_info_source_combo)
+        load_info_layout.addSpacing(20)
         load_info_layout.addWidget(load_button)
         load_info_layout.addStretch(1)
         return load_info_group
@@ -393,7 +447,10 @@ class MainTab(QWidget):
             
             numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
             meter_edit.setValidator(numeric_validator)
-            self.meter_layout.addRow(BodyLabel(f"Meter {i+1} Reading:"), meter_edit)
+            label = BodyLabel(f"Meter {i+1} Reading:")
+            label.setStyleSheet("font-weight:bold;")
+            self.meter_layout.addWidget(label)
+            self.meter_layout.addWidget(meter_edit)
             if i in current_values:
                 meter_edit.setText(current_values[i])
             self.meter_entries.append(meter_edit)
@@ -414,7 +471,10 @@ class MainTab(QWidget):
             
             numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
             diff_edit.setValidator(numeric_validator)
-            self.diff_layout.addRow(BodyLabel(f"Difference {i+1} Reading:"), diff_edit)
+            label = BodyLabel(f"Difference {i+1} Reading:")
+            label.setStyleSheet("font-weight:bold;")
+            self.diff_layout.addWidget(label)
+            self.diff_layout.addWidget(diff_edit)
             if i in current_values:
                 diff_edit.setText(current_values[i])
             self.diff_entries.append(diff_edit)
