@@ -1,35 +1,38 @@
 from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer
-from PyQt5.QtGui import QIcon, QPainter # QFont was not used by these specific widgets but good to have
+from PyQt5.QtGui import QIcon, QPainter, QCursor
 from PyQt5.QtWidgets import (
-    QLineEdit, QSizePolicy, QScrollArea, QSpinBox, QAbstractSpinBox, 
-    QStyleOptionSpinBox, QStyle, QPushButton, QDialog, QVBoxLayout, QLabel, QProgressBar
+    QSizePolicy, QDialog, QVBoxLayout, QLabel, QProgressBar
 )
-# Assuming styles.py and utils.py will be in the same directory or Python path
-# If they are in subdirectories, the import paths might need adjustment, e.g., from .styles import ...
-from src.ui.styles import get_line_edit_style, get_custom_spinbox_style
+from qfluentwidgets import LineEdit, ScrollArea, SpinBox, PushButton
+
 from src.core.utils import resource_path
 
 # Custom QLineEdit class for improved input handling and navigation
-class CustomLineEdit(QLineEdit):
+class CustomLineEdit(LineEdit):
     def __init__(self, *args, **kwargs):
         # Call the parent class constructor
         super().__init__(*args, **kwargs)
-        # Remove default validator to allow any input by default
-        # Validators should be set explicitly where needed (e.g., for numeric inputs)
-        # self.setValidator(QRegExpValidator(QRegExp(r'^\d*$'))) # Removed
-        # Set placeholder text for the input field
-        # self.setPlaceholderText("Enter a number") # Removed default placeholder
-        # Set tooltip for the input field
-        # self.setToolTip("Input only integer values") # Removed default tooltip
         # Set size policy to expanding horizontally
+        # Apply dark theme palette to ensure contrast with CardWidget backgrounds
+        self.setStyleSheet(
+            """
+            QLineEdit {
+                background-color: #2f2f2f;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0078D4;
+            }
+            """
+        )
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         # Initialize next and previous widget references
         self.next_widget_on_enter = None # For Enter/Return key
         self.up_widget = None
         self.down_widget = None
-        # self.left_widget and self.right_widget are removed as per new plan
-        # Apply custom style sheet
-        self.setStyleSheet(get_line_edit_style())
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -60,36 +63,32 @@ class CustomLineEdit(QLineEdit):
         super().keyPressEvent(event)
 
     def focusInEvent(self, event):
-        # print(f"CustomLineEdit FocusIn: {self.objectName()} (text: '{self.text()}')") # Removed debug print
         super().focusInEvent(event)
         self.ensureWidgetVisible()
 
     def ensureWidgetVisible(self):
-        # Ensure that this widget is visible within its parent QScrollArea
-        parent = self.parent()  # Get the immediate parent of this widget
-        while parent and not isinstance(parent, QScrollArea):
-            # Loop until we find a QScrollArea parent or reach the top-level parent
-            parent = parent.parent()  # Move up to the next parent in the hierarchy
+        # Ensure that this widget is visible within its parent ScrollArea
+        parent = self.parent()
+        while parent and not isinstance(parent, ScrollArea):
+            parent = parent.parent()
         if parent:
-            # If a QScrollArea parent is found
-            parent.ensureWidgetVisible(self)  # Ensure this widget is visible within the QScrollArea
+            parent.ensureWidgetVisible(self)
 
 
     def moveFocus(self, forward=True):
-        # Define a method to move focus to the next or previous widget
-        current = self.focusWidget()  # Get the currently focused widget
-        if current:  # If there is a currently focused widget
-            next_widget = self.findNextWidget(forward)  # Find the next widget based on the 'forward' parameter
-            if next_widget:  # If a next widget is found
-                next_widget.setFocus()  # Set focus to the next widget
-            else:  # If no next widget is found
-                print("No valid next widget found")  # Print a message indicating no valid next widget was found
+        current = self.focusWidget()
+        if current:
+            next_widget = self.findNextWidget(forward)
+            if next_widget:
+                next_widget.setFocus()
+            else:
+                print("No valid next widget found")
 
     def findNextWidget(self, forward=True):
         parent_widget = self.parentWidget()
         if parent_widget is None:
             return None
-        # Respect the visual / tab-order using QWidget::nextInFocusChain
+        
         widgets = []
         w = parent_widget.focusProxy() or parent_widget
         start = w
@@ -105,7 +104,7 @@ class CustomLineEdit(QLineEdit):
         except ValueError:
             return None
         
-        if not widgets: # Handle case where no CustomLineEdit widgets are found
+        if not widgets:
             return None
 
         if forward:
@@ -116,40 +115,55 @@ class CustomLineEdit(QLineEdit):
         return widgets[next_index]
 
 # Custom QScrollArea class with auto-scrolling functionality
-class AutoScrollArea(QScrollArea):
+class AutoScrollArea(ScrollArea):
+    _active_scroller = None
     _MIN_SCALE = 0.2
     _MAX_SCALE = 5.0
-    _SCROLL_INTERVAL_MS = 50  # Milliseconds between scroll updates
-    _SCROLL_SPEED_FACTOR = 0.1 # Adjust this for faster/slower scrolling based on distance
+    _SCROLL_INTERVAL_MS = 50
+    _SCROLL_SPEED_FACTOR = 0.1
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.scroll_margin = 50
         self.setMouseTracking(True)
         self.setWidgetResizable(True)
+        # Ensure the scroll area and its content do not introduce bright
+        # backgrounds when placed inside a dark CardWidget
+        try:
+            self.enableTransparentBackground()
+        except AttributeError:
+            # Older versions may not have this helper; fall back to stylesheet
+            self.setStyleSheet("QScrollArea{border:none;background:transparent}")
         self._current_scale = 1.0
         self._scroll_timer = QTimer(self)
         self._scroll_timer.timeout.connect(self._perform_auto_scroll)
-        self._mouse_pos = QPoint() # Store last known mouse position
-        # Ensure the scroll area and its viewport receive mouse-move / leave events
+        self._mouse_pos = QPoint()
         self.viewport().installEventFilter(self)
         self.installEventFilter(self)
 
+    # ------------------------------------------------------------------
+    # Re-implement setWidget to re-apply the transparency to any newly
+    # assigned widget, guaranteeing white backgrounds do not re-appear.
+    # ------------------------------------------------------------------
+    def setWidget(self, widget):  # type: ignore[override]
+        super().setWidget(widget)
+        # Ensure the viewport child is also transparent
+        if widget is not None:
+            widget.setStyleSheet("background: transparent")
+
     def eventFilter(self, obj, event):
         if event.type() == QEvent.MouseMove:
-            if hasattr(event, 'globalPos'):
-                self._mouse_pos = event.globalPos()
-            elif hasattr(event, 'globalPosition'):
-                self._mouse_pos = event.globalPosition().toPoint()
-            
-            # Start timer if mouse is in margin and not already running
-            if self._is_mouse_in_margin(self._mouse_pos) and not self._scroll_timer.isActive():
-                self._scroll_timer.start(self._SCROLL_INTERVAL_MS)
-            # Stop timer if mouse is outside margin and running
-            elif not self._is_mouse_in_margin(self._mouse_pos) and self._scroll_timer.isActive():
-                self._scroll_timer.stop()
+            if self.window().isActiveWindow():
+                if self._is_mouse_in_margin(QCursor.pos()):
+                    if AutoScrollArea._active_scroller is None:
+                        AutoScrollArea._active_scroller = self
+                    if AutoScrollArea._active_scroller == self and not self._scroll_timer.isActive():
+                        self._scroll_timer.start(self._SCROLL_INTERVAL_MS)
+                elif AutoScrollArea._active_scroller == self:
+                    AutoScrollArea._active_scroller = None
         elif event.type() == QEvent.Leave:
-            # Stop timer if mouse leaves the widget
+            if AutoScrollArea._active_scroller == self:
+                AutoScrollArea._active_scroller = None
             self._scroll_timer.stop()
         
         return super().eventFilter(obj, event)
@@ -163,11 +177,24 @@ class AutoScrollArea(QScrollArea):
                 local_pos.x() > rect.width() - self.scroll_margin)
 
     def _perform_auto_scroll(self):
-        if not self.widget():
-            # No widget to scroll
+        if AutoScrollArea._active_scroller != self:
+            self._scroll_timer.stop()
             return
 
-        local_pos = self.mapFromGlobal(self._mouse_pos)
+        if not self.widget() or not self.isVisible() or not self.window().isActiveWindow():
+            self._scroll_timer.stop()
+            if AutoScrollArea._active_scroller == self:
+                AutoScrollArea._active_scroller = None
+            return
+
+        global_pos = QCursor.pos()
+        if not self._is_mouse_in_margin(global_pos):
+            self._scroll_timer.stop()
+            if AutoScrollArea._active_scroller == self:
+                AutoScrollArea._active_scroller = None
+            return
+
+        local_pos = self.mapFromGlobal(global_pos)
         rect = self.rect()
         v_bar = self.verticalScrollBar()
         h_bar = self.horizontalScrollBar()
@@ -188,23 +215,6 @@ class AutoScrollArea(QScrollArea):
             delta = max(1, int((local_pos.x() - (rect.width() - self.scroll_margin)) * self._SCROLL_SPEED_FACTOR))
             h_bar.setValue(h_bar.value() + delta)
 
-    def mouseMoveEvent(self, event):
-        # Update stored mouse position and trigger event filter logic
-        if hasattr(event, 'globalPos'):
-            self._mouse_pos = event.globalPos()
-        elif hasattr(event, 'globalPosition'):
-            self._mouse_pos = event.globalPosition().toPoint()
-        
-        # Manually call eventFilter to process mouse move for auto-scrolling
-        self.eventFilter(self, event)
-        super().mouseMoveEvent(event)
-
-    def closeEvent(self, event):
-        """Ensures the scroll timer is stopped and deleted when the widget is closed."""
-        if self._scroll_timer.isActive():
-            self._scroll_timer.stop()
-        self._scroll_timer.deleteLater() # Schedule for deletion
-        super().closeEvent(event)
 
     def wheelEvent(self, event):
         # Handle wheel events for zooming when Ctrl is pressed
@@ -251,51 +261,7 @@ class AutoScrollArea(QScrollArea):
             self.ensureVisible(target_local.x(), target_local.y(),
             self.viewport().width() // 2, self.viewport().height() // 2)
 
-class CustomSpinBox(QSpinBox):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.setStyleSheet(get_custom_spinbox_style())
-        # Initialize pixmaps here, after QApplication is guaranteed to be available
-        self._UP_ARROW_PM = QIcon(resource_path("icons/up_arrow.png")).pixmap(14, 14)
-        self._DOWN_ARROW_PM = QIcon(resource_path("icons/down_arrow.png")).pixmap(14, 14)
-
-    def stepBy(self, steps):
-        super().stepBy(steps)
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        option = QStyleOptionSpinBox()
-        self.initStyleOption(option)
-        
-        # Draw the base widget
-        self.style().drawComplexControl(QStyle.CC_SpinBox, option, painter, self)
-        
-        # Draw custom up/down arrows
-        rect = self.rect()
-        icon_size = 14 # This can remain as it's used for positioning
-        padding = 2
-        
-        up_arrow = self._UP_ARROW_PM
-        down_arrow = self._DOWN_ARROW_PM
-        
-        painter.drawPixmap(rect.right() - icon_size - padding, rect.top() + padding, up_arrow)
-        painter.drawPixmap(rect.right() - icon_size - padding, rect.bottom() - icon_size - padding, down_arrow)
-
-    def mousePressEvent(self, event):
-        rect = self.rect()
-        if event.x() > rect.right() - 20:
-            if event.y() < rect.height() / 2:
-                self.stepUp()
-            else:
-                self.stepDown()
-            event.accept()
-            return
-        else:
-            super().mousePressEvent(event)
-
-class CustomNavButton(QPushButton):
+class CustomNavButton(PushButton):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.next_widget_on_enter = None # Renamed from custom_next_widget
@@ -353,8 +319,18 @@ class FluentProgressDialog(QDialog):
         self.setModal(True)
 
         # Semi-transparent dark background so the dialog stands out
+
+        # Apply dark styling so the dialog matches global dark theme
         self.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 160); color: white; border-radius: 8px;"
+            """
+            QDialog {
+                background-color: #2b2b2b;
+                border: 1px solid #444444;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            """
         )
 
         layout = QVBoxLayout(self)

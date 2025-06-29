@@ -7,14 +7,12 @@ from collections import namedtuple
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QFormLayout, QMessageBox, QDialog,
+    QVBoxLayout, QHBoxLayout, QLabel, QFormLayout, QMessageBox, QDialog, QWidget,
     QGridLayout
 )
-
-from src.ui.styles import (
-    get_room_selection_style, get_button_style
+from qfluentwidgets import (
+    CardWidget, PrimaryPushButton, PushButton, TitleLabel
 )
-from src.ui.custom_widgets import CustomNavButton
 
 # Suppress SSL certificate warnings when verify=False is used in requests
 try:
@@ -78,9 +76,12 @@ class RentalRecordDialog(QDialog):
         main_layout = QVBoxLayout(self)
         
         # Display Area for Details
-        details_group = QGroupBox("Record Information")
-        details_group.setStyleSheet(get_room_selection_style())
-        details_layout = QFormLayout(details_group)
+        details_group = CardWidget()
+        details_layout = QVBoxLayout(details_group)
+        details_layout.addWidget(TitleLabel("Record Information"))
+        
+        details_form_widget = QWidget()
+        details_form_layout = QFormLayout(details_form_widget)
         
         self.tenant_name_label = QLabel()
         self.room_number_label = QLabel()
@@ -88,55 +89,54 @@ class RentalRecordDialog(QDialog):
         self.created_at_label = QLabel()
         self.updated_at_label = QLabel()
 
-        details_layout.addRow("Tenant Name:", self.tenant_name_label)
-        details_layout.addRow("Room Number:", self.room_number_label)
-        details_layout.addRow("Advanced Paid:", self.advanced_paid_label)
-        details_layout.addRow("Created At:", self.created_at_label)
-        details_layout.addRow("Updated At:", self.updated_at_label)
+        details_form_layout.addRow("Tenant Name:", self.tenant_name_label)
+        details_form_layout.addRow("Room Number:", self.room_number_label)
+        details_form_layout.addRow("Advanced Paid:", self.advanced_paid_label)
+        details_form_layout.addRow("Created At:", self.created_at_label)
+        details_form_layout.addRow("Updated At:", self.updated_at_label)
+        details_layout.addWidget(details_form_widget)
         
         main_layout.addWidget(details_group)
 
         # Image Previews
-        image_preview_group = QGroupBox("Document Previews")
-        image_preview_group.setStyleSheet(get_room_selection_style())
-        image_preview_layout = QGridLayout(image_preview_group)
+        image_preview_group = CardWidget()
+        image_preview_main_layout = QVBoxLayout(image_preview_group)
+        image_preview_main_layout.addWidget(TitleLabel("Document Previews"))
+        image_preview_widget = QWidget()
+        image_preview_layout = QGridLayout(image_preview_widget)
+        image_preview_main_layout.addWidget(image_preview_widget)
         image_preview_layout.setContentsMargins(20, 20, 20, 20)
         image_preview_layout.setSpacing(10)
 
         self.photo_preview_label = QLabel("No Photo")
         self.photo_preview_label.setAlignment(Qt.AlignCenter)
         self.photo_preview_label.setFixedSize(120, 120)
-        self.photo_preview_label.setStyleSheet("border: 1px solid #ccc;")
         image_preview_layout.addWidget(self.photo_preview_label, 0, 0)
 
         self.nid_front_preview_label = QLabel("No NID Front")
         self.nid_front_preview_label.setAlignment(Qt.AlignCenter)
         self.nid_front_preview_label.setFixedSize(120, 120)
-        self.nid_front_preview_label.setStyleSheet("border: 1px solid #ccc;")
         image_preview_layout.addWidget(self.nid_front_preview_label, 0, 1)
 
         self.nid_back_preview_label = QLabel("No NID Back")
         self.nid_back_preview_label.setAlignment(Qt.AlignCenter)
         self.nid_back_preview_label.setFixedSize(120, 120)
-        self.nid_back_preview_label.setStyleSheet("border: 1px solid #ccc;")
         image_preview_layout.addWidget(self.nid_back_preview_label, 1, 0)
 
         self.police_form_preview_label = QLabel("No Police Form")
         self.police_form_preview_label.setAlignment(Qt.AlignCenter)
         self.police_form_preview_label.setFixedSize(120, 120)
-        self.police_form_preview_label.setStyleSheet("border: 1px solid #ccc;")
         image_preview_layout.addWidget(self.police_form_preview_label, 1, 1)
         
         main_layout.addWidget(image_preview_group)
 
         # PDF Link Display
-        pdf_link_group = QGroupBox("Generated PDF")
-        pdf_link_group.setStyleSheet(get_room_selection_style())
+        pdf_link_group = CardWidget()
         pdf_link_layout = QVBoxLayout(pdf_link_group)
+        pdf_link_layout.addWidget(TitleLabel("Generated PDF"))
         
         self.pdf_path_label = QLabel("No PDF generated yet.")
         self.pdf_path_label.setOpenExternalLinks(True) # Make link clickable
-        self.pdf_path_label.setStyleSheet("color: blue; text-decoration: underline;")
         pdf_link_layout.addWidget(self.pdf_path_label)
  
         main_layout.addWidget(pdf_link_group)
@@ -144,23 +144,19 @@ class RentalRecordDialog(QDialog):
         # Action Buttons for the dialog
         dialog_buttons_layout = QHBoxLayout()
         
-        self.dialog_save_pdf_btn = CustomNavButton("Save PDF")
-        self.dialog_save_pdf_btn.setStyleSheet(get_button_style())
+        self.dialog_save_pdf_btn = PrimaryPushButton("Save PDF")
         self.dialog_save_pdf_btn.clicked.connect(self.generate_pdf_from_dialog)
         dialog_buttons_layout.addWidget(self.dialog_save_pdf_btn)
 
-        self.dialog_edit_btn = CustomNavButton("Edit")
-        self.dialog_edit_btn.setStyleSheet(get_button_style())
+        self.dialog_edit_btn = PushButton("Edit")
         self.dialog_edit_btn.clicked.connect(self.edit_record)
         dialog_buttons_layout.addWidget(self.dialog_edit_btn)
 
-        self.dialog_archive_btn = CustomNavButton("Archive")
-        self.dialog_archive_btn.setStyleSheet(get_button_style())
+        self.dialog_archive_btn = PushButton("Archive")
         self.dialog_archive_btn.clicked.connect(self.toggle_archive_status)
         dialog_buttons_layout.addWidget(self.dialog_archive_btn)
 
-        self.dialog_delete_btn = CustomNavButton("Delete")
-        self.dialog_delete_btn.setStyleSheet(get_button_style())
+        self.dialog_delete_btn = PushButton("Delete")
         self.dialog_delete_btn.clicked.connect(self.delete_record)
         dialog_buttons_layout.addWidget(self.dialog_delete_btn)
 

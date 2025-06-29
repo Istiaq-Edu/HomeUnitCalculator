@@ -8,8 +8,8 @@ from PyQt5.QtCore import Qt, QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QGridLayout, QGroupBox, QFormLayout, QMessageBox, QSizePolicy, QDialog,
-    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox, QProgressDialog
+    QGridLayout, QFormLayout, QMessageBox, QSizePolicy, QDialog,
+    QFileDialog, QTableWidgetItem, QHeaderView, QAbstractItemView, QProgressDialog
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -17,10 +17,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
-
-from src.ui.styles import (
-    get_room_selection_style, get_table_style, get_button_style, get_source_combo_style
+from qfluentwidgets import (
+    CardWidget, ComboBox, TableWidget, TitleLabel
 )
+
 from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.custom_widgets import FluentProgressDialog  # Avoid top-level import to keep optional
@@ -49,30 +49,32 @@ class ArchivedInfoTab(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(8)
 
-        table_group = QGroupBox("Archived Rental Records")
-        table_group.setStyleSheet(get_room_selection_style())
-        table_layout = QVBoxLayout(table_group)
+        table_group = CardWidget()
+        outer_table_layout = QVBoxLayout(table_group)
+        outer_table_layout.setSpacing(8)
+        outer_table_layout.setContentsMargins(12, 12, 12, 12)
+        outer_table_layout.addWidget(TitleLabel("Archived Rental Records"))
+        table_layout = QVBoxLayout()
+        outer_table_layout.addLayout(table_layout)
         # >>> ADD
         self.table_layout = table_layout  # expose to insert/remove progress bar
         # <<< ADD
 
         # Add Load Source Combo Box
-        self.load_source_combo = QComboBox()
+        self.load_source_combo = ComboBox()
         self.load_source_combo.addItems(["Local DB", "Cloud (Supabase)"])
-        self.load_source_combo.setStyleSheet(get_source_combo_style()) # Re-using button style for now
         self.load_source_combo.currentIndexChanged.connect(self.load_archived_records)
         table_layout.addWidget(self.load_source_combo)
 
-        self.archived_records_table = QTableWidget()
+        self.archived_records_table = TableWidget()
         self.archived_records_table.setColumnCount(6) # ID, Name, Room, Advanced, Created, Updated
         self.archived_records_table.setHorizontalHeaderLabels(["ID", "Tenant Name", "Room Number", "Advanced Paid", "Created At", "Updated At"])
         self.archived_records_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.archived_records_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.archived_records_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.archived_records_table.setStyleSheet(get_table_style())
         self.archived_records_table.clicked.connect(self.show_record_details_dialog)
         table_layout.addWidget(self.archived_records_table)
         

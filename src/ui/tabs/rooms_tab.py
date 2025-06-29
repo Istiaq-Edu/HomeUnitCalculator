@@ -6,16 +6,16 @@ from PyQt5.QtGui import QIcon, QRegExpValidator
 from PyQt5.QtWidgets import (
     QApplication,
     QWidget, QVBoxLayout, QLabel, QGridLayout,
-    QGroupBox, QFormLayout, QMessageBox, QSizePolicy
+    QFormLayout, QMessageBox, QSizePolicy
+)
+from qfluentwidgets import (
+    CardWidget, SpinBox, PrimaryPushButton,
+    TitleLabel, BodyLabel, CaptionLabel, FluentIcon, StrongBodyLabel
 )
 
 # Assuming these modules are in the same directory or accessible in PYTHONPATH
-from src.ui.styles import (
-    get_room_selection_style, get_room_group_style, get_line_edit_style,
-    get_button_style
-)
 from src.core.utils import resource_path # For icons
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
 
 # Local _clear_layout function to avoid circular dependency with utils
 def _clear_layout(layout):
@@ -47,14 +47,18 @@ class RoomsTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self) # Main layout for RoomsTab
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
 
         # Room Selection Group
-        room_selection_group = QGroupBox("Room Selection")
-        room_selection_group.setStyleSheet(get_room_selection_style())
+        room_selection_group = CardWidget()
         room_selection_layout = QFormLayout(room_selection_group)
+        room_selection_layout.setSpacing(8)
+        room_selection_layout.setContentsMargins(12, 12, 12, 12)
 
-        num_rooms_label = QLabel("Number of Rooms:")
-        self.num_rooms_spinbox = CustomSpinBox()
+
+        num_rooms_label = BodyLabel("Number of Rooms:")
+        self.num_rooms_spinbox = SpinBox()
         self.num_rooms_spinbox.setRange(1, 20) # Default range
         self.num_rooms_spinbox.setValue(11)    # Default value
         self.num_rooms_spinbox.valueChanged.connect(self.update_room_inputs)
@@ -75,10 +79,9 @@ class RoomsTab(QWidget):
         layout.addWidget(scroll_wrapper)
 
         # Calculate Button
-        self.calculate_rooms_button = CustomNavButton("Calculate Room Bills")
-        self.calculate_rooms_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
+        self.calculate_rooms_button = PrimaryPushButton(FluentIcon.EDIT, "Calculate Room Bills")
         self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
-        self.calculate_rooms_button.setStyleSheet(get_button_style())
+        self.calculate_rooms_button.setFixedHeight(40)
         layout.addWidget(self.calculate_rooms_button)
 
         self.update_room_inputs() # Initial population of room inputs
@@ -92,59 +95,54 @@ class RoomsTab(QWidget):
         self.room_entries = []
 
         for i in range(num_rooms):
-            room_group = QGroupBox(f"Room {i+1}") # Store reference to the QGroupBox
-            room_layout = QFormLayout(room_group)
-            room_group.setStyleSheet(get_room_group_style())
+            room_group = CardWidget()
+            outer_layout = QVBoxLayout(room_group)
+            outer_layout.addWidget(TitleLabel(f"Room {i+1}"))
+            room_layout = QFormLayout()
+            outer_layout.addLayout(room_layout)
             room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
             present_entry = CustomLineEdit()
             present_entry.setObjectName(f"room_{i}_present")
-            present_entry.setPlaceholderText("Enter present reading")
+            
             
             previous_entry = CustomLineEdit()
             previous_entry.setObjectName(f"room_{i}_previous")
-            previous_entry.setPlaceholderText("Enter previous reading")
+            
             
             # Add numeric validators (only digits allowed)
             numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))
             present_entry.setValidator(numeric_validator)
             previous_entry.setValidator(numeric_validator)
             
-            real_unit_label = QLabel("N/A")
-            unit_bill_label = QLabel("N/A")
-
-            present_entry.setStyleSheet(get_line_edit_style())
-            previous_entry.setStyleSheet(get_line_edit_style())
+            real_unit_label = CaptionLabel("N/A")
+            unit_bill_label = CaptionLabel("N/A")
 
             gas_bill_entry = CustomLineEdit()
             gas_bill_entry.setObjectName(f"room_{i}_gas_bill")
-            gas_bill_entry.setPlaceholderText("Enter Gas Bill")
+            
             gas_bill_entry.setValidator(numeric_validator)
-            gas_bill_entry.setStyleSheet(get_line_edit_style())
 
             water_bill_entry = CustomLineEdit()
             water_bill_entry.setObjectName(f"room_{i}_water_bill")
-            water_bill_entry.setPlaceholderText("Enter Water Bill")
+            
             water_bill_entry.setValidator(numeric_validator)
-            water_bill_entry.setStyleSheet(get_line_edit_style())
 
             house_rent_entry = CustomLineEdit()
             house_rent_entry.setObjectName(f"room_{i}_house_rent")
-            house_rent_entry.setPlaceholderText("Enter House Rent")
+            
             house_rent_entry.setValidator(numeric_validator)
-            house_rent_entry.setStyleSheet(get_line_edit_style())
 
-            grand_total_label = QLabel("N/A")
-            grand_total_label.setStyleSheet("font-weight: bold;") # Bold style for grand total
+            grand_total_label = StrongBodyLabel("N/A")
 
-            room_layout.addRow("Present Unit:", present_entry)
-            room_layout.addRow("Previous Unit:", previous_entry)
-            room_layout.addRow("Gas Bill:", gas_bill_entry)
-            room_layout.addRow("Water Bill:", water_bill_entry)
-            room_layout.addRow("House Rent:", house_rent_entry)
-            room_layout.addRow("Real Unit:", real_unit_label)
-            room_layout.addRow("Unit Bill:", unit_bill_label)
-            room_layout.addRow("Grand Total:", grand_total_label)
+            room_layout.addRow(BodyLabel("Present Unit:"),   present_entry)
+            room_layout.addRow(BodyLabel("Previous Unit:"), previous_entry)
+            room_layout.addRow(BodyLabel("Gas Bill:"),      gas_bill_entry)
+            room_layout.addRow(BodyLabel("Water Bill:"),    water_bill_entry)
+            room_layout.addRow(BodyLabel("House Rent:"),    house_rent_entry)
+            room_layout.addRow(BodyLabel("Real Unit:"),     real_unit_label)
+            room_layout.addRow(BodyLabel("Unit Bill:"),     unit_bill_label)
+            room_layout.addRow(BodyLabel("Grand Total:"),   grand_total_label)
 
             self.room_entries.append({
                 'present_entry': present_entry,

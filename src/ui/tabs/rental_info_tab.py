@@ -23,9 +23,9 @@ from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap # Keep QPixmap for _val
 from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QGridLayout, QGroupBox, QFormLayout, QMessageBox, QSizePolicy, QDialog,
-    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QComboBox, QCheckBox, QProgressDialog
+    QGridLayout, QFormLayout, QMessageBox, QSizePolicy, QDialog,
+    QFileDialog, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QProgressDialog
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -34,14 +34,13 @@ from reportlab.platypus.flowables import KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
-
-from src.ui.styles import (
-    get_room_selection_style, get_room_group_style, get_line_edit_style,
-    get_button_style, get_table_style, get_label_style, get_source_combo_style,
-    get_checkbox_style
+from qfluentwidgets import (
+    CardWidget, ComboBox, CheckBox, PrimaryPushButton, PushButton,
+    LineEdit, TableWidget, FluentIcon, TitleLabel
 )
+
 from src.core.utils import resource_path, _clear_layout
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, FluentProgressDialog
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgressDialog
 from src.ui.dialogs import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 # >>> ADD
@@ -107,27 +106,24 @@ class RentalInfoTab(QWidget):
         left_column_layout.setSpacing(15)
 
         # Input Form Group
-        input_group = QGroupBox("Rental Details")
-        input_group.setStyleSheet(get_room_selection_style())
-        input_form_layout = QFormLayout(input_group)
-        input_form_layout.setContentsMargins(20, 20, 20, 20)
-        input_form_layout.setSpacing(10)
+        input_group = CardWidget()
+        outer_input_layout = QVBoxLayout(input_group)
+        outer_input_layout.addWidget(TitleLabel("Rental Details"))
+        input_form_layout = QFormLayout()
+        outer_input_layout.addLayout(input_form_layout)
 
         self.tenant_name_input = CustomLineEdit()
-        self.tenant_name_input.setPlaceholderText("Enter tenant's full name")
-        self.tenant_name_input.setStyleSheet(get_line_edit_style())
+        
         # No validator for tenant name, as it can contain any characters
         input_form_layout.addRow("Tenant Name:", self.tenant_name_input)
 
         self.room_number_input = CustomLineEdit()
-        self.room_number_input.setPlaceholderText("e.g., A-101, Room 5")
-        self.room_number_input.setStyleSheet(get_line_edit_style())
+        
         # No validator for room number, as it can be free-form text
         input_form_layout.addRow("Room Number:", self.room_number_input)
 
         self.advanced_paid_input = CustomLineEdit()
-        self.advanced_paid_input.setPlaceholderText("Enter advanced payment amount")
-        self.advanced_paid_input.setStyleSheet(get_line_edit_style())
+        
         numeric_validator = QRegExpValidator(QRegExp(r'^\d*\.?\d*$')) # Allow float
         self.advanced_paid_input.setValidator(numeric_validator)
         input_form_layout.addRow("Advanced Paid (TK):", self.advanced_paid_input)
@@ -154,48 +150,44 @@ class RentalInfoTab(QWidget):
         self.tenant_name_input.setFocus()
 
         # Image Uploads Group
-        image_upload_group = QGroupBox("Document Upload")
-        image_upload_group.setStyleSheet(get_room_selection_style())
-        image_upload_layout = QGridLayout(image_upload_group)
-        image_upload_layout.setContentsMargins(20, 20, 20, 20)
-        image_upload_layout.setSpacing(10)
+        image_upload_group = CardWidget()
+        outer_image_layout = QVBoxLayout(image_upload_group)
+        outer_image_layout.addWidget(TitleLabel("Document Upload"))
+        image_upload_layout = QGridLayout()
+        outer_image_layout.addLayout(image_upload_layout)
 
         # Photo
-        self.photo_path_label = QLineEdit("No file selected")
+        self.photo_path_label = LineEdit()
+        self.photo_path_label.setText("No file selected")
         self.photo_path_label.setReadOnly(True)
-        self.photo_path_label.setStyleSheet(get_label_style())
-        upload_photo_btn = QPushButton("Photo")
-        upload_photo_btn.setStyleSheet(get_button_style())
+        upload_photo_btn = PushButton(FluentIcon.CAMERA, "Photo")
         upload_photo_btn.clicked.connect(lambda: self.upload_image("photo"))
         image_upload_layout.addWidget(self.photo_path_label, 0, 0)
         image_upload_layout.addWidget(upload_photo_btn, 0, 1)
 
         # NID Front
-        self.nid_front_path_label = QLineEdit("No file selected")
+        self.nid_front_path_label = LineEdit()
+        self.nid_front_path_label.setText("No file selected")
         self.nid_front_path_label.setReadOnly(True)
-        self.nid_front_path_label.setStyleSheet(get_label_style())
-        upload_nid_front_btn = QPushButton("NID Front")
-        upload_nid_front_btn.setStyleSheet(get_button_style())
+        upload_nid_front_btn = PushButton(FluentIcon.PEOPLE, "NID Front")
         upload_nid_front_btn.clicked.connect(lambda: self.upload_image("nid_front"))
         image_upload_layout.addWidget(self.nid_front_path_label, 1, 0)
         image_upload_layout.addWidget(upload_nid_front_btn, 1, 1)
 
         # NID Back
-        self.nid_back_path_label = QLineEdit("No file selected")
+        self.nid_back_path_label = LineEdit()
+        self.nid_back_path_label.setText("No file selected")
         self.nid_back_path_label.setReadOnly(True)
-        self.nid_back_path_label.setStyleSheet(get_label_style())
-        upload_nid_back_btn = QPushButton("NID Back")
-        upload_nid_back_btn.setStyleSheet(get_button_style())
+        upload_nid_back_btn = PushButton(FluentIcon.PEOPLE, "NID Back")
         upload_nid_back_btn.clicked.connect(lambda: self.upload_image("nid_back"))
         image_upload_layout.addWidget(self.nid_back_path_label, 2, 0)
         image_upload_layout.addWidget(upload_nid_back_btn, 2, 1)
 
         # Police Form
-        self.police_form_path_label = QLineEdit("No file selected")
+        self.police_form_path_label = LineEdit()
+        self.police_form_path_label.setText("No file selected")
         self.police_form_path_label.setReadOnly(True)
-        self.police_form_path_label.setStyleSheet(get_label_style())
-        upload_police_form_btn = QPushButton("Police Form")
-        upload_police_form_btn.setStyleSheet(get_button_style())
+        upload_police_form_btn = PushButton(FluentIcon.DOCUMENT, "Police Form")
         upload_police_form_btn.clicked.connect(lambda: self.upload_image("police_form"))
         image_upload_layout.addWidget(self.police_form_path_label, 3, 0)
         image_upload_layout.addWidget(upload_police_form_btn, 3, 1)
@@ -203,24 +195,22 @@ class RentalInfoTab(QWidget):
         left_column_layout.addWidget(image_upload_group)
 
         # Save Options Group
-        save_options_group = QGroupBox("Save Options")
-        save_options_group.setStyleSheet(get_room_selection_style())
-        save_options_layout = QHBoxLayout(save_options_group)
+        save_options_group = CardWidget()
+        outer_save_layout = QVBoxLayout(save_options_group)
+        outer_save_layout.addWidget(TitleLabel("Save Options"))
+        save_options_layout = QHBoxLayout()
+        outer_save_layout.addLayout(save_options_layout)
         save_options_layout.setContentsMargins(10, 10, 10, 10)
         save_options_layout.setSpacing(20)
         save_options_layout.setAlignment(Qt.AlignCenter)
 
-        self.save_to_pc_checkbox = QCheckBox("Save to PC")
+        self.save_to_pc_checkbox = CheckBox("Save to PC")
         self.save_to_pc_checkbox.setChecked(True)
-        self.save_to_pc_checkbox.setStyleSheet(get_checkbox_style())
-        self.save_to_pc_checkbox.setIcon(QIcon(resource_path("icons/database_icon.png")))
         self.save_to_pc_checkbox.setIconSize(self.save_to_pc_checkbox.sizeHint() / 2)
         save_options_layout.addWidget(self.save_to_pc_checkbox)
 
-        self.save_to_cloud_checkbox = QCheckBox("Save to Cloud")
+        self.save_to_cloud_checkbox = CheckBox("Save to Cloud")
         self.save_to_cloud_checkbox.setChecked(True)
-        self.save_to_cloud_checkbox.setStyleSheet(get_checkbox_style())
-        self.save_to_cloud_checkbox.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
         self.save_to_cloud_checkbox.setIconSize(self.save_to_cloud_checkbox.sizeHint() / 2)
         save_options_layout.addWidget(self.save_to_cloud_checkbox)
 
@@ -230,15 +220,12 @@ class RentalInfoTab(QWidget):
         action_buttons_layout = QHBoxLayout()
         
         # Save Record Button
-        self.save_record_btn = CustomNavButton("Save Record")
-        self.save_record_btn.setStyleSheet(get_button_style())
+        self.save_record_btn = PrimaryPushButton(FluentIcon.SAVE, "Save Record")
         self.save_record_btn.clicked.connect(self.save_rental_record)
         action_buttons_layout.addWidget(self.save_record_btn)
 
         # Clear Form Button
-        self.clear_form_btn = QPushButton("Clear Form")
-        clear_button_style = get_button_style().replace("#059669", "#6c757d").replace("#047857", "#5a6268") # Gray color
-        self.clear_form_btn.setStyleSheet(clear_button_style)
+        self.clear_form_btn = PushButton(FluentIcon.CANCEL, "Clear Form")
         self.clear_form_btn.clicked.connect(self.clear_form)
         action_buttons_layout.addWidget(self.clear_form_btn)
         
@@ -250,28 +237,28 @@ class RentalInfoTab(QWidget):
         right_column_layout = QVBoxLayout()
         right_column_layout.setSpacing(15)
 
-        table_group = QGroupBox("Existing Rental Records")
-        table_group.setStyleSheet(get_room_selection_style())
-        table_layout = QVBoxLayout(table_group)
+        table_group = CardWidget()
+        outer_table_layout = QVBoxLayout(table_group)
+        outer_table_layout.addWidget(TitleLabel("Existing Rental Records"))
+        table_layout = QVBoxLayout()
+        outer_table_layout.addLayout(table_layout)
         # >>> ADD
         # Expose the layout so we can insert/remove the progress bar later
         self.table_layout = table_layout
         # <<< ADD
 
         # Add Load Source Combo Box
-        self.load_source_combo = QComboBox()
+        self.load_source_combo = ComboBox()
         self.load_source_combo.addItems(["Local DB", "Cloud (Supabase)"])
-        self.load_source_combo.setStyleSheet(get_source_combo_style()) # Re-using button style for now
         self.load_source_combo.currentIndexChanged.connect(self.load_rental_records)
         table_layout.addWidget(self.load_source_combo)
 
-        self.rental_records_table = QTableWidget()
+        self.rental_records_table = TableWidget()
         self.rental_records_table.setColumnCount(6) # ID, Name, Room, Advanced, Created, Updated
         self.rental_records_table.setHorizontalHeaderLabels(["ID", "Tenant Name", "Room Number", "Advanced Paid", "Created At", "Updated At"])
         self.rental_records_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.rental_records_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.rental_records_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.rental_records_table.setStyleSheet(get_table_style())
         self.rental_records_table.clicked.connect(self.show_record_details_dialog)
         table_layout.addWidget(self.rental_records_table)
         

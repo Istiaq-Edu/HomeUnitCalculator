@@ -10,18 +10,17 @@ from PyQt5.QtCore import Qt, QRegExp
 from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QFormLayout, QMessageBox, QSpinBox, QScrollArea,
-    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QSizePolicy,
+    QFormLayout, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
     QDialog, QAbstractItemView
 )
 from postgrest.exceptions import APIError
-
-from src.ui.styles import (
-    get_stylesheet, get_group_box_style, get_line_edit_style, get_button_style,
-    get_room_group_style, get_month_info_style, get_table_style, get_label_style
+from qfluentwidgets import (
+    CardWidget, ComboBox, SpinBox, PrimaryPushButton, PushButton,
+    TitleLabel, BodyLabel, CaptionLabel, TableWidget, FluentIcon
 )
+
 from src.core.utils import resource_path # For icons
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
 
 
 # Dialog for Editing Records (Moved from HomeUnitCalculator.py)
@@ -36,23 +35,23 @@ class EditRecordDialog(QDialog):
         
         self.setWindowTitle("Edit Calculation Record")
         self.setMinimumWidth(600) 
-        self.setMinimumHeight(500) 
-        self.setStyleSheet(get_stylesheet()) 
+        self.setMinimumHeight(500)
 
         main_layout = QVBoxLayout(self)
         button_layout = QHBoxLayout()
 
-        self.month_year_label = QLabel(f"Record for: {main_data.get('month', '')} {main_data.get('year', '')}")
+        self.month_year_label = TitleLabel(f"Record for: {main_data.get('month', '')} {main_data.get('year', '')}")
         main_layout.addWidget(self.month_year_label)
 
-        main_group = QGroupBox("Main Calculation Data")
+        main_group = CardWidget()
+        main_group_vbox = QVBoxLayout(main_group)
+        main_group_vbox.addWidget(TitleLabel("Main Calculation Data"))
         main_scroll_area = AutoScrollArea()
         main_scroll_area.setWidgetResizable(True)
         main_scroll_widget = QWidget()
         main_group_layout = QFormLayout(main_scroll_widget)
         main_group_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         main_scroll_area.setWidget(main_scroll_widget)
-        main_group_vbox = QVBoxLayout(main_group)
         main_group_vbox.addWidget(main_scroll_area)
         
         self.meter1_edit = CustomLineEdit(); self.meter1_edit.setObjectName("dialog_meter1_edit")
@@ -90,9 +89,10 @@ class EditRecordDialog(QDialog):
         main_group_layout.addRow("Additional Amount:", self.additional_amount_edit)
         main_layout.addWidget(main_group)
 
-        self.rooms_group = QGroupBox("Room Data") 
+        self.rooms_group = CardWidget()
         rooms_main_layout = QVBoxLayout(self.rooms_group)
-        scroll_area_rooms = QScrollArea() # Renamed to avoid conflict if self.scroll_area is used elsewhere
+        rooms_main_layout.addWidget(TitleLabel("Room Data"))
+        scroll_area_rooms = AutoScrollArea() # Renamed to avoid conflict if self.scroll_area is used elsewhere
         scroll_area_rooms.setWidgetResizable(True)
         scroll_content_widget = QWidget()
         self.rooms_edit_layout = QVBoxLayout(scroll_content_widget)
@@ -108,9 +108,12 @@ class EditRecordDialog(QDialog):
             nested = room_data.get('room_data') if isinstance(room_data, dict) else None
             rd = nested if isinstance(nested, dict) else room_data
             room_name = rd.get('room_name', 'Unknown Room')
-            room_edit_group = QGroupBox(room_name)
-            room_edit_group.setStyleSheet(get_room_group_style())
-            room_edit_form_layout = QFormLayout(room_edit_group)
+            room_edit_group = CardWidget()
+            room_edit_main_layout = QVBoxLayout(room_edit_group)
+            room_edit_main_layout.addWidget(TitleLabel(room_name))
+            form_widget = QWidget()
+            room_edit_form_layout = QFormLayout(form_widget)
+            room_edit_main_layout.addWidget(form_widget)
             room_edit_form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
             present_edit = CustomLineEdit()
@@ -145,10 +148,8 @@ class EditRecordDialog(QDialog):
              self.rooms_edit_layout.addWidget(no_rooms_label)
         main_layout.addWidget(self.rooms_group)
 
-        self.save_button = CustomNavButton("Save Changes")
-        self.cancel_button = QPushButton("Cancel")
-        self.save_button.setStyleSheet(get_button_style())
-        self.cancel_button.setStyleSheet("background-color: #6c757d; color: white; border: none; border-radius: 4px; padding: 10px; font-weight: bold; font-size: 14px;") 
+        self.save_button = PrimaryPushButton(FluentIcon.SAVE, "Save Changes")
+        self.cancel_button = PushButton(FluentIcon.CANCEL, "Cancel")
 
         button_layout.addStretch()
         button_layout.addWidget(self.cancel_button)
@@ -397,22 +398,17 @@ class HistoryTab(QWidget):
         top_layout = QHBoxLayout()
         top_layout.setSpacing(15)
 
-        filter_group = QGroupBox("Filter Options")
-        filter_group.setStyleSheet(get_group_box_style())
+        filter_group = CardWidget()
         filter_layout = QHBoxLayout(filter_group)
-        month_label = QLabel("Month:")
-        month_label.setStyleSheet(get_label_style())
-        self.history_month_combo = QComboBox()
+        month_label = BodyLabel("Month:")
+        self.history_month_combo = ComboBox()
         self.history_month_combo.addItems(["All", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])
-        self.history_month_combo.setStyleSheet(get_month_info_style())
-        year_label = QLabel("Year:")
-        year_label.setStyleSheet(get_label_style())
-        self.history_year_spinbox = QSpinBox()
+        year_label = BodyLabel("Year:")
+        self.history_year_spinbox = SpinBox()
         # Use 0 as sentinel for "All"
         self.history_year_spinbox.setRange(0, 2100)
         self.history_year_spinbox.setSpecialValueText("All")
         self.history_year_spinbox.setValue(datetime.now().year)          # default to current year
-        self.history_year_spinbox.setStyleSheet(get_month_info_style())
         filter_layout.addWidget(month_label)
         filter_layout.addWidget(self.history_month_combo)
         filter_layout.addSpacing(15)
@@ -421,34 +417,27 @@ class HistoryTab(QWidget):
         filter_layout.addStretch(1)
         top_layout.addWidget(filter_group, 2)
 
-        load_history_options_group = QGroupBox("Load History Options")
-        load_history_options_group.setStyleSheet(get_group_box_style())
+        load_history_options_group = CardWidget()
         load_history_options_layout = QHBoxLayout(load_history_options_group)
         load_history_options_layout.setSpacing(10)
-        history_source_label = QLabel("Source:")
-        history_source_label.setStyleSheet(get_label_style())
+        history_source_label = BodyLabel("Source:")
         load_history_options_layout.addWidget(history_source_label)
         load_history_options_layout.addWidget(self.main_window.load_history_source_combo) # Accessed from main_window
-        load_history_button = QPushButton("Load History Table")
+        load_history_button = PrimaryPushButton(FluentIcon.DOWNLOAD, "Load History Table")
         load_history_button.clicked.connect(self.load_history)
-        load_history_button.setStyleSheet(get_button_style())
-        load_history_button.setFixedHeight(35)
+        load_history_button.setFixedHeight(40)
         load_history_options_layout.addWidget(load_history_button)
         load_history_options_layout.addStretch(1)
         top_layout.addWidget(load_history_options_group, 2)
 
-        record_actions_group = QGroupBox("Record Actions")
-        record_actions_group.setStyleSheet(get_group_box_style())
+        record_actions_group = CardWidget()
         record_actions_layout = QHBoxLayout(record_actions_group)
         record_actions_layout.setSpacing(10)
-        self.edit_selected_record_button = QPushButton("Edit Record")
-        self.edit_selected_record_button.setStyleSheet(get_button_style())
-        self.edit_selected_record_button.setFixedHeight(35)
+        self.edit_selected_record_button = PushButton(FluentIcon.EDIT, "Edit Record")
+        self.edit_selected_record_button.setFixedHeight(40)
         self.edit_selected_record_button.clicked.connect(self.handle_edit_selected_record)
-        self.delete_selected_record_button = QPushButton("Delete Record")
-        delete_button_style = "background-color: #dc3545; color: white; border: none; border-radius: 4px; padding: 8px; font-weight: bold; font-size: 13px;"
-        self.delete_selected_record_button.setStyleSheet(delete_button_style)
-        self.delete_selected_record_button.setFixedHeight(35)
+        self.delete_selected_record_button = PushButton(FluentIcon.DELETE, "Delete Record")
+        self.delete_selected_record_button.setFixedHeight(40)
         self.delete_selected_record_button.clicked.connect(self.handle_delete_selected_record)
         record_actions_layout.addWidget(self.edit_selected_record_button)
         record_actions_layout.addWidget(self.delete_selected_record_button)
@@ -456,17 +445,16 @@ class HistoryTab(QWidget):
         top_layout.addWidget(record_actions_group, 1)
         layout.addLayout(top_layout)
 
-        main_calc_group = QGroupBox("Main Calculation Info")
-        main_calc_group.setStyleSheet(get_group_box_style())
+        main_calc_group = CardWidget()
         main_calc_layout = QVBoxLayout(main_calc_group)
-        self.main_history_table = QTableWidget()
+        main_calc_layout.addWidget(TitleLabel("Main Calculation Info"))
+        self.main_history_table = TableWidget()
         # Enable horizontal scrollbar for main table if content exceeds width
         self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # Vertical scrolling handled by main scroll area
         self.main_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.main_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.main_history_table.setAlternatingRowColors(True)
-        self.main_history_table.setStyleSheet(get_table_style())
         # Initially set columns to minimum required, will update dynamically on data load
         self.set_main_history_table_columns(3)  # default 3 meters/diffs
         # Remove all height restrictions and let table grow naturally
@@ -477,10 +465,10 @@ class HistoryTab(QWidget):
         main_calc_layout.addWidget(self.main_history_table)
         layout.addWidget(main_calc_group)  # No stretch factor - let it size naturally
 
-        room_calc_group = QGroupBox("Room Calculation Info")
-        room_calc_group.setStyleSheet(get_group_box_style())
+        room_calc_group = CardWidget()
         room_calc_layout = QVBoxLayout(room_calc_group)
-        self.room_history_table = QTableWidget()
+        room_calc_layout.addWidget(TitleLabel("Room Calculation Info"))
+        self.room_history_table = TableWidget()
         self.room_history_table.setColumnCount(10)
         self.room_history_table.setHorizontalHeaderLabels([
             "Month", "Room Number", "Present Unit", "Previous Unit", "Real Unit", 
@@ -489,7 +477,6 @@ class HistoryTab(QWidget):
         # Allow interactive resizing and horizontal scrolling for room table
         self.room_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive) 
         self.room_history_table.setAlternatingRowColors(True)
-        self.room_history_table.setStyleSheet(get_table_style())
         # Enable horizontal scrollbar for room table if content exceeds width
         self.room_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # Vertical scrolling handled by main scroll area
@@ -504,17 +491,16 @@ class HistoryTab(QWidget):
         layout.addWidget(room_calc_group)  # No stretch factor - let it size naturally
 
         # Add new totals section
-        totals_group = QGroupBox("Total Summary")
-        totals_group.setStyleSheet(get_group_box_style())
+        totals_group = CardWidget()
         totals_layout = QVBoxLayout(totals_group)
-        self.totals_table = QTableWidget()
+        totals_layout.addWidget(TitleLabel("Total Summary"))
+        self.totals_table = TableWidget()
         self.totals_table.setColumnCount(5)
         self.totals_table.setHorizontalHeaderLabels([
             "Month", "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"
         ])
         self.totals_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.totals_table.setAlternatingRowColors(True)
-        self.totals_table.setStyleSheet(get_table_style())
         # Remove all height restrictions and let table grow naturally
         self.totals_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         # Disable scrollbars for totals table since we're using full page scrolling

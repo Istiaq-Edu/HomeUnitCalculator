@@ -5,22 +5,22 @@ import csv
 import traceback
 from datetime import datetime
 
-from PyQt5.QtCore import QRegExp
+from PyQt5.QtCore import QRegExp, Qt
 from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QGroupBox, QFormLayout, QMessageBox, QSpinBox, QComboBox, QSizePolicy,
-    QGridLayout # Added QGridLayout
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QFormLayout, QMessageBox, QSizePolicy,
+    QGridLayout, QBoxLayout  # Added QBoxLayout for harmonisation helper
 )
 from postgrest.exceptions import APIError
-
-from src.ui.styles import (
-    get_group_box_style, get_line_edit_style, get_button_style,
-    get_month_info_style, get_label_style, get_result_title_style,
-    get_result_value_style
+from qfluentwidgets import (
+    ComboBox, SpinBox, PrimaryPushButton,
+    CardWidget, TitleLabel, BodyLabel, CaptionLabel,
+    FluentIcon
 )
+
 from src.core.utils import resource_path
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomSpinBox, CustomNavButton
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
 
 class MainTab(QWidget):
     def __init__(self, main_window_ref):
@@ -51,33 +51,28 @@ class MainTab(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        main_layout = QVBoxLayout(self) 
-        main_layout.setSpacing(20)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        # Root layout – use tighter default spacing / margins for a less "airy" look
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(12, 12, 12, 12)
 
         new_top_row_layout = QHBoxLayout()
-        new_top_row_layout.setSpacing(20) 
+        new_top_row_layout.setSpacing(8)
 
-        date_selection_group = QGroupBox("Date Selection") 
-        date_selection_group.setStyleSheet(get_group_box_style())
-        date_selection_filter_layout = QHBoxLayout() 
-        date_selection_group.setLayout(date_selection_filter_layout)
+        date_selection_group = CardWidget()
+        date_selection_filter_layout = QHBoxLayout(date_selection_group)
 
-        month_label = QLabel("Month:")
-        month_label.setStyleSheet(get_label_style())
-        self.month_combo = QComboBox() 
+        month_label = BodyLabel("Month:")
+        self.month_combo = ComboBox()
         self.month_combo.addItems([
-            "January", "February", "March", "April", "May", "June", 
+            "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ])
-        self.month_combo.setStyleSheet(get_month_info_style())
 
-        year_label = QLabel("Year:")
-        year_label.setStyleSheet(get_label_style())
-        self.year_spinbox = QSpinBox()
+        year_label = BodyLabel("Year:")
+        self.year_spinbox = SpinBox()
         self.year_spinbox.setRange(2000, 2100)
         self.year_spinbox.setValue(datetime.now().year)
-        self.year_spinbox.setStyleSheet(get_month_info_style())
 
         date_selection_filter_layout.addWidget(month_label)
         date_selection_filter_layout.addWidget(self.month_combo)
@@ -85,72 +80,86 @@ class MainTab(QWidget):
         date_selection_filter_layout.addWidget(year_label)
         date_selection_filter_layout.addWidget(self.year_spinbox)
         date_selection_filter_layout.addStretch(1)
-        new_top_row_layout.addWidget(date_selection_group, 1) 
+        new_top_row_layout.addWidget(date_selection_group, 1)
 
-        moved_load_options_group = QGroupBox("Load Data Options")
-        moved_load_options_group.setStyleSheet(get_group_box_style())
-        moved_load_options_internal_layout = QVBoxLayout()
-        moved_load_options_group.setLayout(moved_load_options_internal_layout)
+        moved_load_options_group = CardWidget()
+        moved_load_options_internal_layout = QVBoxLayout(moved_load_options_group)
 
-        load_info_group = self.create_load_info_group() 
+        load_info_group = self.create_load_info_group()
         moved_load_options_internal_layout.addWidget(load_info_group)
 
         source_info_layout = QHBoxLayout()
-        source_info_label = QLabel("Source for 'Load' Button:")
-        source_info_label.setStyleSheet(get_label_style())
+        source_info_layout.setSpacing(8)
+        source_info_label = BodyLabel("Source for 'Load' Button:")
         source_info_layout.addWidget(source_info_label)
-        source_info_layout.addWidget(self.main_window.load_info_source_combo) 
-        source_info_layout.addStretch(1) 
+        source_info_layout.addWidget(self.main_window.load_info_source_combo)
+        source_info_layout.addStretch(1)
         moved_load_options_internal_layout.addLayout(source_info_layout)
-        new_top_row_layout.addWidget(moved_load_options_group, 1) 
+        new_top_row_layout.addWidget(moved_load_options_group, 1)
         main_layout.addLayout(new_top_row_layout)
 
         middle_row_layout = QHBoxLayout()
-        meter_group = QGroupBox("Meter Readings")
-        meter_group.setStyleSheet(get_group_box_style())
+        middle_row_layout.setSpacing(8)
+        meter_group = CardWidget()
+        meter_group.setLayout(QVBoxLayout())
+        meter_group.layout().setContentsMargins(8, 8, 8, 8)
+        meter_group.layout().setSpacing(4)
+        meter_group.layout().addWidget(TitleLabel("Meter Readings"))
         meter_scroll = AutoScrollArea()
         meter_scroll.setWidgetResizable(True)
         meter_container = QWidget()
         self.meter_layout = QFormLayout(meter_container)
         self.meter_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         meter_scroll.setWidget(meter_container)
-        meter_group_layout = QVBoxLayout(meter_group)
-        meter_group_layout.addWidget(meter_scroll)
-        middle_row_layout.addWidget(meter_group, 1)
+        meter_group.layout().addWidget(meter_scroll)
+        # Give Meter Readings group more horizontal space
+        middle_row_layout.addWidget(meter_group, 3)
         
-        diff_group = QGroupBox("Difference Readings")
-        diff_group.setStyleSheet(get_group_box_style())
+        diff_group = CardWidget()
+        diff_group.setLayout(QVBoxLayout())
+        diff_group.layout().setContentsMargins(8, 8, 8, 8)
+        diff_group.layout().setSpacing(4)
+        diff_group.layout().addWidget(TitleLabel("Difference Readings"))
         diff_scroll = AutoScrollArea()
         diff_scroll.setWidgetResizable(True)
         diff_container = QWidget()
         self.diff_layout = QFormLayout(diff_container)
         self.diff_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         diff_scroll.setWidget(diff_container)
-        diff_group_layout = QVBoxLayout(diff_group)
-        diff_group_layout.addWidget(diff_scroll)
-        middle_row_layout.addWidget(diff_group, 1)
+        diff_group.layout().addWidget(diff_scroll)
+        # Give Difference Readings group more horizontal space
+        middle_row_layout.addWidget(diff_group, 3)
         
-        right_column_layout = QVBoxLayout()
+        # Wrap right column in a container so we can limit its width
+        right_column_container = QWidget()
+        right_column_layout = QVBoxLayout(right_column_container)
+        right_column_container.setMaximumWidth(320)
         spinboxes_layout = QHBoxLayout()
         
-        meter_count_group = QGroupBox("Number of Meters:")
-        meter_count_group.setStyleSheet(get_group_box_style())
-        meter_count_layout = QHBoxLayout(meter_count_group)
+        meter_count_group = CardWidget()
+        meter_count_layout = QVBoxLayout(meter_count_group)
         meter_count_layout.setContentsMargins(5, 5, 5, 5)
         meter_count_layout.setSpacing(2)
-        self.meter_count_spinbox = CustomSpinBox()
+        meter_count_label = BodyLabel("Number of Meters:")
+        meter_count_label.setStyleSheet("font-weight: bold;")
+        meter_count_label.setAlignment(Qt.AlignCenter)
+        meter_count_layout.addWidget(meter_count_label)
+        self.meter_count_spinbox = SpinBox()
         self.meter_count_spinbox.setRange(1, 10)
         self.meter_count_spinbox.setValue(3)
         self.meter_count_spinbox.valueChanged.connect(self.update_meter_inputs)
         meter_count_layout.addWidget(self.meter_count_spinbox)
         spinboxes_layout.addWidget(meter_count_group)
         
-        diff_count_group = QGroupBox("Number of Diffs:")
-        diff_count_group.setStyleSheet(get_group_box_style())
-        diff_count_layout = QHBoxLayout(diff_count_group)
+        diff_count_group = CardWidget()
+        diff_count_layout = QVBoxLayout(diff_count_group)
         diff_count_layout.setContentsMargins(5, 5, 5, 5)
         diff_count_layout.setSpacing(2)
-        self.diff_count_spinbox = CustomSpinBox()
+        diff_count_label = BodyLabel("Number of Diffs:")
+        diff_count_label.setStyleSheet("font-weight: bold;")
+        diff_count_label.setAlignment(Qt.AlignCenter)
+        diff_count_layout.addWidget(diff_count_label)
+        self.diff_count_spinbox = SpinBox()
         self.diff_count_spinbox.setRange(1, 10)
         self.diff_count_spinbox.setValue(3)
         self.diff_count_spinbox.valueChanged.connect(self.update_diff_inputs)
@@ -162,49 +171,93 @@ class MainTab(QWidget):
         
         amount_group = self.create_additional_amount_group()
         right_column_layout.addWidget(amount_group)
-        middle_row_layout.addLayout(right_column_layout, 1)
+        middle_row_layout.addWidget(right_column_container, 1)
         main_layout.addLayout(middle_row_layout)
 
         results_group = self.create_results_group()
         main_layout.addWidget(results_group)
 
         button_layout = QHBoxLayout()
-        self.main_calculate_button = CustomNavButton("Calculate")
-        self.main_calculate_button.setIcon(QIcon(resource_path("icons/calculate_icon.png")))
+        self.main_calculate_button = PrimaryPushButton(FluentIcon.EDIT, "Calculate")
         self.main_calculate_button.clicked.connect(self.calculate_main)
-        self.main_calculate_button.setStyleSheet(get_button_style())
-        self.main_calculate_button.setFixedHeight(50)
+        self.main_calculate_button.setFixedHeight(40)
         button_layout.addWidget(self.main_calculate_button)
         main_layout.addLayout(button_layout)
+        
+        # ── Save buttons row ─────────────────────────────────────────────
+        save_buttons_row = QHBoxLayout()
+        save_buttons_row.setSpacing(8)
+        save_buttons_row.setContentsMargins(0, 8, 0, 0)
+
+        pdf_button = PrimaryPushButton(FluentIcon.DOCUMENT, "Save PDF")
+        pdf_button.setFixedHeight(40)
+        pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        pdf_button.clicked.connect(self.main_window.save_to_pdf)
+
+        csv_button = PrimaryPushButton(FluentIcon.SAVE, "Save CSV")
+        csv_button.setFixedHeight(40)
+        csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
+
+        cloud_button = PrimaryPushButton(FluentIcon.CLOUD_DOWNLOAD, "Save Cloud")
+        cloud_button.setFixedHeight(40)
+        cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
+
+        save_buttons_row.addWidget(pdf_button, 1)
+        save_buttons_row.addWidget(csv_button, 1)
+        save_buttons_row.addWidget(cloud_button, 1)
+
+        # Theme button will be injected by main window after it is created
+        self._save_buttons_row = save_buttons_row  # store for later insertion
+
+        main_layout.addLayout(save_buttons_row)
         
         self.update_meter_inputs(3)
         self.update_diff_inputs(3)
         
+        # ------------------------------------------------------------------
+        # Final pass: recursively harmonise spacing / margins across all
+        #               sub-layouts for a consistent, compact appearance.
+        # ------------------------------------------------------------------
+        # Importing at module level, so no local import here (avoids shadowing)
+        UNIFIED_MARGIN = 12
+        UNIFIED_SPACING = 8
+
+        def _harmonise_layout(layout):
+            if isinstance(layout, (QBoxLayout, QFormLayout, QGridLayout)):
+                layout.setSpacing(UNIFIED_SPACING)
+                layout.setContentsMargins(UNIFIED_MARGIN, UNIFIED_MARGIN, UNIFIED_MARGIN, UNIFIED_MARGIN)
+                for i in range(layout.count()):
+                    child = layout.itemAt(i)
+                    if child and child.layout():
+                        _harmonise_layout(child.layout())
+
+        _harmonise_layout(main_layout)
+
         self.setLayout(main_layout)
 
     def create_additional_amount_group(self):
-        amount_group = QGroupBox("Additional Amount")
+        amount_group = CardWidget()
         amount_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        amount_group.setStyleSheet(get_group_box_style())
-        amount_layout = QHBoxLayout()
-        amount_group.setLayout(amount_layout)
+        amount_layout = QVBoxLayout(amount_group)
+        amount_layout.setDirection(QBoxLayout.TopToBottom)
 
-        amount_label = QLabel("Additional Amount:")
-        amount_label.setStyleSheet(get_label_style())
+        amount_label = BodyLabel("Additional Amount:")
         self.additional_amount_input = CustomLineEdit()
         self.additional_amount_input.setObjectName("main_additional_amount_input")
-        self.additional_amount_input.setPlaceholderText("Enter additional amount")
-        self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
-        self.additional_amount_input.setStyleSheet(get_line_edit_style())
         
-        currency_label = QLabel("TK")
-        currency_label.setStyleSheet(get_label_style())
+        self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
+        
+        currency_label = CaptionLabel("TK")
 
         input_layout = QHBoxLayout()
         input_layout.addWidget(self.additional_amount_input, 1)
         input_layout.addWidget(currency_label)
         input_layout.setSpacing(5)
 
+        amount_label.setStyleSheet("font-weight: bold;")
+        amount_label.setAlignment(Qt.AlignCenter)
         amount_layout.addWidget(amount_label)
         amount_layout.addLayout(input_layout, 1)
         amount_group.setToolTip("Enter any additional amount to be added to the total bill")
@@ -218,96 +271,103 @@ class MainTab(QWidget):
             return 0.0
 
     def create_results_group(self):
-        results_group = QGroupBox("Results")
-        results_group.setStyleSheet(get_group_box_style())
+        results_group = CardWidget()
         results_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         results_layout = QHBoxLayout(results_group)
         results_layout.setSpacing(20)
-        results_layout.setContentsMargins(15, 25, 15, 15)
+        results_layout.setContentsMargins(10, 15, 10, 10)
 
         total_unit_layout = QVBoxLayout()
+        total_unit_layout.setAlignment(Qt.AlignHCenter)
         total_unit_layout.setSpacing(2)
-        total_unit_title_label = QLabel("Total Units")
-        total_unit_title_label.setStyleSheet(get_result_title_style())
-        self.total_unit_value_label = QLabel("0")
-        self.total_unit_value_label.setStyleSheet(get_result_value_style())
+        total_unit_title_label = TitleLabel("Total Units")
+        total_unit_title_label.setStyleSheet("color:#4FC3F7;font-weight:bold;")
+        total_unit_title_label.setAlignment(Qt.AlignHCenter)
+        self.total_unit_value_label = BodyLabel("0")
+        self.total_unit_value_label.setStyleSheet("color:#4FC3F7;font-size:36px;font-weight:bold;")
+        self.total_unit_value_label.setAlignment(Qt.AlignCenter)
         total_unit_layout.addWidget(total_unit_title_label)
-        total_unit_layout.addWidget(self.total_unit_value_label)
-        total_unit_layout.addStretch(1)
+        total_unit_layout.addWidget(self.total_unit_value_label, alignment=Qt.AlignHCenter)
+        
         results_layout.addLayout(total_unit_layout, 1)
 
         total_diff_layout = QVBoxLayout()
+        total_diff_layout.setAlignment(Qt.AlignHCenter)
         total_diff_layout.setSpacing(2)
-        total_diff_title_label = QLabel("Total Difference")
-        total_diff_title_label.setStyleSheet(get_result_title_style())
-        self.total_diff_value_label = QLabel("0")
-        self.total_diff_value_label.setStyleSheet(get_result_value_style())
+        total_diff_title_label = TitleLabel("Total Difference")
+        total_diff_title_label.setStyleSheet("color:#FFB74D;font-weight:bold;")
+        total_diff_title_label.setAlignment(Qt.AlignHCenter)
+        self.total_diff_value_label = BodyLabel("0")
+        self.total_diff_value_label.setStyleSheet("color:#FFB74D;font-size:36px;font-weight:bold;")
+        self.total_diff_value_label.setAlignment(Qt.AlignCenter)
         total_diff_layout.addWidget(total_diff_title_label)
-        total_diff_layout.addWidget(self.total_diff_value_label)
-        total_diff_layout.addStretch(1)
+        total_diff_layout.addWidget(self.total_diff_value_label, alignment=Qt.AlignHCenter)
+        
         results_layout.addLayout(total_diff_layout, 1)
 
         per_unit_cost_layout = QVBoxLayout()
+        per_unit_cost_layout.setAlignment(Qt.AlignHCenter)
         per_unit_cost_layout.setSpacing(2)
-        per_unit_cost_title_label = QLabel("Per Unit Cost")
-        per_unit_cost_title_label.setStyleSheet(get_result_title_style())
-        self.per_unit_cost_value_label = QLabel("0.00")
-        self.per_unit_cost_value_label.setStyleSheet(get_result_value_style())
+        per_unit_cost_title_label = TitleLabel("Per Unit Cost")
+        per_unit_cost_title_label.setStyleSheet("color:#81C784;font-weight:bold;")
+        per_unit_cost_title_label.setAlignment(Qt.AlignHCenter)
+        self.per_unit_cost_value_label = BodyLabel("0.00")
+        self.per_unit_cost_value_label.setStyleSheet("color:#81C784;font-size:36px;font-weight:bold;")
+        self.per_unit_cost_value_label.setAlignment(Qt.AlignCenter)
         per_unit_cost_layout.addWidget(per_unit_cost_title_label)
-        per_unit_cost_layout.addWidget(self.per_unit_cost_value_label)
-        per_unit_cost_layout.addStretch(1)
+        per_unit_cost_layout.addWidget(self.per_unit_cost_value_label, alignment=Qt.AlignHCenter)
+        
         results_layout.addLayout(per_unit_cost_layout, 1)
 
         added_amount_layout = QVBoxLayout()
+        added_amount_layout.setAlignment(Qt.AlignHCenter)
         added_amount_layout.setSpacing(2)
-        added_amount_title_label = QLabel("Added Amount")
-        added_amount_title_label.setStyleSheet(get_result_title_style())
-        self.additional_amount_value_label = QLabel("0")
-        self.additional_amount_value_label.setStyleSheet(get_result_value_style())
+        added_amount_title_label = TitleLabel("Added Amount")
+        added_amount_title_label.setStyleSheet("color:#BA68C8;font-weight:bold;")
+        added_amount_title_label.setAlignment(Qt.AlignHCenter)
+        self.additional_amount_value_label = BodyLabel("0")
+        self.additional_amount_value_label.setStyleSheet("color:#BA68C8;font-size:36px;font-weight:bold;")
+        self.additional_amount_value_label.setAlignment(Qt.AlignCenter)
         added_amount_layout.addWidget(added_amount_title_label)
-        added_amount_layout.addWidget(self.additional_amount_value_label)
-        added_amount_layout.addStretch(1)
+        added_amount_layout.addWidget(self.additional_amount_value_label, alignment=Qt.AlignHCenter)
+        
         results_layout.addLayout(added_amount_layout, 1)
 
         in_total_layout = QVBoxLayout()
+        in_total_layout.setAlignment(Qt.AlignHCenter)
         in_total_layout.setSpacing(2)
-        in_total_title_label = QLabel("In Total")
-        in_total_title_label.setStyleSheet(get_result_title_style())
-        self.in_total_value_label = QLabel("0.00")
-        self.in_total_value_label.setStyleSheet(get_result_value_style())
+        in_total_title_label = TitleLabel("In Total")
+        in_total_title_label.setStyleSheet("color:#E57373;font-weight:bold;")
+        in_total_title_label.setAlignment(Qt.AlignHCenter)
+        self.in_total_value_label = BodyLabel("0.00")
+        self.in_total_value_label.setStyleSheet("color:#E57373;font-size:36px;font-weight:bold;")
+        self.in_total_value_label.setAlignment(Qt.AlignCenter)
         in_total_layout.addWidget(in_total_title_label)
-        in_total_layout.addWidget(self.in_total_value_label)
-        in_total_layout.addStretch(1)
+        in_total_layout.addWidget(self.in_total_value_label, alignment=Qt.AlignHCenter)
+        
         results_layout.addLayout(in_total_layout, 1)
 
-        results_group.setMinimumHeight(100)
+        results_group.setMinimumHeight(80)
         return results_group
 
     def create_load_info_group(self):
-        load_info_group = QGroupBox("Load Information")
-        load_info_group.setStyleSheet(get_group_box_style())
-        load_info_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred) 
-        load_info_layout = QHBoxLayout()
-        load_info_group.setLayout(load_info_layout)
+        load_info_group = CardWidget()
+        load_info_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        load_info_layout = QHBoxLayout(load_info_group)
 
-        load_month_label = QLabel("Month:")
-        load_month_label.setStyleSheet(get_label_style())
-        self.load_month_combo = QComboBox()
+        load_month_label = BodyLabel("Month:")
+        self.load_month_combo = ComboBox()
         self.load_month_combo.addItems([
-            "January", "February", "March", "April", "May", "June", 
+            "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ])
-        self.load_month_combo.setStyleSheet(get_month_info_style())
 
-        load_year_label = QLabel("Year:")
-        load_year_label.setStyleSheet(get_label_style())
-        self.load_year_spinbox = QSpinBox()
+        load_year_label = BodyLabel("Year:")
+        self.load_year_spinbox = SpinBox()
         self.load_year_spinbox.setRange(2000, 2100)
         self.load_year_spinbox.setValue(datetime.now().year)
-        self.load_year_spinbox.setStyleSheet(get_month_info_style())
 
-        load_button = QPushButton("Load")
-        load_button.setStyleSheet(get_button_style())
+        load_button = PrimaryPushButton(FluentIcon.DOWNLOAD, "Load")
         load_button.clicked.connect(self.load_info_to_inputs)
 
         load_info_layout.addWidget(load_month_label)
@@ -330,10 +390,10 @@ class MainTab(QWidget):
         for i in range(num_meters):
             meter_edit = CustomLineEdit()
             meter_edit.setObjectName(f"meter_edit_{i}")
-            meter_edit.setPlaceholderText(f"Enter meter {i+1} reading")
+            
             numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
             meter_edit.setValidator(numeric_validator)
-            self.meter_layout.addRow(f"Meter {i+1} Reading:", meter_edit)
+            self.meter_layout.addRow(BodyLabel(f"Meter {i+1} Reading:"), meter_edit)
             if i in current_values:
                 meter_edit.setText(current_values[i])
             self.meter_entries.append(meter_edit)
@@ -351,10 +411,10 @@ class MainTab(QWidget):
         for i in range(num_diffs):
             diff_edit = CustomLineEdit()
             diff_edit.setObjectName(f"diff_edit_{i}")
-            diff_edit.setPlaceholderText(f"Enter difference {i+1} reading")
+            
             numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
             diff_edit.setValidator(numeric_validator)
-            self.diff_layout.addRow(f"Difference {i+1} Reading:", diff_edit)
+            self.diff_layout.addRow(BodyLabel(f"Difference {i+1} Reading:"), diff_edit)
             if i in current_values:
                 diff_edit.setText(current_values[i])
             self.diff_entries.append(diff_edit)
@@ -711,6 +771,15 @@ class MainTab(QWidget):
         # Ensure initial focus inside the tab if none is currently in sequence
         if self.focusWidget() not in enter_seq:
             enter_seq[0].setFocus()
+
+    def add_theme_toggle_button(self, btn):
+        """Insert the theme toggle button into the saved row."""
+        if hasattr(self, "_save_buttons_row") and self._save_buttons_row is not None:
+            btn.setParent(self)
+            btn.setFixedHeight(40)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            # add before final stretch (index -1)
+            self._save_buttons_row.insertWidget(self._save_buttons_row.count()-1, btn, 1)
 
     # Dummy classes for testing purposes
 if __name__ == '__main__':
