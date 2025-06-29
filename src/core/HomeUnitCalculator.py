@@ -142,9 +142,18 @@ class MeterCalculationApp(FluentWindow):
         
         self.load_info_source_combo = ComboBox()
         self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
+        self.load_info_source_combo.setItemIcon(0, FluentIcon.DOCUMENT.icon())
+        self.load_info_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
+        self.load_info_source_combo.setIconSize(QSize(16, 16))
+        # Apply custom delegate so icon also appears when combo is closed
+        
         
         self.load_history_source_combo = ComboBox()
         self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
+        self.load_history_source_combo.setItemIcon(0, FluentIcon.DOCUMENT.icon())
+        self.load_history_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
+        self.load_history_source_combo.setIconSize(QSize(16, 16))
+        
 
         self.main_tab_instance = MainTab(self)
         self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self)

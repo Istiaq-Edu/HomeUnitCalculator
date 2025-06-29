@@ -395,7 +395,14 @@ class RoomsTab(QWidget):
             
             # Set room name (from group box title)
             room_group_widget = room_ui_entries['room_group']
-            room_group_widget.setTitle(room_data_jsonb.get('room_name', f"Room {i+1}"))
+            new_title = room_data_jsonb.get('room_name', f"Room {i+1}")
+            if hasattr(room_group_widget, 'setTitle'):
+                room_group_widget.setTitle(new_title)
+            else:
+                # CardWidget: first child in layout is the TitleLabel we added at creation
+                title_label = room_group_widget.findChild(TitleLabel)
+                if title_label:
+                    title_label.setText(new_title)
 
             def _to_int_str_safe(val):
                 """Return a string representation of an integer, accepting float strings like '123.0'."""

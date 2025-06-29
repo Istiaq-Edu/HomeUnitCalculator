@@ -10,13 +10,14 @@ from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFormLayout, QMessageBox, QSizePolicy,
-    QGridLayout, QBoxLayout, QFrame  # Added QBoxLayout for harmonisation helper
+    QGridLayout, QBoxLayout, QFrame, QMenu, QAction
+
 )
 from postgrest.exceptions import APIError
 from qfluentwidgets import (
     ComboBox, SpinBox, PrimaryPushButton,
     CardWidget, TitleLabel, BodyLabel, CaptionLabel,
-    FluentIcon
+    FluentIcon, PushButton, DropDownPushButton, RoundMenu, Action
 )
 
 from src.core.utils import resource_path
@@ -182,8 +183,10 @@ class MainTab(QWidget):
         spinboxes_layout = QHBoxLayout()
         
         meter_count_group = CardWidget()
+        meter_count_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        meter_count_group.setFixedHeight(90)
         meter_count_layout = QVBoxLayout(meter_count_group)
-        meter_count_layout.setContentsMargins(5, 5, 5, 5)
+        meter_count_layout.setContentsMargins(5, 4, 5, 4)
         meter_count_layout.setSpacing(2)
         meter_count_label = BodyLabel("Number of Meters:")
         meter_count_label.setStyleSheet("font-weight: bold;")
@@ -197,8 +200,10 @@ class MainTab(QWidget):
         spinboxes_layout.addWidget(meter_count_group)
         
         diff_count_group = CardWidget()
+        diff_count_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        diff_count_group.setFixedHeight(90)
         diff_count_layout = QVBoxLayout(diff_count_group)
-        diff_count_layout.setContentsMargins(5, 5, 5, 5)
+        diff_count_layout.setContentsMargins(5, 4, 5, 4)
         diff_count_layout.setSpacing(2)
         diff_count_label = BodyLabel("Number of Diffs:")
         diff_count_label.setStyleSheet("font-weight: bold;")
@@ -290,8 +295,11 @@ class MainTab(QWidget):
 
     def create_additional_amount_group(self):
         amount_group = CardWidget()
-        amount_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        amount_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        amount_group.setFixedHeight(110)
         amount_layout = QVBoxLayout(amount_group)
+        amount_layout.setContentsMargins(8,6,8,6)
+        amount_layout.setSpacing(4)
         amount_layout.setDirection(QBoxLayout.TopToBottom)
 
         amount_label = BodyLabel("Additional Amount:")
@@ -310,7 +318,7 @@ class MainTab(QWidget):
         amount_label.setStyleSheet("font-weight: bold;")
         amount_label.setAlignment(Qt.AlignCenter)
         amount_layout.addWidget(amount_label)
-        amount_layout.addLayout(input_layout, 1)
+        amount_layout.addLayout(input_layout)
         amount_group.setToolTip("Enter any additional amount to be added to the total bill")
         return amount_group
 
@@ -427,8 +435,23 @@ class MainTab(QWidget):
         load_info_layout.addSpacing(20)
         load_info_layout.addWidget(load_year_label)
         load_info_layout.addWidget(self.load_year_spinbox)
+        # Replace ComboBox with native Fluent DropDownPushButton for source selection
+        self.main_window.load_info_source_combo.setVisible(False)
+        self.load_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
+        self.load_source_button.setFixedWidth(190)
+
+        # Build Fluent-style round menu
+        menu = RoundMenu(parent=self.load_source_button)
+        def _set_source(text, icon, label):
+            self.main_window.load_info_source_combo.setCurrentText(text)
+            self.load_source_button.setIcon(icon)
+            self.load_source_button.setText(label)
+        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT.icon(), "Load from CSV")))
+        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD.icon(), "Load from Cloud")))
+        self.load_source_button.setMenu(menu)
+
         load_info_layout.addSpacing(20)
-        load_info_layout.addWidget(self.main_window.load_info_source_combo)
+        load_info_layout.addWidget(self.load_source_button)
         load_info_layout.addSpacing(20)
         load_info_layout.addWidget(load_button)
         load_info_layout.addStretch(1)
