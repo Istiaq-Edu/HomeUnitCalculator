@@ -6,17 +6,18 @@ import csv
 import traceback
 from datetime import datetime
 
-from PyQt5.QtCore import Qt, QRegExp
+from PyQt5.QtCore import Qt, QRegExp, QSize
 from PyQt5.QtGui import QRegExpValidator, QIcon
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFormLayout, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
-    QDialog, QAbstractItemView
+    QDialog, QAbstractItemView, QFrame
 )
 from postgrest.exceptions import APIError
 from qfluentwidgets import (
     CardWidget, ComboBox, SpinBox, PrimaryPushButton, PushButton,
-    TitleLabel, BodyLabel, CaptionLabel, TableWidget, FluentIcon
+    TitleLabel, BodyLabel, CaptionLabel, TableWidget, FluentIcon,
+    DropDownPushButton, RoundMenu, Action
 )
 
 from src.core.utils import resource_path # For icons
@@ -398,51 +399,98 @@ class HistoryTab(QWidget):
         top_layout = QHBoxLayout()
         top_layout.setSpacing(15)
 
-        filter_group = CardWidget()
-        filter_layout = QHBoxLayout(filter_group)
-        month_label = BodyLabel("Month:")
+        # Combined "Load Records" group (Month/Year/Source/Load)
+        load_records_group = CardWidget()
+        lr_outer = QVBoxLayout(load_records_group)
+        lr_outer.setContentsMargins(8,8,8,8)
+        title = TitleLabel("Load Records")
+        title.setAlignment(Qt.AlignHCenter)
+        title.setStyleSheet("font-weight:bold;")
+        lr_outer.addWidget(title)
+        header_line = QFrame()
+        header_line.setFrameShape(QFrame.HLine)
+        header_line.setStyleSheet("border-top:1px solid #666; margin-bottom:6px;")
+        lr_outer.addWidget(header_line)
+        lr_layout = QHBoxLayout()
+        lr_layout.setContentsMargins(8,6,8,6)
+        lr_layout.setSpacing(10)
+        lr_layout.addStretch(1)
+        lr_layout.addWidget(BodyLabel("Month:"))
         self.history_month_combo = ComboBox()
-        self.history_month_combo.addItems(["All", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"])
-        year_label = BodyLabel("Year:")
+        self.history_month_combo.addItems(["All","January","February","March","April","May","June","July","August","September","October","November","December"])
+        lr_layout.addWidget(self.history_month_combo)
+        lr_layout.addSpacing(10)
+        lr_layout.addWidget(BodyLabel("Year:"))
         self.history_year_spinbox = SpinBox()
-        # Use 0 as sentinel for "All"
-        self.history_year_spinbox.setRange(0, 2100)
+        self.history_year_spinbox.setRange(0,2100)
         self.history_year_spinbox.setSpecialValueText("All")
-        self.history_year_spinbox.setValue(datetime.now().year)          # default to current year
-        filter_layout.addWidget(month_label)
-        filter_layout.addWidget(self.history_month_combo)
-        filter_layout.addSpacing(15)
-        filter_layout.addWidget(year_label)
-        filter_layout.addWidget(self.history_year_spinbox)
-        filter_layout.addStretch(1)
-        top_layout.addWidget(filter_group, 2)
-
-        load_history_options_group = CardWidget()
-        load_history_options_layout = QHBoxLayout(load_history_options_group)
-        load_history_options_layout.setSpacing(10)
-        history_source_label = BodyLabel("Source:")
-        load_history_options_layout.addWidget(history_source_label)
-        load_history_options_layout.addWidget(self.main_window.load_history_source_combo) # Accessed from main_window
-        load_history_button = PrimaryPushButton(FluentIcon.DOWNLOAD, "Load History Table")
+        self.history_year_spinbox.setValue(datetime.now().year)
+        lr_layout.addWidget(self.history_year_spinbox)
+        lr_layout.addSpacing(10)
+        # Use Fluent DropDownPushButton instead of plain ComboBox
+        self.main_window.load_history_source_combo.setVisible(False)
+        self.load_history_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
+        self.load_history_source_button.setFixedWidth(190)
+        menu = RoundMenu(parent=self.load_history_source_button)
+        def _set_source(text, icon, label):
+            self.main_window.load_history_source_combo.setCurrentText(text)
+            self.load_history_source_button.setIcon(icon)
+            self.load_history_source_button.setText(label)
+        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT.icon(), "Load from CSV")))
+        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD.icon(), "Load from Cloud")))
+        self.load_history_source_button.setMenu(menu)
+        lr_layout.addWidget(self.load_history_source_button)
+        load_history_button = PrimaryPushButton(FluentIcon.DOWNLOAD, "Load")
         load_history_button.clicked.connect(self.load_history)
         load_history_button.setFixedHeight(40)
-        load_history_options_layout.addWidget(load_history_button)
-        load_history_options_layout.addStretch(1)
-        top_layout.addWidget(load_history_options_group, 2)
+        lr_layout.addWidget(load_history_button)
+        lr_layout.addStretch(1)
+        controls_card = CardWidget()
+        controls_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        controls_card.setLayout(lr_layout)
+        lr_outer.addWidget(controls_card)
+        top_layout.addWidget(load_records_group, 3)
 
+        # Record Actions titled group
         record_actions_group = CardWidget()
-        record_actions_layout = QHBoxLayout(record_actions_group)
-        record_actions_layout.setSpacing(10)
-        self.edit_selected_record_button = PushButton(FluentIcon.EDIT, "Edit Record")
+        ra_outer = QVBoxLayout(record_actions_group)
+        ra_outer.setContentsMargins(8,8,8,8)
+        ra_outer.setSpacing(4)
+        ra_title = TitleLabel("Record Actions")
+        ra_title.setAlignment(Qt.AlignHCenter)
+        ra_title.setStyleSheet("font-weight:bold;")
+        ra_outer.addWidget(ra_title)
+        ra_line = QFrame()
+        ra_line.setFrameShape(QFrame.HLine)
+        ra_line.setStyleSheet("border-top:1px solid #666; margin-bottom:6px;")
+        ra_outer.addWidget(ra_line)
+        record_actions_layout = QHBoxLayout()
+        record_actions_layout.setContentsMargins(8,6,8,6)
+        record_actions_layout.setSpacing(40)
+        # Add stretch on both sides for perfect centering
+        record_actions_layout.addStretch(1)
+        self.edit_selected_record_button = PrimaryPushButton(FluentIcon.EDIT, "Edit Record")
+        self.edit_selected_record_button.setMinimumWidth(150)
+        self.edit_selected_record_button.setStyleSheet("QPushButton{background-color:#2e7d32;color:white;padding:6px 24px 6px 52px;border-radius:4px;}QPushButton:hover{background-color:#388e3c;}QPushButton:pressed{background-color:#1b5e20;}QPushButton:disabled{background-color:#3d3d3d;color:#777;}")
         self.edit_selected_record_button.setFixedHeight(40)
         self.edit_selected_record_button.clicked.connect(self.handle_edit_selected_record)
-        self.delete_selected_record_button = PushButton(FluentIcon.DELETE, "Delete Record")
+        self.delete_selected_record_button = PrimaryPushButton(FluentIcon.DELETE, "Delete Record")
+        self.delete_selected_record_button.setMinimumWidth(160)
+        self.delete_selected_record_button.setStyleSheet("QPushButton{background-color:#c62828;color:white;padding:6px 24px 6px 52px;border-radius:4px;}QPushButton:hover{background-color:#d84315;}QPushButton:pressed{background-color:#b71c1c;}QPushButton:disabled{background-color:#3d3d3d;color:#777;}")
         self.delete_selected_record_button.setFixedHeight(40)
         self.delete_selected_record_button.clicked.connect(self.handle_delete_selected_record)
+        # Initially disabled until a row is selected
+        self.edit_selected_record_button.setEnabled(False)
+        self.delete_selected_record_button.setEnabled(False)
         record_actions_layout.addWidget(self.edit_selected_record_button)
         record_actions_layout.addWidget(self.delete_selected_record_button)
         record_actions_layout.addStretch(1)
-        top_layout.addWidget(record_actions_group, 1)
+        # Wrap in card
+        controls_actions_card = CardWidget()
+        
+        controls_actions_card.setLayout(record_actions_layout)
+        ra_outer.addWidget(controls_actions_card)
+        top_layout.addWidget(record_actions_group, 3)
         layout.addLayout(top_layout)
 
         main_calc_group = CardWidget()
@@ -486,6 +534,11 @@ class HistoryTab(QWidget):
         self.room_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         # Resize table to content height and adjust table height to show all rows
         self.room_history_table.resizeRowsToContents()
+        # Connect selection changed signals to update button states/styles now that tables exist
+        self.main_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
+        self.room_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
+        # Ensure initial button style state
+        self.update_action_buttons_state()
         self.resize_table_to_content(self.room_history_table)
         room_calc_layout.addWidget(self.room_history_table)
         layout.addWidget(room_calc_group)  # No stretch factor - let it size naturally
@@ -953,6 +1006,20 @@ class HistoryTab(QWidget):
             self.totals_table.setItem(idx,2,QTableWidgetItem(f"{t['water']:.2f}"))
             self.totals_table.setItem(idx,3,QTableWidgetItem(f"{t['gas']:.2f}"))
             self.totals_table.setItem(idx,4,QTableWidgetItem(f"{t['unit']:.2f}"))
+
+    def update_action_buttons_state(self):
+        """Enable buttons when at least one row is selected and apply color styles."""
+        has_selection = self.main_history_table.selectionModel().hasSelection() or \
+                        self.room_history_table.selectionModel().hasSelection()
+        
+        if has_selection:
+            self.edit_selected_record_button.setEnabled(True)
+            
+            self.delete_selected_record_button.setEnabled(True)
+        else:
+            self.edit_selected_record_button.setEnabled(False)
+            self.delete_selected_record_button.setEnabled(False)
+            
 
     def handle_edit_selected_record(self):
         selected_items = self.main_history_table.selectedItems()

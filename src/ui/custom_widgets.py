@@ -1,5 +1,5 @@
-from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer
-from PyQt5.QtGui import QIcon, QPainter, QCursor
+from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer, QSize
+from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor
 from PyQt5.QtWidgets import (
     QSizePolicy, QDialog, QVBoxLayout, QLabel, QProgressBar
 )
@@ -114,6 +114,73 @@ class CustomLineEdit(LineEdit):
         
         return widgets[next_index]
 
+# ------------------------------------------------------------------
+# LeftIconButton - composite widget to display an icon on the left and
+# a PrimaryPushButton text on the right. Solves icon/text overlap seen
+# in QFluentWidgets default PushButton for certain glyphs.
+# ------------------------------------------------------------------
+from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtWidgets import QWidget, QHBoxLayout
+from qfluentwidgets import PrimaryPushButton, BodyLabel, FluentIcon
+
+class LeftIconButton(QWidget):
+    """A button that shows a Fluent icon in a fixed 20×20 area on the left
+    and text inside a PrimaryPushButton on the right.  Exposes the
+    ``clicked`` signal of the inner button so it can be used transparently
+    as a normal button.
+    """
+
+    def __init__(self, icon: FluentIcon, text: str, color: str = "#2e7d32", parent=None):
+        super().__init__(parent)
+        self._icon = icon
+        self.button = PrimaryPushButton(text)
+        self.button.setMinimumHeight(40)
+        self.button.setIconSize(QSize(1, 1))  # effectively hide default icon
+        self.button.setStyleSheet(
+            f"PrimaryPushButton{{background-color:{color};color:white;border-radius:4px;padding-left:12px;padding-right:24px;}}"
+            f"PrimaryPushButton:hover{{background-color:{self._lighten(color, 1.15)}}}"
+            f"PrimaryPushButton:pressed{{background-color:{self._lighten(color, 0.85)}}}"
+            f"PrimaryPushButton:disabled{{background-color:#3d3d3d;color:#777;}}"
+        )
+
+        self._icon_label = BodyLabel()
+        # FluentIcon returns QIcon via .icon() method
+        self._icon_label.setPixmap(self._icon.icon().pixmap(20, 20))
+        self._icon_label.setFixedSize(26, 26)
+        self._icon_label.setAlignment(Qt.AlignCenter)
+        self._icon_label.setStyleSheet(f"background-color:{color};border-top-left-radius:4px;border-bottom-left-radius:4px;")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._icon_label)
+        layout.addWidget(self.button, 1)
+
+    # Re-expose inner button signals/properties -------------------------------------------------
+    @property
+    def clicked(self):
+        """Qt signal of the inner button so you can do myBtn.clicked.connect(...)"""
+        return self.button.clicked
+    def setEnabled(self, enabled: bool):  # noqa: N802
+        self.button.setEnabled(enabled)
+
+    def setIconSize(self, size: QSize):  # noqa: N802
+        # Update stored icon pixmap to requested size
+        self._icon_label.setPixmap(self._icon.icon().pixmap(size.width(), size.height()))
+
+    def setStyleSheet(self, style: str):  # noqa: N802
+        # Proxy stylesheet to inner button
+        self.button.setStyleSheet(style)
+
+    # Utility -----------------------------------------------------------------
+    def _lighten(self, color_str: str, factor: float) -> str:
+        c = QColor(color_str)
+        h, s, v, a = c.getHsvF()
+        v = max(0, min(v * factor, 1))
+        c.setHsvF(h, s, v, a)
+        return c.name()
+
+# ------------------------------------------------------------------
 # Custom QScrollArea class with auto-scrolling functionality
 class AutoScrollArea(ScrollArea):
     _active_scroller = None
