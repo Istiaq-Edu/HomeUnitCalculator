@@ -1,12 +1,12 @@
 import sys
 import traceback
 
-from PyQt5.QtCore import QRegExp
+from PyQt5.QtCore import Qt, QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator
 from PyQt5.QtWidgets import (
     QApplication,
     QWidget, QVBoxLayout, QLabel, QGridLayout,
-    QFormLayout, QMessageBox, QSizePolicy
+    QFormLayout, QMessageBox, QSizePolicy, QFrame
 )
 from qfluentwidgets import (
     CardWidget, SpinBox, PrimaryPushButton,
@@ -97,10 +97,18 @@ class RoomsTab(QWidget):
         for i in range(num_rooms):
             room_group = CardWidget()
             outer_layout = QVBoxLayout(room_group)
-            outer_layout.addWidget(TitleLabel(f"Room {i+1}"))
+            title = TitleLabel(f"Room {i+1}")
+            title.setStyleSheet("font-size:18px;font-weight:bold;")
+            outer_layout.addWidget(title)
+            # Horizontal line under the room title
+            header_line = QFrame()
+            header_line.setFrameShape(QFrame.HLine)
+            header_line.setStyleSheet("border-top:1px solid #888; margin-top:2px; margin-bottom:6px;")
+            outer_layout.addWidget(header_line)
             room_layout = QFormLayout()
             outer_layout.addLayout(room_layout)
             room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            # room_group border removed as per design feedback
 
             present_entry = CustomLineEdit()
             present_entry.setObjectName(f"room_{i}_present")
@@ -116,7 +124,11 @@ class RoomsTab(QWidget):
             previous_entry.setValidator(numeric_validator)
             
             real_unit_label = CaptionLabel("N/A")
+            real_unit_label.setStyleSheet("color:#4FC3F7;font-weight:bold;")
+            real_unit_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             unit_bill_label = CaptionLabel("N/A")
+            unit_bill_label.setStyleSheet("color:#FFB74D;font-weight:bold;")
+            unit_bill_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
             gas_bill_entry = CustomLineEdit()
             gas_bill_entry.setObjectName(f"room_{i}_gas_bill")
@@ -134,6 +146,8 @@ class RoomsTab(QWidget):
             house_rent_entry.setValidator(numeric_validator)
 
             grand_total_label = StrongBodyLabel("N/A")
+            grand_total_label.setStyleSheet("color:#81C784;font-weight:bold;")
+            grand_total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
             room_layout.addRow(BodyLabel("Present Unit:"),   present_entry)
             room_layout.addRow(BodyLabel("Previous Unit:"), previous_entry)
@@ -141,7 +155,17 @@ class RoomsTab(QWidget):
             room_layout.addRow(BodyLabel("Water Bill:"),    water_bill_entry)
             room_layout.addRow(BodyLabel("House Rent:"),    house_rent_entry)
             room_layout.addRow(BodyLabel("Real Unit:"),     real_unit_label)
+            # Separator before Unit Bill
+            sep1 = QFrame()
+            sep1.setFrameShape(QFrame.HLine)
+            sep1.setStyleSheet("border-top:1px dashed #888;")
+            room_layout.addRow(sep1)
             room_layout.addRow(BodyLabel("Unit Bill:"),     unit_bill_label)
+            # Separator before Grand Total
+            sep2 = QFrame()
+            sep2.setFrameShape(QFrame.HLine)
+            sep2.setStyleSheet("border-top:1px dashed #888;")
+            room_layout.addRow(sep2)
             room_layout.addRow(BodyLabel("Grand Total:"),   grand_total_label)
 
             self.room_entries.append({
