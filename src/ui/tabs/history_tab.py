@@ -20,8 +20,18 @@ from qfluentwidgets import (
     DropDownPushButton, RoundMenu, Action
 )
 
-from src.core.utils import resource_path # For icons
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
+# Ensure project root (containing 'src') is on sys.path when running this file standalone
+try:
+    from src.core.utils import resource_path  # For icons
+    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
+except ModuleNotFoundError:
+    import pathlib, sys as _sys
+    # Add two levels up (project root) to sys.path
+    _project_root = pathlib.Path(__file__).resolve().parents[2]
+    if str(_project_root) not in _sys.path:
+        _sys.path.append(str(_project_root))
+    from src.core.utils import resource_path
+    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
 
 
 # Dialog for Editing Records (Moved from HomeUnitCalculator.py)
@@ -495,8 +505,12 @@ class HistoryTab(QWidget):
 
         main_calc_group = CardWidget()
         main_calc_layout = QVBoxLayout(main_calc_group)
-        main_calc_layout.addWidget(TitleLabel("Main Calculation Info"))
+        main_title = TitleLabel("Main Calculation Info")
+        main_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        main_title.setWordWrap(True)
+        main_calc_layout.addWidget(main_title)
         self.main_history_table = TableWidget()
+        # (moved block above to add connections) -- placeholder to satisfy exact replacement
         # Enable horizontal scrollbar for main table if content exceeds width
         self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # Vertical scrolling handled by main scroll area
@@ -510,13 +524,18 @@ class HistoryTab(QWidget):
         # Resize table to content height and adjust table height to show all rows
         self.main_history_table.resizeRowsToContents()
         self.resize_table_to_content(self.main_history_table)
+        self._style_table(self.main_history_table)
         main_calc_layout.addWidget(self.main_history_table)
         layout.addWidget(main_calc_group)  # No stretch factor - let it size naturally
 
         room_calc_group = CardWidget()
         room_calc_layout = QVBoxLayout(room_calc_group)
-        room_calc_layout.addWidget(TitleLabel("Room Calculation Info"))
+        room_title = TitleLabel("Room Calculation Info")
+        room_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        room_title.setWordWrap(True)
+        room_calc_layout.addWidget(room_title)
         self.room_history_table = TableWidget()
+        # (moved block above to add connections) -- placeholder to satisfy exact replacement
         self.room_history_table.setColumnCount(10)
         self.room_history_table.setHorizontalHeaderLabels([
             "Month", "Room Number", "Present Unit", "Previous Unit", "Real Unit", 
@@ -534,6 +553,7 @@ class HistoryTab(QWidget):
         self.room_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         # Resize table to content height and adjust table height to show all rows
         self.room_history_table.resizeRowsToContents()
+        self._style_table(self.room_history_table)
         # Connect selection changed signals to update button states/styles now that tables exist
         self.main_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
         self.room_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
@@ -546,7 +566,10 @@ class HistoryTab(QWidget):
         # Add new totals section
         totals_group = CardWidget()
         totals_layout = QVBoxLayout(totals_group)
-        totals_layout.addWidget(TitleLabel("Total Summary"))
+        totals_title = TitleLabel("Total Summary")
+        totals_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        totals_title.setWordWrap(True)
+        totals_layout.addWidget(totals_title)
         self.totals_table = TableWidget()
         self.totals_table.setColumnCount(5)
         self.totals_table.setHorizontalHeaderLabels([
@@ -562,6 +585,7 @@ class HistoryTab(QWidget):
         # Resize table to content height and adjust table height to show all rows
         self.totals_table.resizeRowsToContents()
         self.resize_table_to_content(self.totals_table)
+        self._style_table(self.totals_table)
         totals_layout.addWidget(self.totals_table)
         layout.addWidget(totals_group)  # No stretch factor - let it size naturally
         
@@ -569,6 +593,212 @@ class HistoryTab(QWidget):
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
         self.setLayout(main_layout)
+
+    def _style_table(self, table: TableWidget):
+        """Apply qfluentwidgets-compatible styling with enhanced visual design"""
+        from qfluentwidgets import setCustomStyleSheet
+        
+        # Configure basic table properties
+        table.setShowGrid(False)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setHighlightSections(False)
+        table.setBorderVisible(True)
+        table.setBorderRadius(8)
+        table.setAlternatingRowColors(True)
+        
+        header = table.horizontalHeader()
+        if hasattr(header, "setTextElideMode"):
+            header.setTextElideMode(Qt.ElideNone)
+        
+        # Set enhanced row height for better readability
+        table.verticalHeader().setDefaultSectionSize(40)
+        
+        # Apply custom qfluentwidgets-compatible styling
+        light_qss = """
+            QTableWidget {
+                background-color: #fafafa;
+                color: #212121;
+                gridline-color: #e0e0e0;
+                selection-background-color: #1976d2;
+                alternate-background-color: #f5f5f5;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                font-weight: 500;
+            }
+            QHeaderView::section {
+                background-color: #f5f5f5;
+                color: #424242;
+                font-weight: 600;
+                font-size: 13px;
+                border: none;
+                border-bottom: 2px solid #e0e0e0;
+                padding: 12px 16px;
+                text-align: center;
+            }
+            QTableWidget::item {
+                padding: 10px 14px;
+                border: none;
+                text-align: center;
+                font-weight: 500;
+            }
+            QTableWidget::item:selected {
+                background-color: #1976d2;
+                color: white;
+                font-weight: 600;
+            }
+            QTableWidget::item:hover {
+                background-color: #e3f2fd;
+            }
+        """
+        
+        dark_qss = """
+            QTableWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                gridline-color: #444444;
+                selection-background-color: #1976d2;
+                alternate-background-color: #1e1e1e;
+                border: 1px solid #3d3d3d;
+                border-radius: 8px;
+                font-weight: 500;
+            }
+            QHeaderView::section {
+                background-color: #1f1f1f;
+                color: #e0e0e0;
+                font-weight: 600;
+                font-size: 13px;
+                border: none;
+                border-bottom: 2px solid #444444;
+                padding: 12px 16px;
+                text-align: center;
+            }
+            QTableWidget::item {
+                padding: 10px 14px;
+                border: none;
+                text-align: center;
+                font-weight: 500;
+            }
+            QTableWidget::item:selected {
+                background-color: #1976d2;
+                color: white;
+                font-weight: 600;
+            }
+            QTableWidget::item:hover {
+                background-color: #263045;
+            }
+        """
+        
+        # Apply theme-aware styling using qfluentwidgets method
+        setCustomStyleSheet(table, light_qss, dark_qss)
+        
+        table.setSortingEnabled(True)
+        
+        # Set column resize mode to stretch for responsive design
+        for col in range(table.columnCount()):
+            table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Stretch)
+        table.horizontalHeader().setMinimumSectionSize(80)
+        
+        # Apply center alignment and styling to all cells
+        self._apply_center_alignment(table)
+        self._apply_accent_colors(table)
+        
+        # Center header text
+        table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+
+    def _apply_center_alignment(self, table: TableWidget):
+        """Apply center alignment to all table cells"""
+        for row in range(table.rowCount()):
+            for col in range(table.columnCount()):
+                item = table.item(row, col)
+                if item:
+                    item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                    
+    def _create_centered_item(self, text: str) -> QTableWidgetItem:
+        """Create a table widget item with center alignment and modern styling"""
+        from PyQt5.QtGui import QColor, QBrush, QFont
+        from qfluentwidgets import isDarkTheme
+        
+        item = QTableWidgetItem(str(text))
+        item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        
+        # Apply modern semi-bold styling to numeric content
+        if self._is_numeric_text(str(text)):
+            font = item.font()
+            font.setWeight(QFont.DemiBold)  # Semi-bold for modern look
+            font.setPointSizeF(font.pointSizeF() + 0.5)
+            item.setFont(font)
+            
+            # Theme-aware subtle color enhancement for numbers
+            if isDarkTheme():
+                item.setForeground(QBrush(QColor("#B3E5FC")))  # Light blue for dark theme
+            else:
+                item.setForeground(QBrush(QColor("#1565C0")))  # Dark blue for light theme
+        
+        return item
+    
+    def _create_special_item(self, text: str, column_type: str) -> QTableWidgetItem:
+        """Create a styled item for special columns with enhanced Material Design colors"""
+        from PyQt5.QtGui import QColor, QBrush, QFont
+        from qfluentwidgets import isDarkTheme
+        
+        # Enhanced color mapping with theme awareness
+        if isDarkTheme():
+            color_map = {
+                "grand_total": "#66BB6A",       # Light Green for dark theme
+                "unit_bill": "#FF7043",         # Light Deep Orange 
+                "total_unit_cost": "#AB47BC",   # Light Purple
+                "per_unit_cost": "#FFA726",     # Light Orange
+            }
+        else:
+            color_map = {
+                "grand_total": "#2E7D32",       # Dark Green for light theme
+                "unit_bill": "#D84315",         # Dark Deep Orange 
+                "total_unit_cost": "#7B1FA2",   # Dark Purple
+                "per_unit_cost": "#EF6C00",     # Dark Orange
+            }
+        
+        item = QTableWidgetItem(str(text))
+        item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        
+        # Apply enhanced styling for special columns
+        color = color_map.get(column_type, "#1976D2")  # Default Material Blue
+        item.setForeground(QBrush(QColor(color)))
+        
+        # Modern typography - bold with better readability
+        font = item.font()
+        font.setBold(True)
+        font.setWeight(QFont.Bold)
+        font.setPointSizeF(font.pointSizeF() + 2)  # Larger for emphasis
+        item.setFont(font)
+        
+        return item
+                    
+    def _apply_accent_colors(self, table: TableWidget):
+        """Apply subtle styling enhancements to table (styling is now handled by create methods)"""
+        # This method is now primarily for applying any additional table-wide styling
+        # Individual cell styling is handled by _create_centered_item and _create_special_item
+        pass
+    
+    def _is_numeric_column(self, header_text: str) -> bool:
+        """Check if a column header indicates numeric content"""
+        numeric_indicators = [
+            "meter", "diff", "unit", "cost", "bill", "rent", "amount", "total", "reading"
+        ]
+        header_lower = header_text.lower()
+        return any(indicator in header_lower for indicator in numeric_indicators)
+    
+    def _is_numeric_text(self, text: str) -> bool:
+        """Check if text represents a numeric value"""
+        if not text or text.lower() in ['n/a', '', 'unknown']:
+            return False
+        try:
+            # Remove common formatting and try to parse as float
+            cleaned = text.replace(',', '').replace('$', '').replace('TK', '').strip()
+            float(cleaned)
+            return True
+        except (ValueError, TypeError):
+            return False
+
 
     def resize_table_to_content(self, table):
         """Resize table height to fit all rows without scrolling"""
@@ -608,10 +838,7 @@ class HistoryTab(QWidget):
         header = self.main_history_table.horizontalHeader()
         # Set resize mode: stretch for fixed columns, resize to contents for meters/diffs
         for i in range(len(all_columns)):
-            if i == 0 or i >= (1 + num_meters*2):
-                header.setSectionResizeMode(i, QHeaderView.Stretch)
-            else:
-                header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
 
     def load_history(self):
         try:
@@ -747,7 +974,7 @@ class HistoryTab(QWidget):
                         
                         # Set month column
                         month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
-                        month_item = QTableWidgetItem(month_year_str)
+                        month_item = self._create_centered_item(month_year_str)
                         row_calc_id = main_row_data['csv_row'].get('id')
                         month_item.setData(Qt.UserRole, row_calc_id)  # Store the correct id for this row
                         self.main_history_table.setItem(row_idx, 0, month_item)
@@ -757,14 +984,14 @@ class HistoryTab(QWidget):
                             meter_val = get_csv_value(row, f"Meter-{i+1}", "0")
                             # Only show non-zero values
                             display_val = meter_val if meter_val not in ["0", "", "0.0"] else ""
-                            self.main_history_table.setItem(row_idx, 1 + i, QTableWidgetItem(display_val))
+                            self.main_history_table.setItem(row_idx, 1 + i, self._create_centered_item(display_val))
                         
                         # Set diff columns dynamically (skip zeros)
                         for i in range(max_meters):
                             diff_val = get_csv_value(row, f"Diff-{i+1}", "0")
                             # Only show non-zero values
                             display_val = diff_val if diff_val not in ["0", "", "0.0"] else ""
-                            self.main_history_table.setItem(row_idx, 1 + max_meters + i, QTableWidgetItem(display_val))
+                            self.main_history_table.setItem(row_idx, 1 + max_meters + i, self._create_centered_item(display_val))
                         
                         # Set fixed columns after meters/diffs
                         base_col = 1 + max_meters * 2
@@ -776,13 +1003,13 @@ class HistoryTab(QWidget):
                         # Use "In Total" specifically for the main table's grand total
                         grand_total = get_csv_value(row, "In Total", "0") 
                         
-                        self.main_history_table.setItem(row_idx, base_col + 0, QTableWidgetItem(total_unit_cost))
-                        self.main_history_table.setItem(row_idx, base_col + 1, QTableWidgetItem(total_diff_units))
-                        self.main_history_table.setItem(row_idx, base_col + 2, QTableWidgetItem(per_unit_cost))
-                        self.main_history_table.setItem(row_idx, base_col + 3, QTableWidgetItem(added_amount))
-                        self.main_history_table.setItem(row_idx, base_col + 4, QTableWidgetItem(grand_total))
+                        self.main_history_table.setItem(row_idx, base_col + 0, self._create_special_item(total_unit_cost, "total_unit_cost"))
+                        self.main_history_table.setItem(row_idx, base_col + 1, self._create_centered_item(total_diff_units))
+                        self.main_history_table.setItem(row_idx, base_col + 2, self._create_special_item(per_unit_cost, "per_unit_cost"))
+                        self.main_history_table.setItem(row_idx, base_col + 3, self._create_centered_item(added_amount))
+                        self.main_history_table.setItem(row_idx, base_col + 4, self._create_special_item(grand_total, "grand_total"))
 
-                # Load room history data using the chronologically prepared list
+                # Populate room table
                 if all_room_rows_sorted_with_context:
                     self.room_history_table.setRowCount(len(all_room_rows_sorted_with_context))
                     
@@ -800,16 +1027,16 @@ class HistoryTab(QWidget):
                         house_rent = get_csv_value(room_csv_data, "House Rent", "0")
                         grand_total = get_csv_value(room_csv_data, "Grand Total", "0")
                         
-                        self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
-                        self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(room_name))
-                        self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(present_unit))
-                        self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(previous_unit))
-                        self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(real_unit))
-                        self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(unit_bill))
-                        self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(gas_bill))
-                        self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(water_bill))
-                        self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(house_rent))
-                        self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(grand_total))
+                        self.room_history_table.setItem(row_idx, 0, self._create_centered_item(month_year_str))
+                        self.room_history_table.setItem(row_idx, 1, self._create_centered_item(room_name))
+                        self.room_history_table.setItem(row_idx, 2, self._create_centered_item(present_unit))
+                        self.room_history_table.setItem(row_idx, 3, self._create_centered_item(previous_unit))
+                        self.room_history_table.setItem(row_idx, 4, self._create_centered_item(real_unit))
+                        self.room_history_table.setItem(row_idx, 5, self._create_special_item(unit_bill, "unit_bill"))
+                        self.room_history_table.setItem(row_idx, 6, self._create_centered_item(gas_bill))
+                        self.room_history_table.setItem(row_idx, 7, self._create_centered_item(water_bill))
+                        self.room_history_table.setItem(row_idx, 8, self._create_centered_item(house_rent))
+                        self.room_history_table.setItem(row_idx, 9, self._create_special_item(grand_total, "grand_total"))
 
                 # Calculate and display totals using the filtered main rows instead of all room rows
                 self.calculate_and_display_totals_from_main_rows(filtered_main_rows, get_csv_value)
@@ -818,6 +1045,11 @@ class HistoryTab(QWidget):
                 self.resize_table_to_content(self.main_history_table)
                 self.resize_table_to_content(self.room_history_table)
                 self.resize_table_to_content(self.totals_table)
+
+                # Apply styling now that data is fully populated and resized
+                self._style_table(self.main_history_table)
+                self._style_table(self.room_history_table)
+                self._style_table(self.totals_table)
 
                 if not filtered_main_rows:
                     QMessageBox.information(self, "No Data", "No records found for the selected filters in CSV.")
@@ -903,7 +1135,7 @@ class HistoryTab(QWidget):
                             main_data = {}
 
                     month_year = f"{calc.get('month', 'N/A')} {calc.get('year', 'N/A')}"
-                    month_item = QTableWidgetItem(month_year)
+                    month_item = self._create_centered_item(month_year)
                     row_calc_id = calc.get("id")
                     month_item.setData(Qt.UserRole, row_calc_id)  # Store the correct id for this row
                     self.main_history_table.setItem(row_idx, 0, month_item)
@@ -911,15 +1143,15 @@ class HistoryTab(QWidget):
                     for i in range(max_meters):
                         meter_val = str(main_data.get(f"meter_{i+1}", ""))
                         diff_val = str(main_data.get(f"diff_{i+1}", ""))
-                        self.main_history_table.setItem(row_idx, 1 + i, QTableWidgetItem(meter_val))
-                        self.main_history_table.setItem(row_idx, 1 + max_meters + i, QTableWidgetItem(diff_val))
+                        self.main_history_table.setItem(row_idx, 1 + i, self._create_centered_item(meter_val))
+                        self.main_history_table.setItem(row_idx, 1 + max_meters + i, self._create_centered_item(diff_val))
 
                     base_col = 1 + max_meters * 2
-                    self.main_history_table.setItem(row_idx, base_col + 0, QTableWidgetItem(str(main_data.get("total_unit_cost", ""))))
-                    self.main_history_table.setItem(row_idx, base_col + 1, QTableWidgetItem(str(main_data.get("total_diff_units", ""))))
-                    self.main_history_table.setItem(row_idx, base_col + 2, QTableWidgetItem(str(main_data.get("per_unit_cost", ""))))
-                    self.main_history_table.setItem(row_idx, base_col + 3, QTableWidgetItem(str(main_data.get("added_amount", ""))))
-                    self.main_history_table.setItem(row_idx, base_col + 4, QTableWidgetItem(str(main_data.get("grand_total", ""))))
+                    self.main_history_table.setItem(row_idx, base_col + 0, self._create_special_item(str(main_data.get("total_unit_cost", "")), "total_unit_cost"))
+                    self.main_history_table.setItem(row_idx, base_col + 1, self._create_centered_item(str(main_data.get("total_diff_units", ""))))
+                    self.main_history_table.setItem(row_idx, base_col + 2, self._create_special_item(str(main_data.get("per_unit_cost", "")), "per_unit_cost"))
+                    self.main_history_table.setItem(row_idx, base_col + 3, self._create_centered_item(str(main_data.get("added_amount", ""))))
+                    self.main_history_table.setItem(row_idx, base_col + 4, self._create_special_item(str(main_data.get("grand_total", "")), "grand_total"))
 
             if all_room_rows:
                 # Ensure room rows follow the same chronological order
@@ -942,16 +1174,16 @@ class HistoryTab(QWidget):
                     
                     month_year = f"{room.get('month', 'N/A')} {room.get('year', 'N/A')}"
 
-                    self.room_history_table.setItem(row_idx, 0, QTableWidgetItem(month_year))
-                    self.room_history_table.setItem(row_idx, 1, QTableWidgetItem(str(room_data.get("room_name", ""))))
-                    self.room_history_table.setItem(row_idx, 2, QTableWidgetItem(str(room_data.get("present_unit", ""))))
-                    self.room_history_table.setItem(row_idx, 3, QTableWidgetItem(str(room_data.get("previous_unit", ""))))
-                    self.room_history_table.setItem(row_idx, 4, QTableWidgetItem(str(room_data.get("real_unit", ""))))
-                    self.room_history_table.setItem(row_idx, 5, QTableWidgetItem(str(room_data.get("unit_bill", ""))))
-                    self.room_history_table.setItem(row_idx, 6, QTableWidgetItem(str(room_data.get("gas_bill", ""))))
-                    self.room_history_table.setItem(row_idx, 7, QTableWidgetItem(str(room_data.get("water_bill", ""))))
-                    self.room_history_table.setItem(row_idx, 8, QTableWidgetItem(str(room_data.get("house_rent", ""))))
-                    self.room_history_table.setItem(row_idx, 9, QTableWidgetItem(str(room_data.get("grand_total", ""))))
+                    self.room_history_table.setItem(row_idx, 0, self._create_centered_item(month_year))
+                    self.room_history_table.setItem(row_idx, 1, self._create_centered_item(str(room_data.get("room_name", ""))))
+                    self.room_history_table.setItem(row_idx, 2, self._create_centered_item(str(room_data.get("present_unit", ""))))
+                    self.room_history_table.setItem(row_idx, 3, self._create_centered_item(str(room_data.get("previous_unit", ""))))
+                    self.room_history_table.setItem(row_idx, 4, self._create_centered_item(str(room_data.get("real_unit", ""))))
+                    self.room_history_table.setItem(row_idx, 5, self._create_special_item(str(room_data.get("unit_bill", "")), "unit_bill"))
+                    self.room_history_table.setItem(row_idx, 6, self._create_centered_item(str(room_data.get("gas_bill", ""))))
+                    self.room_history_table.setItem(row_idx, 7, self._create_centered_item(str(room_data.get("water_bill", ""))))
+                    self.room_history_table.setItem(row_idx, 8, self._create_centered_item(str(room_data.get("house_rent", ""))))
+                    self.room_history_table.setItem(row_idx, 9, self._create_special_item(str(room_data.get("grand_total", "")), "grand_total"))
 
             self.calculate_and_display_totals_from_supabase_records(main_calculations, all_room_rows)
             
@@ -1000,17 +1232,42 @@ class HistoryTab(QWidget):
 
         self.totals_table.setRowCount(len(skeys))
         for idx,k in enumerate(skeys):
-            self.totals_table.setItem(idx,0,QTableWidgetItem(k))
+            self.totals_table.setItem(idx,0,self._create_centered_item(k))
             t=grouped[k]
-            self.totals_table.setItem(idx,1,QTableWidgetItem(f"{t['house']:.2f}"))
-            self.totals_table.setItem(idx,2,QTableWidgetItem(f"{t['water']:.2f}"))
-            self.totals_table.setItem(idx,3,QTableWidgetItem(f"{t['gas']:.2f}"))
-            self.totals_table.setItem(idx,4,QTableWidgetItem(f"{t['unit']:.2f}"))
+            self.totals_table.setItem(idx,1,self._create_centered_item(f"{t['house']:.2f}"))
+            self.totals_table.setItem(idx,2,self._create_centered_item(f"{t['water']:.2f}"))
+            self.totals_table.setItem(idx,3,self._create_centered_item(f"{t['gas']:.2f}"))
+            self.totals_table.setItem(idx,4,self._create_centered_item(f"{t['unit']:.2f}"))
+
+    def _is_click_inside_history_tables(self, global_pos):
+        """Return True if the widget at the given global position is within any of the history tables."""
+        w = QApplication.widgetAt(global_pos)
+        if not w:
+            return False
+        
+        # Check if click is inside any of the tables or their children
+        tables = [self.main_history_table, self.room_history_table, self.totals_table]
+        for table in tables:
+            if table and (w == table or table.isAncestorOf(w)):
+                return True
+        return False
+
+    def mousePressEvent(self, event):
+        """Clear table selections when the user clicks anywhere outside the history tables."""
+        if event.button() == Qt.LeftButton and not self._is_click_inside_history_tables(event.globalPos()):
+            # Clear selections and update buttons
+            tables_to_clear = [self.main_history_table, self.room_history_table, self.totals_table]
+            for table in tables_to_clear:
+                if table:
+                    table.clearSelection()
+            self.update_action_buttons_state()
+        # Call base implementation so other widgets receive the event as usual
+        super().mousePressEvent(event)
 
     def update_action_buttons_state(self):
         """Enable buttons when at least one row is selected and apply color styles."""
-        has_selection = self.main_history_table.selectionModel().hasSelection() or \
-                        self.room_history_table.selectionModel().hasSelection()
+        has_selection = (self.main_history_table.selectionModel().hasSelection() or 
+                        self.room_history_table.selectionModel().hasSelection())
         
         if has_selection:
             self.edit_selected_record_button.setEnabled(True)
@@ -1156,7 +1413,7 @@ class HistoryTab(QWidget):
                 
                 # Set the month/year in the first column
                 month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
-                self.totals_table.setItem(row_idx, 0, QTableWidgetItem(month_year_str))
+                self.totals_table.setItem(row_idx, 0, self._create_centered_item(month_year_str))
                 
                 # Extract pre-calculated totals from the main calculation row
                 csv_total_house_rent = get_csv_value(row, "Total House Rent", "0")
@@ -1171,16 +1428,16 @@ class HistoryTab(QWidget):
                     gas_bill = float(csv_total_gas_bill or "0")
                     unit_bill = float(csv_total_unit_bill or "0")
                     
-                    self.totals_table.setItem(row_idx, 1, QTableWidgetItem(f"{house_rent:.2f}"))
-                    self.totals_table.setItem(row_idx, 2, QTableWidgetItem(f"{water_bill:.2f}"))
-                    self.totals_table.setItem(row_idx, 3, QTableWidgetItem(f"{gas_bill:.2f}"))
-                    self.totals_table.setItem(row_idx, 4, QTableWidgetItem(f"{unit_bill:.2f}"))
+                    self.totals_table.setItem(row_idx, 1, self._create_centered_item(f"{house_rent:.2f}"))
+                    self.totals_table.setItem(row_idx, 2, self._create_centered_item(f"{water_bill:.2f}"))
+                    self.totals_table.setItem(row_idx, 3, self._create_centered_item(f"{gas_bill:.2f}"))
+                    self.totals_table.setItem(row_idx, 4, self._create_centered_item(f"{unit_bill:.2f}"))
                 except (ValueError, TypeError):
                     # If conversion fails, set zeros for this row
-                    self.totals_table.setItem(row_idx, 1, QTableWidgetItem("0.00"))
-                    self.totals_table.setItem(row_idx, 2, QTableWidgetItem("0.00"))
-                    self.totals_table.setItem(row_idx, 3, QTableWidgetItem("0.00"))
-                    self.totals_table.setItem(row_idx, 4, QTableWidgetItem("0.00"))
+                    self.totals_table.setItem(row_idx, 1, self._create_centered_item("0.00"))
+                    self.totals_table.setItem(row_idx, 2, self._create_centered_item("0.00"))
+                    self.totals_table.setItem(row_idx, 3, self._create_centered_item("0.00"))
+                    self.totals_table.setItem(row_idx, 4, self._create_centered_item("0.00"))
             
         except Exception as e:
             # If there's an error calculating totals, just clear the table
