@@ -1,115 +1,73 @@
 # Home Unit Calculation Application
 
-This is a desktop application built with PyQt5 for calculating and managing home unit consumption and costs. It allows users to input meter readings, calculate differences, add additional costs, calculate room-specific consumption, save records locally (CSV) or to a Supabase database, generate PDF reports, and view historical data.
+This is a desktop application built with **PyQt5** for **Windows** designed to simplify the calculation and management of household utility consumption and associated costs. It provides a comprehensive solution for tracking meter readings, calculating differences, managing additional expenses, and generating detailed reports for individual rooms and overall property.
 
-## Features
+## ✨ Features
 
-- **Main Calculation Tab:**
-  - Input current meter readings (Meter 1, Meter 2, Meter 3).
-  - Automatically calculates the difference from previous readings.
-  - Input additional amounts (e.g., service charges).
-  - Displays calculated total units and per-unit cost.
-- **Room Calculation Tab:**
-  - Dynamically generated input fields for each room based on configuration (requires setup or data loading).
-  - Input present and previous meter readings for each room.
-  - Calculates individual room consumption and cost.
-- **History Tab:**
-  - View historical calculation records.
-  - Filter history by month and year.
-  - Load previous records into the main calculation fields.
-  - Edit and delete historical records (requires Supabase integration).
-- **Data Persistence:**
-  - Save calculation records to a local CSV file (`meter_calculation_history.csv`).
-  - Save calculation records to a Supabase database (requires configuration).
-  - Load historical data from CSV or Supabase.
-- **PDF Report Generation:**
-  - Generate a detailed PDF report of the current calculation.
-- **Custom UI and Navigation:**
-  - Custom styled widgets using CSS-like stylesheets.
-  - Custom navigation between input fields using arrow keys and Enter/Return.
-  - Auto-scrolling in areas with many inputs.
-  - Basic accessibility features.
+-   **Intuitive Main Calculation Interface:**
+    -   Input current meter readings.
+    -   Automatically calculates unit differences.
+    -   Include additional charges (e.g., service fees).
+    -   Displays total consumed units and per-unit cost.
+-   **Flexible Room-Specific Calculations:**
+    -   Dynamically generated input fields for each room.
+    -   Input present and previous meter readings for individual rooms.
+    -   Calculates specific consumption and costs for each room, including gas, water, and house rent.
+-   **Comprehensive History Management:**
+    -   View and filter past calculation records.
+    -   Load previous records to pre-fill current calculation fields.
+    -   Edit and delete historical entries (requires Supabase integration).
+-   **Robust Data Persistence Options:**
+    -   Save calculation records to a local CSV file (`meter_calculation_history.csv`).
+    -   Securely save and load data from a **Supabase** database for cloud synchronization.
+-   **Professional PDF Report Generation:**
+    -   Generate detailed, printable PDF reports of current and historical calculations.
+-   **Enhanced User Experience:**
+    -   Modern, custom-styled interface.
+    -   Efficient keyboard navigation for rapid data entry.
+    -   Auto-scrolling in input-heavy sections.
+    -   Non-blocking information, warning, and critical messages.
 
-## Installation
+## 🚀 Installation
+
+To get started with the Home Unit Calculation Application, follow these steps:
 
 1.  **Clone the repository:**
     ```bash
-    git clone <repository_url>
+    git clone https://github.com/your-username/HomeUnitCalculator.git
     cd HomeUnitCalculator
     ```
+    *(Replace `https://github.com/your-username/HomeUnitCalculator.git` with the actual repository URL)*
 
 2.  **Install dependencies:**
-    Make sure you have Python installed. Then install the required packages using pip:
+    Ensure you have Python (3.8+) installed. Then, install the required packages using pip:
     ```bash
     pip install -r requirements.txt
     ```
 
 3.  **Supabase Configuration (Optional):**
-    If you plan to use the Supabase integration for cloud saving and loading, create a `.env` file in the project root directory with your Supabase project URL and Anon key:
-    ```env
-    SUPABASE_URL="YOUR_SUPABASE_URL"
-    SUPABASE_KEY="YOUR_SUPABASE_ANON_KEY"
-    ```
-    Replace `"YOUR_SUPABASE_URL"` and `"YOUR_SUPABASE_ANON_KEY"` with your actual Supabase project details.
+    If you wish to utilize the cloud saving and loading features with Supabase, you will configure your Supabase project URL and Anon key directly within the application's "Supabase Config" tab. These credentials are securely stored in a local encrypted database.
 
-## Usage
+## 💡 Usage
 
-To run the application, execute the main Python script:
+To launch the application, navigate to the project's root directory in your terminal and execute the main Python script:
 
 ```bash
-python HomeUnitCalculator.py
+python src/core/HomeUnitCalculator.py
 ```
 
-The application window will open, allowing you to input data, perform calculations, and manage records.
+The application window will appear, ready for you to input data, perform calculations, and manage your home unit records.
 
-## Project Structure
 
--   `HomeUnitCalculator.py`: The main application script containing the PyQt5 GUI logic and calculation functions.
--   `styles.py`: Contains functions that return CSS-like strings for styling the application's widgets.
--   `utils.py`: Contains utility functions, such as `resource_path` for handling file paths in a way that works with PyInstaller.
--   `requirements.txt`: Lists the Python dependencies required to run the application.
--   `meter_calculation_history.csv`: (Created on first save) Stores calculation history in CSV format.
--   `icons/`: Directory containing icons used in the application.
--   `README.md`: This file.
+## 🛠️ Dependencies
 
-## Dependencies
+The project relies on standard Python libraries for GUI, reporting, and database interaction:
 
-The project relies on the following Python libraries, listed in `requirements.txt`:
+-   `PyQt5`: Graphical user interface framework.
+-   `reportlab`: PDF report generation.
+-   `supabase`: Supabase Python client.
+-   `postgrest`: Supabase client dependency.
+-   `PyQt-Fluent-Widgets`: Modern UI components.
+-   `cryptography`: For encryption of sensitive data.
+-   `keyring`: For secure storage of encryption keys.
 
--   `PyQt5`: For creating the graphical user interface.
--   `reportlab`: For generating PDF reports.
--   `supabase`: The Supabase Python client library for database interaction.
--   `python-dotenv`: For loading environment variables from a `.env` file.
--   `postgrest`: A dependency for the Supabase client.
-
-## Styling
-
-The application's look and feel are controlled by the styles defined in [`styles.py`](styles.py). This file provides various CSS-like stylesheets for different PyQt5 widgets, ensuring a consistent and visually appealing interface.
-
-## Utility Functions
-
-The [`utils.py`](utils.py) file contains helper functions. Currently, it includes the `resource_path` function, which is essential for correctly locating application resources (like icons) whether the application is run directly as a script or as a bundled executable created by tools like PyInstaller.
-
-## Supabase Integration
-
-The application includes functionality to save and load calculation records from a Supabase database. This feature requires a Supabase project and the correct configuration in a `.env` file. The relevant logic is handled within the `HomeUnitCalculator.py` file, utilizing the `supabase` and `postgrest` libraries.
-
-## PDF Generation
-
-Users can generate a PDF report of the current calculation using the "Save as PDF" button. The PDF generation logic is implemented using the `reportlab` library, formatting the calculation details into a printable document.
-
-## CSV Handling
-
-Calculation history can be saved to and loaded from a local CSV file (`meter_calculation_history.csv`). This provides a simple way to persist data without requiring a database setup. The `csv` module is used for reading and writing this file.
-
-## Navigation and Accessibility
-
-Custom navigation is implemented for input fields using the `CustomLineEdit` and `CustomNavButton` classes, allowing users to navigate using arrow keys and the Enter/Return key. The `AutoScrollArea` class provides automatic scrolling when the mouse is near the edges. Basic accessibility features are also included to improve usability.
-
-## Error Handling
-
-Basic error handling is included using `try...except` blocks, particularly for file operations and database interactions. The `traceback` module is used to log detailed error information when exceptions occur.
-
----
-
-Feel free to contribute to the project or report any issues!
