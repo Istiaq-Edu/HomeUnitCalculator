@@ -34,10 +34,8 @@ To get started with the Home Unit Calculation Application, follow these steps:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/HomeUnitCalculator.git
     cd HomeUnitCalculator
     ```
-    *(Replace `https://github.com/your-username/HomeUnitCalculator.git` with the actual repository URL)*
 
 2.  **Install dependencies:**
     Ensure you have Python (3.8+) installed. Then, install the required packages using pip:
