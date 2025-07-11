@@ -1,6 +1,7 @@
 import sys
 import traceback
 
+import math # Import math module for rounding
 from PyQt5.QtCore import QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator
 from PyQt5.QtWidgets import (
@@ -233,7 +234,7 @@ class RoomsTab(QWidget):
                     raise ValueError(f"Present reading cannot be less than previous reading in Room {i+1}. Present: {present_unit}, Previous: {previous_unit}")
 
                 real_unit = present_unit - previous_unit
-                unit_bill = round(real_unit * per_unit_cost, 2)
+                unit_bill = math.floor(real_unit * per_unit_cost + 0.5)
 
                 def _to_amount(txt, field_name):
                     if not txt:
@@ -253,8 +254,8 @@ class RoomsTab(QWidget):
                 grand_total = unit_bill + gas_bill + water_bill + house_rent
 
                 real_unit_label.setText(f"{real_unit}")
-                unit_bill_label.setText(f"{unit_bill:.2f} TK")
-                grand_total_label.setText(f"{grand_total:.2f} TK")
+                unit_bill_label.setText(f"{int(math.floor(unit_bill + 0.5))} TK")
+                grand_total_label.setText(f"{int(math.floor(grand_total + 0.5))} TK")
         except ValueError as ve:
             QMessageBox.warning(self, "Calculation Error", f"Error in room calculation: {ve}")
         except Exception as e:
