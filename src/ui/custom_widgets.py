@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer
 from PyQt5.QtGui import QIcon, QPainter, QCursor
+=======
+from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer, QSize
+from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor
+>>>>>>> dev
 from PyQt5.QtWidgets import (
     QSizePolicy, QDialog, QVBoxLayout, QLabel, QProgressBar
 )
@@ -13,6 +18,21 @@ class CustomLineEdit(LineEdit):
         # Call the parent class constructor
         super().__init__(*args, **kwargs)
         # Set size policy to expanding horizontally
+        # Apply dark theme palette to ensure contrast with CardWidget backgrounds
+        self.setStyleSheet(
+            """
+            QLineEdit {
+                background-color: #2f2f2f;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0078D4;
+            }
+            """
+        )
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         # Initialize next and previous widget references
         self.next_widget_on_enter = None # For Enter/Return key
@@ -99,6 +119,107 @@ class CustomLineEdit(LineEdit):
         
         return widgets[next_index]
 
+# ------------------------------------------------------------------
+# LeftIconButton - composite widget to display an icon on the left and
+# a PrimaryPushButton text on the right. Solves icon/text overlap seen
+# in QFluentWidgets default PushButton for certain glyphs.
+# ------------------------------------------------------------------
+from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtWidgets import QWidget, QHBoxLayout
+from qfluentwidgets import PrimaryPushButton, BodyLabel, FluentIcon
+
+class LeftIconButton(QWidget):
+    """A button that shows a Fluent icon in a fixed 20×20 area on the left
+    and text inside a PrimaryPushButton on the right.  Exposes the
+    ``clicked`` signal of the inner button so it can be used transparently
+    as a normal button.
+    """
+
+    def __init__(self, icon: FluentIcon, text: str, color: str = "#2e7d32", parent=None):
+        super().__init__(parent)
+        self._icon = icon
+        self.button = PrimaryPushButton(text)
+        # self.button.setMinimumHeight(40)  # Removed for responsiveness
+        self.button.setIconSize(QSize(1, 1))  # effectively hide default icon
+        self.button.setProperty("color", color)
+        self.button.setStyleSheet(self.get_stylesheet(color))
+
+        self._icon_label = BodyLabel()
+        # FluentIcon returns QIcon via .icon() method
+        # Calculate icon size based on button font size for proportional scaling
+        button_font = self.button.font()
+        icon_size = max(16, int(button_font.pointSize() * 1.2))  # Scale with font size
+        self._icon_label.setPixmap(self._icon.icon().pixmap(icon_size, icon_size))
+        
+        # Use proportional sizing instead of fixed size
+        self._icon_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self._icon_label.setMinimumWidth(icon_size + 6)  # Icon size + padding
+        self._icon_label.setAlignment(Qt.AlignCenter)
+        self._icon_label.setProperty("color", color)
+        self._icon_label.setStyleSheet(f"background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{{self._lighten(color, 1.1)}}}, stop:1 {{{self._lighten(color, 0.9)}}}); border-top-left-radius:4px;border-bottom-left-radius:4px;")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._icon_label)
+        layout.addWidget(self.button, 1)
+
+    # Re-expose inner button signals/properties -------------------------------------------------
+    @property
+    def clicked(self):
+        """Qt signal of the inner button so you can do myBtn.clicked.connect(...)"""
+        return self.button.clicked
+    def setEnabled(self, enabled: bool):  # noqa: N802
+        self.button.setEnabled(enabled)
+
+    def setIconSize(self, size: QSize):  # noqa: N802
+        # Update stored icon pixmap to requested size
+        self._icon_label.setPixmap(self._icon.icon().pixmap(size.width(), size.height()))
+
+    def setStyleSheet(self, style: str):  # noqa: N802
+        # Proxy stylesheet to inner button
+        self.button.setStyleSheet(style)
+
+    # Utility -----------------------------------------------------------------
+    def _lighten(self, color_str: str, factor: float) -> str:
+        try:
+            c = QColor(color_str)
+            if not c.isValid():
+                # Fallback for invalid color strings (e.g., "red-light")
+                c = QColor("#2e7d32")
+        except (TypeError, AttributeError):
+            # Fallback for catastrophic failures
+            c = QColor("#2e7d32")
+
+        h, s, v, a = c.getHsvF()
+        v = max(0, min(v * factor, 1))
+        c.setHsvF(h, s, v, a)
+        return c.name()
+
+    def get_stylesheet(self, color):
+        color_light = self._lighten(color, 1.15)
+        color_dark = self._lighten(color, 0.85)
+        return f"""
+            PrimaryPushButton {{
+                background-color: {color};
+                color: white;
+                border-radius: 4px;
+                padding-left: 12px;
+                padding-right: 24px;
+            }}
+            PrimaryPushButton:hover {{
+                background-color: {color_light};
+            }}
+            PrimaryPushButton:pressed {{
+                background-color: {color_dark};
+            }}
+            PrimaryPushButton:disabled {{
+                background-color: #3d3d3d;
+                color: #777;
+            }}
+        """
+
+# ------------------------------------------------------------------
 # Custom QScrollArea class with auto-scrolling functionality
 class AutoScrollArea(ScrollArea):
     _active_scroller = None
@@ -112,12 +233,29 @@ class AutoScrollArea(ScrollArea):
         self.scroll_margin = 50
         self.setMouseTracking(True)
         self.setWidgetResizable(True)
+        # Ensure the scroll area and its content do not introduce bright
+        # backgrounds when placed inside a dark CardWidget
+        try:
+            self.enableTransparentBackground()
+        except AttributeError:
+            # Older versions may not have this helper; fall back to stylesheet
+            self.setStyleSheet("QScrollArea{border:none;background:transparent}")
         self._current_scale = 1.0
         self._scroll_timer = QTimer(self)
         self._scroll_timer.timeout.connect(self._perform_auto_scroll)
         self._mouse_pos = QPoint()
         self.viewport().installEventFilter(self)
         self.installEventFilter(self)
+
+    # ------------------------------------------------------------------
+    # Re-implement setWidget to re-apply the transparency to any newly
+    # assigned widget, guaranteeing white backgrounds do not re-appear.
+    # ------------------------------------------------------------------
+    def setWidget(self, widget):  # type: ignore[override]
+        super().setWidget(widget)
+        # Ensure the viewport child is also transparent
+        if widget is not None:
+            widget.setStyleSheet("background: transparent")
 
     def eventFilter(self, obj, event):
         if event.type() == QEvent.MouseMove:
@@ -256,6 +394,154 @@ class CustomNavButton(PushButton):
         # For other keys (like Tab), let the default QPushButton behavior occur.
         super().keyPressEvent(event)
 
+# ------------------------------------------------------------------
+# Shared helper functions for QFluentWidgets TableWidget styling
+# ------------------------------------------------------------------
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QHeaderView
+from qfluentwidgets import TableWidget, setCustomStyleSheet
+
+__all__ = [
+    "apply_center_alignment",
+    "set_intelligent_column_widths",
+    "style_fluent_table",
+]
+
+def apply_center_alignment(table: TableWidget) -> None:
+    """Center-align all existing items in *table*."""
+    for row in range(table.rowCount()):
+        for col in range(table.columnCount()):
+            item = table.item(row, col)
+            if item is not None:
+                item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+
+def set_intelligent_column_widths(table: TableWidget) -> None:
+    """Adapt column widths intelligently so they neither truncate nor waste space.
+
+    The logic mirrors *HistoryTab._set_intelligent_column_widths* so that any
+    table – rental records, history, etc. – behaves consistently.
+    """
+    if table.columnCount() == 0:
+        return
+
+    # Determine sensible minimum widths based on header names
+    min_widths: dict[int, int] = {}
+    for col in range(table.columnCount()):
+        header_item = table.horizontalHeaderItem(col)
+        if header_item is None:
+            continue
+        h_text = header_item.text().lower()
+        if "month" in h_text:
+            min_widths[col] = 120
+        elif "room" in h_text or "number" in h_text:
+            min_widths[col] = 100
+        elif any(k in h_text for k in ("meter", "diff")):
+            min_widths[col] = 90
+        elif any(k in h_text for k in ("total", "cost", "bill", "rent", "amount")):
+            min_widths[col] = 130
+        elif "grand total" in h_text:
+            min_widths[col] = 140
+        else:
+            min_widths[col] = 110
+
+    total_min = sum(min_widths.values())
+    avail = table.viewport().width()
+    header = table.horizontalHeader()
+
+    if total_min > avail:
+        # Fixed widths + horizontal scrollbar
+        for c, w in min_widths.items():
+            header.setSectionResizeMode(c, QHeaderView.Fixed)
+            table.setColumnWidth(c, w)
+    else:
+        for c, w in min_widths.items():
+            header.setSectionResizeMode(c, QHeaderView.Stretch)
+            header.setMinimumSectionSize(w)
+
+    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+def style_fluent_table(table: TableWidget) -> None:
+    """Apply modern Fluent-compatible styling, alternate rows, header tweaks, etc."""
+    # Basic properties
+    table.setShowGrid(False)
+    table.setAlternatingRowColors(True)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setHighlightSections(False)
+    table.setBorderVisible(True)
+    table.setBorderRadius(8)
+    table.verticalHeader().setDefaultSectionSize(45)
+
+    header = table.horizontalHeader()
+    if hasattr(header, "setTextElideMode"):
+        header.setTextElideMode(Qt.ElideNone)
+
+    # Theme-aware CSS lifted from HistoryTab
+    light_qss = """
+        QTableWidget {
+            background-color: #ffffff;
+            color: #212121;
+            gridline-color: #e0e0e0;
+            selection-background-color: #1976d2;
+            alternate-background-color: #f8f9fa;
+            border: 2px solid #d0d7de;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        QHeaderView::section {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #f6f8fa, stop:1 #e1e4e8);
+            color: #24292f;
+            font-weight: 700;
+            font-size: 14px;
+            border: none;
+            border-bottom: 3px solid #d0d7de;
+            border-right: 1px solid #d0d7de;
+            padding: 14px 18px;
+            text-align: center;
+        }
+        QTableWidget::item {
+            padding: 12px 16px;
+            border: none;
+            border-right: 1px solid #f0f0f0;
+            text-align: center;
+        }
+    """
+    dark_qss = """
+        QTableWidget {
+            background-color: #21262d;
+            color: #f0f6fc;
+            gridline-color: #30363d;
+            selection-background-color: #0969da;
+            alternate-background-color: #161b22;
+            border: 2px solid #30363d;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        QHeaderView::section {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #30363d, stop:1 #21262d);
+            color: #f0f6fc;
+            font-weight: 700;
+            font-size: 14px;
+            border: none;
+            border-bottom: 3px solid #30363d;
+            border-right: 1px solid #30363d;
+            padding: 14px 18px;
+            text-align: center;
+        }
+        QTableWidget::item {
+            padding: 12px 16px;
+            border: none;
+            border-right: 1px solid #30363d;
+            text-align: center;
+        }
+    """
+    setCustomStyleSheet(table, light_qss, dark_qss)
+
+    # Apply alignment & responsive widths
+    apply_center_alignment(table)
+    set_intelligent_column_widths(table)
+
 # ===================== Fluent-Widgets Progress Dialog =====================
 try:
     from qfluentwidgets import IndeterminateProgressBar  # type: ignore
@@ -287,8 +573,18 @@ class FluentProgressDialog(QDialog):
         self.setModal(True)
 
         # Semi-transparent dark background so the dialog stands out
+
+        # Apply dark styling so the dialog matches global dark theme
         self.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 160); color: white; border-radius: 8px;"
+            """
+            QDialog {
+                background-color: #2b2b2b;
+                border: 1px solid #444444;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            """
         )
 
         layout = QVBoxLayout(self)

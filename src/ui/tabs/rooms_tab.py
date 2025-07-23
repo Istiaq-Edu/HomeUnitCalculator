@@ -1,21 +1,33 @@
 import sys
 import traceback
 
-from PyQt5.QtCore import QRegExp
+from PyQt5.QtCore import Qt, QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator
 from PyQt5.QtWidgets import (
     QApplication,
     QWidget, QVBoxLayout, QLabel, QGridLayout,
+<<<<<<< HEAD
     QFormLayout, QMessageBox, QSizePolicy
 )
 from qfluentwidgets import (
     CardWidget, SpinBox, PrimaryPushButton,
     TitleLabel, BodyLabel, CaptionLabel, FluentIcon
+=======
+    QFormLayout, QMessageBox, QSizePolicy, QFrame
+)
+from qfluentwidgets import (
+    CardWidget, SpinBox, PrimaryPushButton,
+    TitleLabel, BodyLabel, CaptionLabel, FluentIcon, StrongBodyLabel
+>>>>>>> dev
 )
 
 # Assuming these modules are in the same directory or accessible in PYTHONPATH
 from src.core.utils import resource_path # For icons
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
+<<<<<<< HEAD
+=======
+from src.ui.flow_layout import FlowLayout
+>>>>>>> dev
 
 # Local _clear_layout function to avoid circular dependency with utils
 def _clear_layout(layout):
@@ -47,11 +59,19 @@ class RoomsTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self) # Main layout for RoomsTab
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
 
         # Room Selection Group
         room_selection_group = CardWidget()
         room_selection_layout = QFormLayout(room_selection_group)
+        room_selection_layout.setSpacing(8)
+        room_selection_layout.setContentsMargins(12, 12, 12, 12)
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> dev
         num_rooms_label = BodyLabel("Number of Rooms:")
         self.num_rooms_spinbox = SpinBox()
         self.num_rooms_spinbox.setRange(1, 20) # Default range
@@ -68,14 +88,20 @@ class RoomsTab(QWidget):
         self.rooms_scroll_area = AutoScrollArea()
         self.rooms_scroll_area.setWidgetResizable(True)
         self.rooms_scroll_widget = QWidget()
-        self.rooms_scroll_layout = QGridLayout(self.rooms_scroll_widget) # Use QGridLayout
+        self.rooms_scroll_layout = FlowLayout(self.rooms_scroll_widget) # Use FlowLayout
         self.rooms_scroll_area.setWidget(self.rooms_scroll_widget)
         scroll_wrapper_layout.addWidget(self.rooms_scroll_area)
         layout.addWidget(scroll_wrapper)
 
         # Calculate Button
+<<<<<<< HEAD
         self.calculate_rooms_button = PrimaryPushButton("Calculate Room Bills")
         self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
+=======
+        self.calculate_rooms_button = PrimaryPushButton(FluentIcon.EDIT, "Calculate Room Bills")
+        self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
+        # self.calculate_rooms_button.setFixedHeight(40) # Removed for responsiveness
+>>>>>>> dev
         layout.addWidget(self.calculate_rooms_button)
 
         self.update_room_inputs() # Initial population of room inputs
@@ -91,18 +117,33 @@ class RoomsTab(QWidget):
         for i in range(num_rooms):
             room_group = CardWidget()
             outer_layout = QVBoxLayout(room_group)
+<<<<<<< HEAD
             outer_layout.addWidget(TitleLabel(f"Room {i+1}"))
             room_layout = QFormLayout()
             outer_layout.addLayout(room_layout)
+=======
+            title = TitleLabel(f"Room {i+1}")
+            title.setStyleSheet("font-size:18px;font-weight:bold;")
+            outer_layout.addWidget(title)
+            # Horizontal line under the room title
+            header_line = QFrame()
+            header_line.setFrameShape(QFrame.HLine)
+            header_line.setStyleSheet("border-top:1px solid #888; margin-top:2px; margin-bottom:6px;")
+            outer_layout.addWidget(header_line)
+            room_layout = QFormLayout()
+            outer_layout.addLayout(room_layout)
+            room_group.setMinimumWidth(295)  # Set to ensure 4 boxes per row with better space utilization
+>>>>>>> dev
             room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            # room_group border removed as per design feedback
 
             present_entry = CustomLineEdit()
             present_entry.setObjectName(f"room_{i}_present")
-            present_entry.setPlaceholderText("Enter present reading")
+            
             
             previous_entry = CustomLineEdit()
             previous_entry.setObjectName(f"room_{i}_previous")
-            previous_entry.setPlaceholderText("Enter previous reading")
+            
             
             # Add numeric validators (only digits allowed)
             numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))
@@ -110,25 +151,39 @@ class RoomsTab(QWidget):
             previous_entry.setValidator(numeric_validator)
             
             real_unit_label = CaptionLabel("N/A")
+<<<<<<< HEAD
             unit_bill_label = CaptionLabel("N/A")
+=======
+            real_unit_label.setStyleSheet("color:#4FC3F7;font-weight:bold;")
+            real_unit_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            unit_bill_label = CaptionLabel("N/A")
+            unit_bill_label.setStyleSheet("color:#FFB74D;font-weight:bold;")
+            unit_bill_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+>>>>>>> dev
 
             gas_bill_entry = CustomLineEdit()
             gas_bill_entry.setObjectName(f"room_{i}_gas_bill")
-            gas_bill_entry.setPlaceholderText("Enter Gas Bill")
+            
             gas_bill_entry.setValidator(numeric_validator)
 
             water_bill_entry = CustomLineEdit()
             water_bill_entry.setObjectName(f"room_{i}_water_bill")
-            water_bill_entry.setPlaceholderText("Enter Water Bill")
+            
             water_bill_entry.setValidator(numeric_validator)
 
             house_rent_entry = CustomLineEdit()
             house_rent_entry.setObjectName(f"room_{i}_house_rent")
-            house_rent_entry.setPlaceholderText("Enter House Rent")
+            
             house_rent_entry.setValidator(numeric_validator)
 
+<<<<<<< HEAD
             grand_total_label = CaptionLabel("N/A")
             grand_total_label.setStyleSheet("font-weight: bold;") # Bold style for grand total
+=======
+            grand_total_label = StrongBodyLabel("N/A")
+            grand_total_label.setStyleSheet("color:#81C784;font-weight:bold;")
+            grand_total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+>>>>>>> dev
 
             room_layout.addRow(BodyLabel("Present Unit:"),   present_entry)
             room_layout.addRow(BodyLabel("Previous Unit:"), previous_entry)
@@ -136,7 +191,21 @@ class RoomsTab(QWidget):
             room_layout.addRow(BodyLabel("Water Bill:"),    water_bill_entry)
             room_layout.addRow(BodyLabel("House Rent:"),    house_rent_entry)
             room_layout.addRow(BodyLabel("Real Unit:"),     real_unit_label)
+<<<<<<< HEAD
             room_layout.addRow(BodyLabel("Unit Bill:"),     unit_bill_label)
+=======
+            # Separator before Unit Bill
+            sep1 = QFrame()
+            sep1.setFrameShape(QFrame.HLine)
+            sep1.setStyleSheet("border-top:1px dashed #888;")
+            room_layout.addRow(sep1)
+            room_layout.addRow(BodyLabel("Unit Bill:"),     unit_bill_label)
+            # Separator before Grand Total
+            sep2 = QFrame()
+            sep2.setFrameShape(QFrame.HLine)
+            sep2.setStyleSheet("border-top:1px dashed #888;")
+            room_layout.addRow(sep2)
+>>>>>>> dev
             room_layout.addRow(BodyLabel("Grand Total:"),   grand_total_label)
 
             self.room_entries.append({
@@ -152,13 +221,7 @@ class RoomsTab(QWidget):
             })
             
             # Add to grid layout
-            row, col = divmod(i, 3) # Arrange in 3 columns
-            self.rooms_scroll_layout.addWidget(room_group, row, col)
-
-        # Ensure columns are stretched correctly for the QGridLayout
-        # QGridLayout.columnCount() always returns 0 in PyQt5, so manually set stretch for 3 columns
-        for col in range(3):
-            self.rooms_scroll_layout.setColumnStretch(col, 1)
+            self.rooms_scroll_layout.addWidget(room_group)
         
         # Re-configure navigation whenever room widgets change
         self.setup_navigation_rooms_tab()
@@ -259,14 +322,13 @@ class RoomsTab(QWidget):
         Assumes the row dictionary contains keys like 'Room Name', 'Present Unit', etc.
         """
         if room_index >= len(self.room_entries):
-            # This can happen if the CSV has more rooms than currently displayed in UI
-            # For now, we'll just log and skip, or could dynamically add rooms if needed.
             print(f"Warning: CSV row has data for room {room_index+1}, but only {len(self.room_entries)} rooms are displayed. Skipping.")
             return
 
         room_data = self.room_entries[room_index]
 
         def get_csv_value(row_dict, key_name, default_if_missing_or_empty):
+            # This helper can be removed if it's centralized in the main tab
             for k_original, v_original in row_dict.items():
                 if k_original.strip().lower() == key_name.strip().lower():
                     stripped_v = v_original.strip() if isinstance(v_original, str) else ""
@@ -280,11 +342,6 @@ class RoomsTab(QWidget):
             gas_bill_csv = get_csv_value(row, "Gas Bill", "0.00")
             water_bill_csv = get_csv_value(row, "Water Bill", "0.00")
             house_rent_csv = get_csv_value(row, "House Rent", "0.00")
-            
-            # Note: Real Unit, Unit Bill, Grand Total are calculated, not directly loaded
-            # from CSV for input fields, but we can set their labels if needed for display.
-            # However, the calculate_rooms method will re-calculate them.
-            # So, we only load the input fields.
 
             # Set text for input fields
             room_data['present_entry'].setText(present_unit_csv)
@@ -292,10 +349,6 @@ class RoomsTab(QWidget):
             room_data['gas_bill_entry'].setText(gas_bill_csv)
             room_data['water_bill_entry'].setText(water_bill_csv)
             room_data['house_rent_entry'].setText(house_rent_csv)
-
-            # After loading, trigger calculation for this room or all rooms
-            # It's safer to trigger calculate_rooms() for all rooms after all data is loaded
-            # in the main_tab.py, to ensure per_unit_cost is correctly set.
             
         except Exception as e:
             QMessageBox.critical(self, "Load Room Data Error", f"Failed to load room data for room {room_index+1}: {e}\n{traceback.format_exc()}")
@@ -390,7 +443,14 @@ class RoomsTab(QWidget):
             
             # Set room name (from group box title)
             room_group_widget = room_ui_entries['room_group']
-            room_group_widget.setTitle(room_data_jsonb.get('room_name', f"Room {i+1}"))
+            new_title = room_data_jsonb.get('room_name', f"Room {i+1}")
+            if hasattr(room_group_widget, 'setTitle'):
+                room_group_widget.setTitle(new_title)
+            else:
+                # CardWidget: first child in layout is the TitleLabel we added at creation
+                title_label = room_group_widget.findChild(TitleLabel)
+                if title_label:
+                    title_label.setText(new_title)
 
             def _to_int_str_safe(val):
                 """Return a string representation of an integer, accepting float strings like '123.0'."""

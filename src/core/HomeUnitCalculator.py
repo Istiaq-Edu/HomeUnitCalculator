@@ -41,9 +41,15 @@ from src.ui.tabs.rental_info_tab import RentalInfoTab
 from src.ui.tabs.archived_info_tab import ArchivedInfoTab
 from qfluentwidgets import (
     InfoBar, InfoBarPosition,
+<<<<<<< HEAD
     NavigationInterface, NavigationItemPosition,
     FluentIcon, setTheme, Theme, isDarkTheme,
     stacked_widget, ComboBox, PushButton
+=======
+    NavigationInterface, NavigationItemPosition, setThemeColor,
+    FluentIcon, setTheme, Theme, isDarkTheme,
+    stacked_widget, ComboBox, PushButton, FluentWindow
+>>>>>>> dev
 )
 
 # Fluent design toast-like information bars (non-blocking replacements for QMessageBox.information)
@@ -109,9 +115,10 @@ except ImportError:
     pass
 # ----------------------------------------------------------------------------------------------
 
-class MeterCalculationApp(QMainWindow):
+class MeterCalculationApp(FluentWindow):
     def __init__(self):
         super().__init__()
+<<<<<<< HEAD
         self.setWindowTitle("Home Unit Calculator")
         self.setGeometry(100, 100, 1300, 860)
 
@@ -126,21 +133,117 @@ class MeterCalculationApp(QMainWindow):
         except Exception:
             # Fallback – retain legacy icon if Fluent icon retrieval fails
             self.setWindowIcon(QIcon(resource_path("icons/icon.png")))
+=======
+>>>>>>> dev
 
+        # Set a modern, cross-platform default font to avoid rendering issues
+        # with missing system fonts like MS Shell Dlg 2, which can cause
+        # "OpenType support missing" warnings.
+        font = QFont("Segoe UI", 9)
+        QApplication.setFont(font)
+
+        self.setWindowTitle("Home Unit Calculator")
+        
+        # Force update the title bar after setting the title
+        if hasattr(self, 'titleBar') and hasattr(self.titleBar, 'titleLabel'):
+            self.titleBar.titleLabel.setText("Home Unit Calculator")
+            
+        # Use resize instead of setGeometry to allow flexible positioning
+        self.resize(1300, 860)
+        # Set minimum size to ensure usability
+        self.setMinimumSize(800, 600)
+
+        # Set dark theme and accent color
+        setTheme(Theme.DARK)
+        setThemeColor('#0078D4')
+
+        # Patch CardWidget colours to improve dark-theme consistency
+        self._patch_cardwidget_dark_style()
+
+        # Apply global dark stylesheet (dialogs, cards, scroll areas, etc.)
+        self._apply_global_dark_styles()
+
+        # Force Qt file dialogs to use the non-native variant so QSS styling applies
+        self._patch_file_dialog_options()
+
+        # Set window icon early in initialization
+        self._set_window_icon_early()
+
+        # Improve title bar text styling and visibility
+        self.titleBar.titleLabel.setAlignment(Qt.AlignCenter)
+        self.titleBar.titleLabel.setStyleSheet("""
+            QLabel {
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 0px 10px;
+            }
+        """)
+        
+        # Ensure the title bar itself has proper styling and height for larger icon
+        self.titleBar.setStyleSheet("""
+            TitleBar {
+                background-color: #2b2b2b;
+                border-bottom: 1px solid #3d3d3d;
+                min-height: 40px;
+            }
+            TitleBar QLabel {
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            TitleBarButton {
+                qproperty-normalColor: rgb(255,255,255);
+                qproperty-hoverColor: rgb(240,240,240);
+                qproperty-pressedColor: rgb(220,220,220);
+                padding-top: 6px;
+                padding-bottom: 4px;
+            }
+        """)
+        
+        # Set minimum height to accommodate larger icon (32x32 + padding)
+        self.titleBar.setMinimumHeight(40)
+        # Adjust layout to position buttons on the right and center vertically
+        self.titleBar.hBoxLayout.setStretch(1, 0)  # Set title stretch to 0
+        spacer = self.titleBar.hBoxLayout.takeAt(2)  # Remove existing spacer if any
+        self.titleBar.hBoxLayout.insertStretch(2)  # Add stretch between title and buttons
+
+        # Vertically center all title bar elements
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.iconLabel, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.titleLabel, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.minBtn, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.maxBtn, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.closeBtn, Qt.AlignVCenter)
+        
         # Ensure the data/images directory exists
         self.image_storage_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'data', 'images')
         os.makedirs(self.image_storage_dir, exist_ok=True)
         
         self.db_manager = DBManager()
+        self.db_manager.bootstrap_rentals_table()
         self.encryption_util = EncryptionUtil()
         self.supabase_manager = SupabaseManager() # Initialize SupabaseManager
         
         self.load_info_source_combo = ComboBox()
         self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
+<<<<<<< HEAD
         
         self.load_history_source_combo = ComboBox()
         self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
 
+=======
+        self.load_info_source_combo.setItemIcon(0, FluentIcon.DOCUMENT.icon())
+        self.load_info_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
+        self.load_info_source_combo.setIconSize(QSize(16, 16))
+        # Apply custom delegate so icon also appears when combo is closed
+        
+        self.load_history_source_combo = ComboBox()
+        self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
+        self.load_history_source_combo.setItemIcon(0, FluentIcon.DOCUMENT.icon())
+        self.load_history_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
+        self.load_history_source_combo.setIconSize(QSize(16, 16))
+        
+>>>>>>> dev
         self.main_tab_instance = MainTab(self)
         self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self)
         self.history_tab_instance = HistoryTab(self)
@@ -148,14 +251,27 @@ class MeterCalculationApp(QMainWindow):
         self.rental_info_tab_instance = RentalInfoTab(self)
         self.archived_info_tab_instance = ArchivedInfoTab(self)
         
+<<<<<<< HEAD
         self.stacked_widget = stacked_widget.StackedWidget(self)
         self.navigation_view = NavigationInterface(self, showMenuButton=True, showReturnButton=True)
 
+=======
+>>>>>>> dev
         self._initialize_supabase_client()
-        self.init_ui()
+        
+        # Sync the history tab button display after Supabase initialization
+        self.history_tab_instance.sync_source_button_display()
+
+        self.init_navigation()
         self.setup_navigation()
         self.center_window()
         self.refresh_all_rental_tabs()
+        
+        # Set title bar icon after everything is initialized
+        self._set_title_bar_icon()
+        
+        # Force icon to be visible
+        self._force_icon_visibility()
 
         # Global keyboard shortcuts
         try:
@@ -164,6 +280,351 @@ class MeterCalculationApp(QMainWindow):
             self._kb_nav_manager = KeyboardNavigationManager(self)
         except Exception as nav_exc:  # pragma: no cover – keep UI alive even if navigation fails
             print(f"Keyboard navigation failed to initialise: {nav_exc}")
+
+    def _set_title_bar_icon(self):
+        """Set a larger title bar icon by directly manipulating the title bar widgets."""
+        if not hasattr(self, 'titleBar'):
+            return
+            
+        try:
+            # Try multiple possible icon paths
+            possible_icon_paths = [
+                "icons/icon.png",
+                os.path.join(os.path.dirname(__file__), "..", "..", "icons", "icon.png"),
+                os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "icons", "icon.png")
+            ]
+            
+            icon_to_use = None
+            icon_path_used = None
+            
+            # Try to load custom icon first
+            for icon_path in possible_icon_paths:
+                if os.path.exists(icon_path):
+                    pixmap = QPixmap(icon_path)
+                    if not pixmap.isNull():
+                        icon_to_use = QIcon()
+                        # Create larger icon - 28x28 for better visibility
+                        icon_to_use.addPixmap(pixmap.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                        icon_path_used = icon_path
+                        break
+            
+            # Fallback to FluentIcon if custom icon failed
+            if icon_to_use is None:
+                icon_to_use = FluentIcon.CALCULATOR.icon()
+                icon_path_used = "FluentIcon.CALCULATOR"
+            
+            # Set window icon (for taskbar)
+            self.setWindowIcon(icon_to_use)
+            
+            # Method 1: Try the standard setIcon method
+            if hasattr(self.titleBar, 'setIcon'):
+                self.titleBar.setIcon(icon_to_use)
+                
+                # Now make sure the icon label is visible and properly sized
+                if hasattr(self.titleBar, 'iconLabel'):
+                    icon_label = self.titleBar.iconLabel
+                    if icon_label:
+                        # Make the icon larger and visible
+                        larger_pixmap = icon_to_use.pixmap(32, 32)  # Create 32x32 pixmap
+                        icon_label.setPixmap(larger_pixmap)
+                        icon_label.setFixedSize(36, 36)  # Container size
+                        icon_label.setVisible(True)
+                        icon_label.show()
+                        icon_label.setAlignment(Qt.AlignCenter)
+                        icon_label.setStyleSheet("""
+                            QLabel {
+                                background: transparent;
+                                padding: 2px;
+                                margin: 2px;
+                            }
+                        """)
+                        return
+                
+                # Fallback: find the icon label manually
+                for child in self.titleBar.findChildren(QLabel):
+                    if hasattr(child, 'pixmap') and child.pixmap() and not child.pixmap().isNull():
+                        # This is likely the icon label
+                        larger_pixmap = icon_to_use.pixmap(32, 32)
+                        child.setPixmap(larger_pixmap)
+                        child.setFixedSize(36, 36)
+                        child.setVisible(True)
+                        child.show()
+                        child.setAlignment(Qt.AlignCenter)
+                        child.setStyleSheet("""
+                            QLabel {
+                                background: transparent;
+                                padding: 2px;
+                                margin: 2px;
+                            }
+                        """)
+                        return
+            
+            # Method 2: Find and modify icon widgets directly
+            icon_set = False
+            
+            # Look for existing icon widgets in the title bar
+            for child in self.titleBar.findChildren(QLabel):
+                # Skip the title label
+                if hasattr(child, 'text') and child.text() == self.windowTitle():
+                    continue
+                    
+                # Try to set icon on labels that might be icon containers
+                if hasattr(child, 'setPixmap'):
+                    pixmap = icon_to_use.pixmap(28, 28)  # Get 28x28 pixmap
+                    child.setPixmap(pixmap)
+                    child.setFixedSize(32, 32)  # Slightly larger container
+                    child.setAlignment(Qt.AlignCenter)
+                    child.setVisible(True)
+                    child.show()
+                    child.setStyleSheet("""
+                        QLabel {
+                            background: transparent;
+                            padding: 2px;
+                            margin: 2px;
+                        }
+                    """)
+                    print(f"Icon set on QLabel: {child.objectName()}")
+                    icon_set = True
+                    break
+            
+            # Method 3: Look for buttons that might hold icons
+            if not icon_set:
+                for child in self.titleBar.findChildren(QPushButton):
+                    # Skip window control buttons (minimize, maximize, close)
+                    if any(name in child.objectName().lower() for name in ['min', 'max', 'close', 'restore']):
+                        continue
+                    
+                    child.setIcon(icon_to_use)
+                    child.setIconSize(QSize(28, 28))
+                    child.setFixedSize(36, 36)
+                    child.setVisible(True)
+                    child.show()
+                    child.setStyleSheet("""
+                        QPushButton {
+                            background: transparent;
+                            border: none;
+                            padding: 4px;
+                            margin: 2px;
+                        }
+                        QPushButton:hover {
+                            background: rgba(255, 255, 255, 0.1);
+                            border-radius: 4px;
+                        }
+                    """)
+                    icon_set = True
+                    break
+                
+        except Exception as e:
+            pass
+
+    def _set_window_icon_early(self):
+        """Set window icon early in initialization process."""
+        try:
+            # Load the custom icon
+            icon_path = "icons/icon.png"
+            if os.path.exists(icon_path):
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    icon = QIcon()
+                    icon.addPixmap(pixmap.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    self.setWindowIcon(icon)
+                    return
+            
+            # Fallback
+            fluent_icon = FluentIcon.HOME.icon()
+            self.setWindowIcon(fluent_icon)
+        except Exception as e:
+            pass
+
+    def _force_icon_visibility(self):
+        """Ensure the title bar icon is visible by targeting the specific icon label."""
+        if not hasattr(self, 'titleBar'):
+            return
+            
+        try:
+            # Method 1: Use the iconLabel property if available
+            if hasattr(self.titleBar, 'iconLabel'):
+                icon_label = self.titleBar.iconLabel
+                if icon_label and hasattr(icon_label, 'pixmap') and icon_label.pixmap():
+                    icon_label.setVisible(True)
+                    icon_label.show()
+                    icon_label.raise_()
+                    # Ensure it has a reasonable size
+                    if icon_label.size().width() < 20:
+                        icon_label.setFixedSize(36, 36)
+                    return
+            
+            # Method 2: Find icon labels manually
+            for child in self.titleBar.findChildren(QLabel):
+                if hasattr(child, 'pixmap') and child.pixmap() and not child.pixmap().isNull():
+                    child.setVisible(True)
+                    child.show()
+                    child.raise_()
+                    # Ensure it has a reasonable size
+                    if child.size().width() < 20:
+                        child.setFixedSize(36, 36)
+                    
+        except Exception as e:
+            pass
+
+
+    def _apply_global_dark_styles(self):
+        """Apply a single dark stylesheet to the entire QApplication so that
+        *all* widgets – including top-level dialogs such as QFileDialog and
+        custom QDialog subclasses – inherit a consistent dark appearance.
+        """
+        from PyQt5.QtWidgets import QApplication
+
+        dark_css = """
+        /* Card-like panels */
+        CardWidget {
+            background-color: #2b2b2b;
+            border: 1px solid #3d3d3d;
+            border-radius: 8px;
+        }
+
+        /* Scroll areas should be transparent so underlying card shows */
+        ScrollArea {
+            background: transparent;
+        }
+
+        /* Dialogs / file dialogs */
+        QDialog, QFileDialog {
+            background-color: #2b2b2b;
+            color: #ffffff;
+        }
+
+        /* Ensure text in dialogs is visible */
+        QDialog QLabel, QFileDialog QLabel {
+            color: #ffffff;
+        }
+
+        /* QLabels default to white for better contrast */
+        QLabel {
+            color: #ffffff;
+        }
+
+        /* Title bar customization */
+        TitleBar {
+            background-color: #2b2b2b;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        
+        TitleBar QLabel {
+            color: white !important;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 0px 10px;
+        }
+        
+        FluentWindow > TitleBar > QLabel {
+            font-weight: bold;
+            font-size: 14px;
+            color: white !important;
+        }
+
+        /* Tooltips */
+        QToolTip {
+            background-color: #3d3d3d;
+            color: #ffffff;
+            border: 1px solid #5a5a5a;
+}
+
+/* Modern input controls */
+QLineEdit::placeholder {
+    color: transparent; /* hide placeholders */
+}
+
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background-color: #2f2f2f;
+    border: 1px solid #555555;
+    border-radius: 6px;
+    padding: 4px;
+    color: #ffffff;
+}
+
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+    border: 1px solid #0078D4;
+}
+"""
+
+        app = QApplication.instance()
+        if app is not None:
+            existing = app.styleSheet() or ""
+            # Avoid duplicate stylesheet injection
+            if dark_css.strip() not in existing:
+                app.setStyleSheet(existing + "\n" + dark_css)
+
+    # ----------------------------------------------------------------------
+    #                              FILE DIALOGS
+    # ----------------------------------------------------------------------
+    def _patch_file_dialog_options(self):
+        """Force :class:`QFileDialog` static helpers to use the **Qt** variant
+        instead of the operating-system native dialog. Native dialogs do not
+        respect Qt style-sheets, so they stay bright in dark mode. This shim
+        transparently ORs the ``DontUseNativeDialog`` flag for all helpers.
+        """
+        from PyQt5.QtWidgets import QFileDialog
+
+        if getattr(QFileDialog, "__hmc_patched__", False):
+            return  # Already done
+
+        def _wrap_static(method_name):
+            original = getattr(QFileDialog, method_name)
+
+            def wrapper(*args, **kwargs):  # type: ignore[override]
+                opts = kwargs.get("options", QFileDialog.Options())
+                opts |= QFileDialog.DontUseNativeDialog
+                kwargs["options"] = opts
+                return original(*args, **kwargs)
+
+            setattr(QFileDialog, method_name, staticmethod(wrapper))
+
+        for _m in ("getOpenFileName", "getOpenFileNames", "getSaveFileName", "getExistingDirectory"):
+            if hasattr(QFileDialog, _m):
+                _wrap_static(_m)
+
+        QFileDialog.__hmc_patched__ = True
+
+    # ----------------------------------------------------------------------
+    #                       CARDWIDGET COLOUR PATCHING
+    # ----------------------------------------------------------------------
+    def _patch_cardwidget_dark_style(self):
+        """Globally monkey-patch CardWidget colours for dark theme.
+
+        The default CardWidget background is a semi-transparent white overlay which appears
+        too bright against the dark window background. We override the internal colour
+        helpers so that every CardWidget (existing and future) uses solid dark greys that
+        match the rest of the UI. This avoids the need to call setStyleSheet or iterate
+        through all card instances manually.
+        """
+        try:
+            from PyQt5.QtGui import QColor
+            from qfluentwidgets.components.widgets.card_widget import CardWidget, SimpleCardWidget, ElevatedCardWidget
+
+            # Avoid double-patching in case the window is reinstantiated
+            if getattr(CardWidget, '__hmc_dark_patched__', False):
+                return
+
+            def _normal(self):
+                return QColor(43, 43, 43)  # main card fill
+
+            def _hover(self):
+                return QColor(54, 54, 54)  # slightly lighter on hover
+
+            def _pressed(self):
+                return QColor(37, 37, 37)  # slightly darker on press
+
+            for _cls in (CardWidget, SimpleCardWidget, ElevatedCardWidget):
+                _cls._normalBackgroundColor = _normal  # type: ignore[assignment]
+                _cls._hoverBackgroundColor = _hover    # type: ignore[assignment]
+                _cls._pressedBackgroundColor = _pressed  # type: ignore[assignment]
+                _cls.__hmc_dark_patched__ = True
+        except Exception as e:
+            # Silently continue if patching fails; better to show default than crash
+            print(f"Failed to patch CardWidget for dark theme: {e}")
+
+
 
     def check_internet_connectivity(self):
         import socket
@@ -188,6 +649,7 @@ class MeterCalculationApp(QMainWindow):
             # If Supabase fails to initialize, ensure source is PC (CSV)
             self.load_history_source_combo.setCurrentText("Load from PC (CSV)")
 
+<<<<<<< HEAD
     def init_ui(self):
         # Create buttons but don't add them to the main layout yet
         self.save_pdf_button = QPushButton("Save as PDF")
@@ -344,6 +806,34 @@ class MeterCalculationApp(QMainWindow):
             self.save_pdf_button.hide()
             self.save_csv_button.hide()
             self.save_cloud_button.hide()
+=======
+
+    def init_navigation(self):
+        self.main_tab_instance.setObjectName("MainId")
+        self.rooms_tab_instance.setObjectName("RoomsId")
+        self.history_tab_instance.setObjectName("HistoryId")
+        self.rental_info_tab_instance.setObjectName("RentalId")
+        self.archived_info_tab_instance.setObjectName("ArchivedId")
+        self.supabase_config_tab_instance.setObjectName("SupabaseId")
+
+        self.addSubInterface(self.main_tab_instance, FluentIcon.HOME, 'Home')
+        self.addSubInterface(self.rooms_tab_instance, FluentIcon.APPLICATION, 'Room Calculations')
+        self.addSubInterface(self.history_tab_instance, FluentIcon.HISTORY, 'Calculation History')
+        self.addSubInterface(self.rental_info_tab_instance, FluentIcon.PEOPLE, 'Rental Info')
+        self.addSubInterface(self.archived_info_tab_instance, FluentIcon.DOCUMENT, 'Archived Info')
+        self.addSubInterface(self.supabase_config_tab_instance, FluentIcon.SETTING, 'Supabase Config', position=NavigationItemPosition.BOTTOM)
+        
+        self.stackedWidget.currentChanged.connect(self.on_current_interface_changed)
+        self.navigationInterface.setCurrentItem(self.main_tab_instance.objectName())
+
+
+    def on_current_interface_changed(self, index):
+        """Handle tab change: set focus appropriately."""
+        current_widget = self.stackedWidget.widget(index)
+        if hasattr(current_widget, 'set_focus_on_tab_change'):
+            current_widget.set_focus_on_tab_change()
+
+>>>>>>> dev
 
     def save_to_pdf(self):
         month_name = self.main_tab_instance.month_combo.currentText()
@@ -521,163 +1011,84 @@ class MeterCalculationApp(QMainWindow):
                 if not file_exists or os.path.getsize(filename) == 0:
                     header = ["Month"] + [f"Meter-{i+1}" for i in range(10)] + \
                                 [f"Diff-{i+1}" for i in range(10)] + \
-                                ["Total Unit", "Total Diff", "Per Unit Cost", "Added Amount", "In Total"] + \
-                                ["Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill",
-                                 "Gas Bill", "Water Bill", "House Rent", "Grand Total",
-                                 "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"]
+                                ["Total-Unit-Cost", "Total-Diffs", "Per-Unit-Cost", "Added-Amount", "Grand-Total"]
                     writer.writerow(header)
-                main_data_row = [month_name]
-                for i in range(10): main_data_row.append(self.main_tab_instance.meter_entries[i].text() if i < len(self.main_tab_instance.meter_entries) and self.main_tab_instance.meter_entries[i].text() else "0")
-                for i in range(10): main_data_row.append(self.main_tab_instance.diff_entries[i].text() if i < len(self.main_tab_instance.diff_entries) and self.main_tab_instance.diff_entries[i].text() else "0")
-                main_data_row.extend([
-                    (self.main_tab_instance.total_unit_value_label.text().split(':')[-1].replace("TK", "").strip() or "0"),
-                    (self.main_tab_instance.total_diff_value_label.text().split(':')[-1].replace("TK", "").strip() or "0"),
-                    (self.main_tab_instance.per_unit_cost_value_label.text().split(':')[-1].replace("TK", "").strip() or "0.00"),
-                    str(self.main_tab_instance.get_additional_amount()),
-                    (self.main_tab_instance.in_total_value_label.text().split(':')[-1].replace("TK", "").strip() or "0.00")
-                ])
-                if self.rooms_tab_instance.room_entries:
-                    for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
-                        room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
-                        room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
-                        
-                        present_text = room_data['present_entry'].text() or "0"
-                        previous_text = room_data['previous_entry'].text() or "0"
-                        real_unit = room_data['real_unit_label'].text() if room_data['real_unit_label'].text() != "Incomplete" else "N/A"
-                        unit_bill = room_data['unit_bill_label'].text().replace(" TK", "") if room_data['unit_bill_label'].text() != "Incomplete" else "N/A"
-                        gas_bill = room_data['gas_bill_entry'].text() or "0.00"
-                        water_bill = room_data['water_bill_entry'].text() or "0.00"
-                        house_rent = room_data['house_rent_entry'].text() or "0.00"
-                        grand_total = room_data['grand_total_label'].text().replace(" TK", "") if room_data['grand_total_label'].text() != "Incomplete" else "N/A"
+                
+                row_data = [month_name] + meter_texts + diff_texts + \
+                           [self.main_tab_instance.total_unit_value_label.text(), self.main_tab_instance.total_diff_value_label.text(), 
+                            self.main_tab_instance.per_unit_cost_value_label.text(), self.main_tab_instance.additional_amount_value_label.text(), 
+                            self.main_tab_instance.in_total_value_label.text()]
+                writer.writerow(row_data)
 
-                        room_csv_data_parts = [
-                            room_name, present_text, previous_text, real_unit, unit_bill,
-                            gas_bill, water_bill, house_rent, grand_total
-                        ]
-                        if i == 0:
-                            # For the first room, append room data and then the summary totals
-                            room_bill_totals = self.rooms_tab_instance.get_all_room_bill_totals()
-                            summary_csv_parts = [
-                                f"{room_bill_totals['total_house_rent']:.2f}",
-                                f"{room_bill_totals['total_water_bill']:.2f}",
-                                f"{room_bill_totals['total_gas_bill']:.2f}",
-                                f"{room_bill_totals['total_room_unit_bill']:.2f}"
-                            ]
-                            writer.writerow(main_data_row + room_csv_data_parts + summary_csv_parts)
-                        else:
-                             writer.writerow([""] * len(main_data_row) + room_csv_data_parts + [""] * 4) # Empty cells for totals in subsequent room rows
-                else:
-                    writer.writerow(main_data_row + ["N/A"] * 9 + ["N/A"] * 4) # 9 new fields for rooms + 4 for totals
-            QMessageBox.information(self, "Save Successful", f"Data saved to {filename}")
+            QMessageBox.information(self, "CSV Saved", f"Calculation history saved to {filename}")
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Failed to save data to CSV: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "CSV Save Error", f"Failed to save CSV: {e}\n{traceback.format_exc()}")
 
     def save_calculation_to_supabase(self):
         if not self.supabase_manager.is_client_initialized() or not self.check_internet_connectivity():
-            QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
+            QMessageBox.warning(self, "Supabase Not Configured", "Please configure Supabase client in settings or check internet connection.")
             return
+        
         try:
-            month = self.main_tab_instance.month_combo.currentText()
-            year = self.main_tab_instance.year_spinbox.value()
+            month = f"{self.main_tab_instance.month_combo.currentText()} {self.main_tab_instance.year_spinbox.value()}"
+            
+            # Check for existing record
+            if self.supabase_manager.record_exists('calculations', month):
+                reply = QMessageBox.question(self, 'Record Exists', 
+                                             f"A record for {month} already exists. Do you want to overwrite it?",
+                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if reply == QMessageBox.No:
+                    return
 
-            def _s_float(v, default=0.0):
-                try: return float(v) if v and v.strip() else default
-                except ValueError: return default
-
-            meter_values = [_s_float(me.text()) for me in self.main_tab_instance.meter_entries]
-            diff_values = [_s_float(de.text()) for de in self.main_tab_instance.diff_entries]
-
-            # Build dictionary with both indexed keys (meter_1, diff_1, ...) and array versions for backward compatibility
-            main_calc_data = {
-                "month": month,
-                "year": year,
-                "meter_readings": meter_values,
-                "diff_readings": diff_values,
+            # Main calculation data
+            main_data = {
+                'month': month,
+                'meter_readings': {f'meter_{i+1}': float(self.main_tab_instance.meter_entries[i].text() or 0) for i in range(len(self.main_tab_instance.meter_entries))},
+                'diff_readings': {f'diff_{i+1}': float(self.main_tab_instance.diff_entries[i].text() or 0) for i in range(len(self.main_tab_instance.diff_entries))},
+                'total_unit_cost': float(self.main_tab_instance.total_unit_value_label.text() or 0),
+                'total_diffs': float(self.main_tab_instance.total_diff_value_label.text() or 0),
+                'per_unit_cost': float(self.main_tab_instance.per_unit_cost_value_label.text() or 0),
+                'added_amount': float(self.main_tab_instance.additional_amount_value_label.text() or 0),
+                'grand_total': float(self.main_tab_instance.in_total_value_label.text() or 0)
             }
 
-            # Add individual meter_i and diff_i keys expected by HistoryTab
-            for idx, val in enumerate(meter_values):
-                main_calc_data[f"meter_{idx+1}"] = val
-            for idx, val in enumerate(diff_values):
-                main_calc_data[f"diff_{idx+1}"] = val
+            if self.supabase_manager.record_exists('calculations', month):
+                self.supabase_manager.update_record('calculations', month, main_data)
+            else:
+                self.supabase_manager.insert_record('calculations', main_data)
 
-            # Additional summary fields using names expected by HistoryTab
-            main_calc_data.update({
-                "total_unit_cost": _s_float(self.main_tab_instance.total_unit_value_label.text().replace("TK", "").strip()),
-                "total_diff_units": _s_float(self.main_tab_instance.total_diff_value_label.text().replace("TK", "").strip()),
-                "per_unit_cost": _s_float(self.main_tab_instance.per_unit_cost_value_label.text().replace("TK", "").strip()),
-                "added_amount": _s_float(self.main_tab_instance.additional_amount_input.text()),
-                "additional_amount": _s_float(self.main_tab_instance.additional_amount_input.text()),
-                "grand_total": _s_float(self.main_tab_instance.in_total_value_label.text().replace("TK", "").strip()),
-            })
-
-            # Check for incomplete room calculations before saving
-            incomplete_rooms = []
-            room_data_for_supabase = []
+            # Room calculation data
             if self.rooms_tab_instance.room_entries:
                 for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
-                    real_unit_label = room_data['real_unit_label']
-                    unit_bill_label = room_data['unit_bill_label']
-                    grand_total_label = room_data['grand_total_label']
-                    room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
-                    room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
-                    
-                    if real_unit_label.text() == "Incomplete" or unit_bill_label.text() == "Incomplete" or grand_total_label.text() == "Incomplete":
-                        incomplete_rooms.append(room_name)
+                    room_name = f"Room {i+1}"
+                    room_record = {
+                        'month': month,
+                        'room_number': room_name,
+                        'present_reading': float(room_data['present_entry'].text() or 0),
+                        'previous_reading': float(room_data['previous_entry'].text() or 0),
+                        'real_unit': float(room_data['real_unit_label'].text() or 0),
+                        'unit_bill': float(room_data['unit_bill_label'].text() or 0),
+                        'gas_bill': float(room_data['gas_bill_entry'].text() or 0),
+                        'water_bill': float(room_data['water_bill_entry'].text() or 0),
+                        'house_rent': float(room_data['house_rent_entry'].text() or 0),
+                        'grand_total': float(room_data['grand_total_label'].text() or 0)
+                    }
+
+                    if self.supabase_manager.record_exists('rooms', month, room_name):
+                        self.supabase_manager.update_room_record('rooms', month, room_name, room_record)
                     else:
-                        # Prepare room data for SupabaseManager, including local image paths
-                        room_entry_data = {
-                            "room_name": room_name,
-                            "present_unit": _s_float(room_data['present_entry'].text()),
-                            "previous_unit": _s_float(room_data['previous_entry'].text()),
-                            "real_unit": _s_float(real_unit_label.text()),
-                            "unit_bill": _s_float(unit_bill_label.text().replace(" TK", "").strip()),
-                            "gas_bill": _s_float(room_data['gas_bill_entry'].text()),
-                            "water_bill": _s_float(room_data['water_bill_entry'].text()),
-                            "house_rent": _s_float(room_data['house_rent_entry'].text()),
-                            "grand_total": _s_float(grand_total_label.text().replace(" TK", "").strip()),
-                            # Include local image paths for SupabaseManager to handle upload
-                            "photo_path": room_data.get('photo_path'), # Assuming these keys exist in room_data
-                            "nid_front_path": room_data.get('nid_front_path'),
-                            "nid_back_path": room_data.get('nid_back_path'),
-                            "police_form_path": room_data.get('police_form_path')
-                        }
-                        room_data_for_supabase.append(room_entry_data)
-                
-                if incomplete_rooms:
-                    reply = QMessageBox.question(self, "Incomplete Data",
-                                               f"Some rooms have incomplete calculations: {', '.join(incomplete_rooms)}\n\n"
-                                               f"Do you want to save anyway? (Incomplete rooms will be skipped)",
-                                               QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-                    if reply == QMessageBox.No:
-                        return
+                        self.supabase_manager.insert_record('rooms', room_record)
 
-            # Save main calculation using SupabaseManager
-            main_calc_id = self.supabase_manager.save_main_calculation(main_calc_data)
+            QMessageBox.information(self, "Cloud Save", "Data saved to Supabase successfully.")
 
-            if main_calc_id:
-                # Save room calculations using SupabaseManager
-                if room_data_for_supabase:
-                    rooms_saved = self.supabase_manager.save_room_calculations(main_calc_id, room_data_for_supabase)
-                    if rooms_saved:
-                        QMessageBox.information(self, "Success", "Calculation data and room info saved to Supabase successfully!")
-                    else:
-                        QMessageBox.critical(self, "Supabase Error", "Failed to save room calculation data to Supabase.")
-                else:
-                    QMessageBox.information(self, "Success", "Main calculation data saved to Supabase successfully (no room data).")
-            else:
-                QMessageBox.critical(self, "Supabase Error", "Failed to save main calculation data to Supabase.")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred while saving to Supabase: {e}\n{traceback.format_exc()}")
         except APIError as e:
-            QMessageBox.critical(self, "Supabase API Error", f"Supabase API Error: {e.message}\nDetails: {e.details}\nHint: {e.hint}")
-            print(f"Supabase API Error: {e.message}\nDetails: {e.details}\nHint: {e.hint}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Supabase API Error", f"An API error occurred: {e}")
         except Exception as e:
-            QMessageBox.critical(self, "Supabase Save Error", f"Failed to save data to Supabase: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Cloud Save Error", f"Failed to save data to Supabase: {e}\n{traceback.format_exc()}")
 
     def setup_navigation(self):
         # Connect stacked widget change to focus-management helper
+<<<<<<< HEAD
         self.stacked_widget.currentChanged.connect(self.set_focus_on_tab_change)
 
         # Initialise focus for the first interface
@@ -685,6 +1096,15 @@ class MeterCalculationApp(QMainWindow):
 
     def set_focus_on_tab_change(self, index):
         current_tab = self.stacked_widget.widget(index)
+=======
+        self.stackedWidget.currentChanged.connect(self.set_focus_on_tab_change)
+
+        # Initialise focus for the first interface
+        self.set_focus_on_tab_change(self.stackedWidget.currentIndex())
+
+    def set_focus_on_tab_change(self, index):
+        current_tab = self.stackedWidget.widget(index)
+>>>>>>> dev
         if isinstance(current_tab, MainTab):
             self.main_tab_instance.meter_entries[0].setFocus()
         elif isinstance(current_tab, RoomsTab):
