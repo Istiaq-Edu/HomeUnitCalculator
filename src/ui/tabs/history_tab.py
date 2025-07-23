@@ -39,10 +39,10 @@ except ModuleNotFoundError:
 
 # Dialog for Editing Records (Moved from HomeUnitCalculator.py)
 class EditRecordDialog(ResponsiveDialog):
-    def __init__(self, record_id, main_data, room_data_list, parent=None): # parent is the HistoryTab instance
+    def __init__(self, record_id, main_data, room_data_list, parent=None): # parent is now the main window
         super().__init__(parent)
         self.record_id = record_id 
-        self.main_window = parent.main_window # Access main_window through HistoryTab's parent
+        self.main_window = parent # parent is now the main window directly
         self.supabase_manager = self.main_window.supabase_manager # Get supabase manager from main_window
         self.room_edit_widgets = [] 
         self.meter_diff_edit_widgets = [] 
@@ -1974,7 +1974,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             # Fetch room calculation data using SupabaseManager
             room_data_list = self.main_window.supabase_manager.get_room_calculations(record_id)
 
-            dialog = EditRecordDialog(record_id, main_data, room_data_list, parent=self)
+            dialog = EditRecordDialog(record_id, main_data, room_data_list, parent=self.main_window)
             if dialog.exec_() == QDialog.Accepted:
                 self.load_history() # Refresh the table after changes are saved
         except Exception as e:

@@ -379,7 +379,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
 
         try:
             dialog = RentalRecordDialog(
-                self,
+                self.main_window,  # Use main window as parent for proper centering
                 record_data=record_dict, # Pass the consistent dictionary
                 db_manager=self.db_manager, # Local DB manager
                 supabase_manager=self.main_window.supabase_manager, # Supabase manager
