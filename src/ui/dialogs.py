@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import (
 from qfluentwidgets import (
     CardWidget, PrimaryPushButton, PushButton, TitleLabel
 )
+from .responsive_components import ResponsiveDialog
+from .responsive_image import ResponsiveImagePreviewGrid
 
 # Suppress SSL certificate warnings when verify=False is used in requests
 try:
@@ -31,11 +33,11 @@ RentalRecord = namedtuple('RentalRecord', [
     'photo_url', 'nid_front_url', 'nid_back_url', 'police_form_url' # Added Supabase URLs
 ])
 
-class RentalRecordDialog(QDialog):
+class RentalRecordDialog(ResponsiveDialog):
     def __init__(self, parent=None, record_data=None, db_manager=None, supabase_manager=None, is_archived_record=False, main_window_ref=None, current_source="Local DB", supabase_id=None):
         super().__init__(parent)
         self.setWindowTitle("Rental Record Details")
-        self.setMinimumSize(500, 600)
+        # self.setMinimumSize(500, 600) # Removed for responsiveness
         if db_manager is None:
             raise ValueError("db_manager is required for dialog operations")
         if record_data is None:
@@ -108,24 +110,16 @@ class RentalRecordDialog(QDialog):
         image_preview_layout.setContentsMargins(20, 20, 20, 20)
         image_preview_layout.setSpacing(10)
 
-        self.photo_preview_label = QLabel("No Photo")
-        self.photo_preview_label.setAlignment(Qt.AlignCenter)
-        self.photo_preview_label.setFixedSize(120, 120)
+        self.photo_preview_label = ResponsiveImagePreviewGrid()
         image_preview_layout.addWidget(self.photo_preview_label, 0, 0)
 
-        self.nid_front_preview_label = QLabel("No NID Front")
-        self.nid_front_preview_label.setAlignment(Qt.AlignCenter)
-        self.nid_front_preview_label.setFixedSize(120, 120)
+        self.nid_front_preview_label = ResponsiveImagePreviewGrid()
         image_preview_layout.addWidget(self.nid_front_preview_label, 0, 1)
 
-        self.nid_back_preview_label = QLabel("No NID Back")
-        self.nid_back_preview_label.setAlignment(Qt.AlignCenter)
-        self.nid_back_preview_label.setFixedSize(120, 120)
+        self.nid_back_preview_label = ResponsiveImagePreviewGrid()
         image_preview_layout.addWidget(self.nid_back_preview_label, 1, 0)
 
-        self.police_form_preview_label = QLabel("No Police Form")
-        self.police_form_preview_label.setAlignment(Qt.AlignCenter)
-        self.police_form_preview_label.setFixedSize(120, 120)
+        self.police_form_preview_label = ResponsiveImagePreviewGrid()
         image_preview_layout.addWidget(self.police_form_preview_label, 1, 1)
         
         main_layout.addWidget(image_preview_group)
@@ -209,29 +203,39 @@ class RentalRecordDialog(QDialog):
 
         for img_type, label in image_labels.items():
             path = image_paths[img_type]
-            if path and path.startswith("http"):
+            placeholder_text = f"No {img_type.replace('_', ' ').title()}"
+            
+            print(f"DEBUG: Processing {img_type} with path: {path}")
+            
+            if path and path != "No file selected" and path.startswith("http"):
                 try:
                     import requests
                     # Disable TLS certificate verification to avoid failures in bundled executables
                     resp = requests.get(path, timeout=5, verify=False)
                     if resp.status_code == 200:
-                        pixmap = QPixmap()
-                        pixmap.loadFromData(resp.content)
-                        label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                        label.setText("")
+                        label.setImageData(resp.content, placeholder_text)
+                        print(f"DEBUG: Successfully loaded {img_type} from URL")
                     else:
-                        label.setText(f"No {img_type.replace('_', ' ').title()}")
+                        label._show_placeholder(placeholder_text)
+                        print(f"DEBUG: Failed to load {img_type} from URL, status: {resp.status_code}")
                 except Exception as e:
-                    label.setText(f"No {img_type.replace('_', ' ').title()}")
-            elif path and self._is_safe_path(path) and os.path.exists(path):
-                pixmap = QPixmap(path)
-                if not pixmap.isNull():
-                    label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                    label.setText("")
-                else:
-                    label.setText(f"Invalid {img_type.replace('_', ' ').title()}")
+                    label._show_placeholder(placeholder_text)
+                    print(f"DEBUG: Exception loading {img_type} from URL: {e}")
+            elif path and path != "No file selected" and os.path.exists(path):
+                # Simplified check - just verify file exists
+                try:
+                    success = label.setImagePath(path, placeholder_text)
+                    if success:
+                        print(f"DEBUG: Successfully loaded {img_type} from file: {path}")
+                    else:
+                        print(f"DEBUG: Failed to load {img_type} from file: {path}")
+                        label._show_placeholder(placeholder_text)
+                except Exception as e:
+                    print(f"DEBUG: Exception loading {img_type} from file: {e}")
+                    label._show_placeholder(placeholder_text)
             else:
-                label.setText(f"No {img_type.replace('_', ' ').title()}")
+                label._show_placeholder(placeholder_text)
+                print(f"DEBUG: Showing placeholder for {img_type} - path: {path}, exists: {os.path.exists(path) if path else False}")
 
         # Set PDF link (assuming PDF is generated and path is stored somewhere, or will be generated on demand)
         # For now, we'll set it to a placeholder or clear it if no PDF is associated
@@ -302,14 +306,42 @@ class RentalRecordDialog(QDialog):
 
     def edit_record(self):
         # Load data back into the main form for editing
-        if self.parent() and hasattr(self.parent(), 'load_record_into_form_for_edit'):
-            # Pass the record_data (which is already a dictionary from RentalInfoTab)
-            # The RentalInfoTab's load_record_into_form_for_edit expects a dictionary
-            # and handles the conversion to its internal QLineEdit values.
-            self.parent().load_record_into_form_for_edit(self.record_data._asdict()) # Convert namedtuple back to dict
-            self.accept() # Close the dialog
-        else:
-            QMessageBox.critical(self, "Error", "Edit function not accessible.")
+        # Since parent is now main window, we need to access the rental tab through main_window_ref
+        try:
+            # Use the correct attribute name from the main window
+            if self.main_window and hasattr(self.main_window, 'rental_info_tab_instance'):
+                # Access the rental tab through the main window
+                rental_tab = self.main_window.rental_info_tab_instance
+                if hasattr(rental_tab, 'load_record_into_form_for_edit'):
+                    # Convert namedtuple to dict for the rental tab
+                    record_dict = self.record_data._asdict()
+                    rental_tab.load_record_into_form_for_edit(record_dict)
+                    self.accept()  # Close the dialog
+                    return
+            
+            # Fallback: try the old attribute name
+            if self.main_window and hasattr(self.main_window, 'rental_info_tab'):
+                rental_tab = self.main_window.rental_info_tab
+                if hasattr(rental_tab, 'load_record_into_form_for_edit'):
+                    record_dict = self.record_data._asdict()
+                    rental_tab.load_record_into_form_for_edit(record_dict)
+                    self.accept()  # Close the dialog
+                    return
+            
+            # Second fallback: try to find rental tab in navigation interface
+            if self.main_window and hasattr(self.main_window, 'stackedWidget'):
+                for i in range(self.main_window.stackedWidget.count()):
+                    tab = self.main_window.stackedWidget.widget(i)
+                    if hasattr(tab, 'load_record_into_form_for_edit'):
+                        record_dict = self.record_data._asdict()
+                        tab.load_record_into_form_for_edit(record_dict)
+                        self.accept()  # Close the dialog
+                        return
+            
+            QMessageBox.critical(self, "Error", "Edit function not accessible. Could not find rental tab.")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to edit record: {e}")
 
     def delete_record(self):
         reply = QMessageBox.question(self, "Confirm Delete",
@@ -387,19 +419,56 @@ class RentalRecordDialog(QDialog):
 
 
     def toggle_archive_status(self):
-        print(f"Toggling archive status for Supabase record ID: {self.supabase_id}")
-        if self.supabase_manager.is_client_initialized():
-            success = self.supabase_manager.update_rental_record_archive_status(self.supabase_id, not self.is_archived_record)
-            if success:
-                QMessageBox.information(self, "Success", f"Record has been {'archived' if not self.is_archived_record else 'unarchived'} in the cloud.")
-                self.is_archived_record = not self.is_archived_record
+        try:
+            new_archive_status = not self.is_archived_record
+            action_text = "archived" if new_archive_status else "unarchived"
+            
+            # Handle both local and cloud records
+            if self.current_source == "Local DB":
+                # Update local database
+                update_query = "UPDATE rentals SET is_archived = ? WHERE id = ?"
+                self.db_manager.execute_query(update_query, (1 if new_archive_status else 0, self.record_data.id))
+                QMessageBox.information(self, "Success", f"Record has been {action_text} in local database.")
                 
-                # Refresh the main window's tabs
+            elif self.current_source == "Cloud (Supabase)":
+                # Update cloud database
+                if self.supabase_manager and self.supabase_manager.is_client_initialized():
+                    success = self.supabase_manager.update_rental_record_archive_status(
+                        self.supabase_id or self.record_data.supabase_id, 
+                        new_archive_status
+                    )
+                    if success:
+                        QMessageBox.information(self, "Success", f"Record has been {action_text} in the cloud.")
+                    else:
+                        QMessageBox.critical(self, "Supabase Error", "Failed to update record in Supabase.")
+                        return
+                else:
+                    QMessageBox.warning(self, "Supabase Error", "Supabase client not configured.")
+                    return
+            
+            # Update local state
+            self.is_archived_record = new_archive_status
+            
+            # Refresh the rental tabs
+            try:
                 if self.main_window:
-                    self.main_window.refresh_all_rental_tabs()
-                
-                self.accept() # Close the dialog
-            else:
-                QMessageBox.critical(self, "Supabase Error", "Failed to update record in Supabase.")
-        else:
-            QMessageBox.warning(self, "Supabase Error", "Supabase client not configured.")
+                    # Try different methods to refresh the tabs
+                    if hasattr(self.main_window, 'refresh_all_rental_tabs'):
+                        self.main_window.refresh_all_rental_tabs()
+                    elif hasattr(self.main_window, 'rental_info_tab'):
+                        # Refresh the rental info tab directly
+                        self.main_window.rental_info_tab.load_rental_records()
+                    elif hasattr(self.main_window, 'tab_widget'):
+                        # Find and refresh rental tabs in the tab widget
+                        for i in range(self.main_window.tab_widget.count()):
+                            tab = self.main_window.tab_widget.widget(i)
+                            if hasattr(tab, 'load_rental_records'):
+                                tab.load_rental_records()
+            except Exception as refresh_error:
+                print(f"Warning: Could not refresh tabs: {refresh_error}")
+            
+            self.accept()  # Close the dialog
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to toggle archive status: {e}")
+            print(f"Archive toggle error: {traceback.format_exc()}")

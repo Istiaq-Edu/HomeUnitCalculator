@@ -134,21 +134,24 @@ class LeftIconButton(QWidget):
         super().__init__(parent)
         self._icon = icon
         self.button = PrimaryPushButton(text)
-        self.button.setMinimumHeight(40)
+        # self.button.setMinimumHeight(40)  # Removed for responsiveness
         self.button.setIconSize(QSize(1, 1))  # effectively hide default icon
-        self.button.setStyleSheet(
-            f"PrimaryPushButton{{background-color:{color};color:white;border-radius:4px;padding-left:12px;padding-right:24px;}}"
-            f"PrimaryPushButton:hover{{background-color:{self._lighten(color, 1.15)}}}"
-            f"PrimaryPushButton:pressed{{background-color:{self._lighten(color, 0.85)}}}"
-            f"PrimaryPushButton:disabled{{background-color:#3d3d3d;color:#777;}}"
-        )
+        self.button.setProperty("color", color)
+        self.button.setStyleSheet(self.get_stylesheet(color))
 
         self._icon_label = BodyLabel()
         # FluentIcon returns QIcon via .icon() method
-        self._icon_label.setPixmap(self._icon.icon().pixmap(20, 20))
-        self._icon_label.setFixedSize(26, 26)
+        # Calculate icon size based on button font size for proportional scaling
+        button_font = self.button.font()
+        icon_size = max(16, int(button_font.pointSize() * 1.2))  # Scale with font size
+        self._icon_label.setPixmap(self._icon.icon().pixmap(icon_size, icon_size))
+        
+        # Use proportional sizing instead of fixed size
+        self._icon_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self._icon_label.setMinimumWidth(icon_size + 6)  # Icon size + padding
         self._icon_label.setAlignment(Qt.AlignCenter)
-        self._icon_label.setStyleSheet(f"background-color:{color};border-top-left-radius:4px;border-bottom-left-radius:4px;")
+        self._icon_label.setProperty("color", color)
+        self._icon_label.setStyleSheet(f"background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{{self._lighten(color, 1.1)}}}, stop:1 {{{self._lighten(color, 0.9)}}}); border-top-left-radius:4px;border-bottom-left-radius:4px;")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -174,11 +177,42 @@ class LeftIconButton(QWidget):
 
     # Utility -----------------------------------------------------------------
     def _lighten(self, color_str: str, factor: float) -> str:
-        c = QColor(color_str)
+        try:
+            c = QColor(color_str)
+            if not c.isValid():
+                # Fallback for invalid color strings (e.g., "red-light")
+                c = QColor("#2e7d32")
+        except (TypeError, AttributeError):
+            # Fallback for catastrophic failures
+            c = QColor("#2e7d32")
+
         h, s, v, a = c.getHsvF()
         v = max(0, min(v * factor, 1))
         c.setHsvF(h, s, v, a)
         return c.name()
+
+    def get_stylesheet(self, color):
+        color_light = self._lighten(color, 1.15)
+        color_dark = self._lighten(color, 0.85)
+        return f"""
+            PrimaryPushButton {{
+                background-color: {color};
+                color: white;
+                border-radius: 4px;
+                padding-left: 12px;
+                padding-right: 24px;
+            }}
+            PrimaryPushButton:hover {{
+                background-color: {color_light};
+            }}
+            PrimaryPushButton:pressed {{
+                background-color: {color_dark};
+            }}
+            PrimaryPushButton:disabled {{
+                background-color: #3d3d3d;
+                color: #777;
+            }}
+        """
 
 # ------------------------------------------------------------------
 # Custom QScrollArea class with auto-scrolling functionality
@@ -354,6 +388,154 @@ class CustomNavButton(PushButton):
 
         # For other keys (like Tab), let the default QPushButton behavior occur.
         super().keyPressEvent(event)
+
+# ------------------------------------------------------------------
+# Shared helper functions for QFluentWidgets TableWidget styling
+# ------------------------------------------------------------------
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QHeaderView
+from qfluentwidgets import TableWidget, setCustomStyleSheet
+
+__all__ = [
+    "apply_center_alignment",
+    "set_intelligent_column_widths",
+    "style_fluent_table",
+]
+
+def apply_center_alignment(table: TableWidget) -> None:
+    """Center-align all existing items in *table*."""
+    for row in range(table.rowCount()):
+        for col in range(table.columnCount()):
+            item = table.item(row, col)
+            if item is not None:
+                item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+
+def set_intelligent_column_widths(table: TableWidget) -> None:
+    """Adapt column widths intelligently so they neither truncate nor waste space.
+
+    The logic mirrors *HistoryTab._set_intelligent_column_widths* so that any
+    table – rental records, history, etc. – behaves consistently.
+    """
+    if table.columnCount() == 0:
+        return
+
+    # Determine sensible minimum widths based on header names
+    min_widths: dict[int, int] = {}
+    for col in range(table.columnCount()):
+        header_item = table.horizontalHeaderItem(col)
+        if header_item is None:
+            continue
+        h_text = header_item.text().lower()
+        if "month" in h_text:
+            min_widths[col] = 120
+        elif "room" in h_text or "number" in h_text:
+            min_widths[col] = 100
+        elif any(k in h_text for k in ("meter", "diff")):
+            min_widths[col] = 90
+        elif any(k in h_text for k in ("total", "cost", "bill", "rent", "amount")):
+            min_widths[col] = 130
+        elif "grand total" in h_text:
+            min_widths[col] = 140
+        else:
+            min_widths[col] = 110
+
+    total_min = sum(min_widths.values())
+    avail = table.viewport().width()
+    header = table.horizontalHeader()
+
+    if total_min > avail:
+        # Fixed widths + horizontal scrollbar
+        for c, w in min_widths.items():
+            header.setSectionResizeMode(c, QHeaderView.Fixed)
+            table.setColumnWidth(c, w)
+    else:
+        for c, w in min_widths.items():
+            header.setSectionResizeMode(c, QHeaderView.Stretch)
+            header.setMinimumSectionSize(w)
+
+    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+def style_fluent_table(table: TableWidget) -> None:
+    """Apply modern Fluent-compatible styling, alternate rows, header tweaks, etc."""
+    # Basic properties
+    table.setShowGrid(False)
+    table.setAlternatingRowColors(True)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setHighlightSections(False)
+    table.setBorderVisible(True)
+    table.setBorderRadius(8)
+    table.verticalHeader().setDefaultSectionSize(45)
+
+    header = table.horizontalHeader()
+    if hasattr(header, "setTextElideMode"):
+        header.setTextElideMode(Qt.ElideNone)
+
+    # Theme-aware CSS lifted from HistoryTab
+    light_qss = """
+        QTableWidget {
+            background-color: #ffffff;
+            color: #212121;
+            gridline-color: #e0e0e0;
+            selection-background-color: #1976d2;
+            alternate-background-color: #f8f9fa;
+            border: 2px solid #d0d7de;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        QHeaderView::section {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #f6f8fa, stop:1 #e1e4e8);
+            color: #24292f;
+            font-weight: 700;
+            font-size: 14px;
+            border: none;
+            border-bottom: 3px solid #d0d7de;
+            border-right: 1px solid #d0d7de;
+            padding: 14px 18px;
+            text-align: center;
+        }
+        QTableWidget::item {
+            padding: 12px 16px;
+            border: none;
+            border-right: 1px solid #f0f0f0;
+            text-align: center;
+        }
+    """
+    dark_qss = """
+        QTableWidget {
+            background-color: #21262d;
+            color: #f0f6fc;
+            gridline-color: #30363d;
+            selection-background-color: #0969da;
+            alternate-background-color: #161b22;
+            border: 2px solid #30363d;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        QHeaderView::section {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #30363d, stop:1 #21262d);
+            color: #f0f6fc;
+            font-weight: 700;
+            font-size: 14px;
+            border: none;
+            border-bottom: 3px solid #30363d;
+            border-right: 1px solid #30363d;
+            padding: 14px 18px;
+            text-align: center;
+        }
+        QTableWidget::item {
+            padding: 12px 16px;
+            border: none;
+            border-right: 1px solid #30363d;
+            text-align: center;
+        }
+    """
+    setCustomStyleSheet(table, light_qss, dark_qss)
+
+    # Apply alignment & responsive widths
+    apply_center_alignment(table)
+    set_intelligent_column_widths(table)
 
 # ===================== Fluent-Widgets Progress Dialog =====================
 try:

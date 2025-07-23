@@ -6,11 +6,11 @@ import traceback
 from datetime import datetime
 
 from PyQt5.QtCore import QRegExp, Qt
-from PyQt5.QtGui import QRegExpValidator, QIcon
+from PyQt5.QtGui import QRegExpValidator, QIcon, QPixmap, QColor, QPainter
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFormLayout, QMessageBox, QSizePolicy,
-    QGridLayout, QBoxLayout, QFrame, QMenu, QAction
+    QGridLayout, QBoxLayout, QFrame, QMenu, QAction, QSpinBox, QComboBox
 
 )
 from postgrest.exceptions import APIError
@@ -179,12 +179,12 @@ class MainTab(QWidget):
         # Wrap right column in a container so we can limit its width
         right_column_container = QWidget()
         right_column_layout = QVBoxLayout(right_column_container)
-        right_column_container.setMaximumWidth(320)
+        # right_column_container.setMaximumWidth(320) # Removed for responsiveness
         spinboxes_layout = QHBoxLayout()
         
         meter_count_group = CardWidget()
         meter_count_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        meter_count_group.setFixedHeight(90)
+        # meter_count_group.setFixedHeight(90) # Removed for responsiveness
         meter_count_layout = QVBoxLayout(meter_count_group)
         meter_count_layout.setContentsMargins(5, 4, 5, 4)
         meter_count_layout.setSpacing(2)
@@ -201,7 +201,7 @@ class MainTab(QWidget):
         
         diff_count_group = CardWidget()
         diff_count_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        diff_count_group.setFixedHeight(90)
+        # diff_count_group.setFixedHeight(90) # Removed for responsiveness
         diff_count_layout = QVBoxLayout(diff_count_group)
         diff_count_layout.setContentsMargins(5, 4, 5, 4)
         diff_count_layout.setSpacing(2)
@@ -228,9 +228,29 @@ class MainTab(QWidget):
         main_layout.addWidget(results_group)
 
         button_layout = QHBoxLayout()
-        self.main_calculate_button = PrimaryPushButton(FluentIcon.EDIT, "Calculate")
+        self.main_calculate_button = PrimaryPushButton("Calculate")
         self.main_calculate_button.clicked.connect(self.calculate_main)
         self.main_calculate_button.setFixedHeight(40)
+        # Apply clean styling with white text and no icons
+        self.main_calculate_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: normal;
+                padding: 8px 16px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
         button_layout.addWidget(self.main_calculate_button)
         main_layout.addLayout(button_layout)
         
@@ -239,20 +259,80 @@ class MainTab(QWidget):
         save_buttons_row.setSpacing(8)
         save_buttons_row.setContentsMargins(0, 8, 0, 0)
 
-        pdf_button = PrimaryPushButton(FluentIcon.DOCUMENT, "Save PDF")
+        pdf_button = PrimaryPushButton("Save PDF")
         pdf_button.setFixedHeight(40)
         pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         pdf_button.clicked.connect(self.main_window.save_to_pdf)
+        # Apply clean styling with white text and no icons
+        pdf_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: normal;
+                padding: 8px 16px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
 
-        csv_button = PrimaryPushButton(FluentIcon.SAVE, "Save CSV")
+        csv_button = PrimaryPushButton("Save CSV")
         csv_button.setFixedHeight(40)
         csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
+        # Apply clean styling with white text and no icons
+        csv_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: normal;
+                padding: 8px 16px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
 
-        cloud_button = PrimaryPushButton(FluentIcon.CLOUD_DOWNLOAD, "Save Cloud")
+        cloud_button = PrimaryPushButton("Save Cloud")
         cloud_button.setFixedHeight(40)
         cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
+        # Apply clean styling with white text and no icons
+        cloud_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: normal;
+                padding: 8px 16px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
 
         save_buttons_row.addWidget(pdf_button, 1)
         save_buttons_row.addWidget(csv_button, 1)
@@ -296,7 +376,7 @@ class MainTab(QWidget):
     def create_additional_amount_group(self):
         amount_group = CardWidget()
         amount_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        amount_group.setFixedHeight(110)
+        # amount_group.setFixedHeight(110) # Removed for responsiveness
         amount_layout = QVBoxLayout(amount_group)
         amount_layout.setContentsMargins(8,6,8,6)
         amount_layout.setSpacing(4)
@@ -427,8 +507,28 @@ class MainTab(QWidget):
         self.load_year_spinbox.setRange(2000, 2100)
         self.load_year_spinbox.setValue(datetime.now().year)
 
-        load_button = PrimaryPushButton(FluentIcon.DOWNLOAD, "Load")
+        load_button = PrimaryPushButton("Load")
         load_button.clicked.connect(self.load_info_to_inputs)
+        # Apply clean styling with white text and no icons
+        load_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: normal;
+                padding: 8px 16px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
 
         load_info_layout.addWidget(load_month_label)
         load_info_layout.addWidget(self.load_month_combo)
@@ -438,7 +538,7 @@ class MainTab(QWidget):
         # Replace ComboBox with native Fluent DropDownPushButton for source selection
         self.main_window.load_info_source_combo.setVisible(False)
         self.load_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
-        self.load_source_button.setFixedWidth(190)
+        # self.load_source_button.setFixedWidth(190) # Removed for responsiveness
 
         # Build Fluent-style round menu
         menu = RoundMenu(parent=self.load_source_button)
@@ -570,125 +670,85 @@ class MainTab(QWidget):
         else:
             QMessageBox.warning(self, "Unknown Source", "Please select a valid source to load data from.")
 
+    def _get_csv_value(self, row_dict, key_name, default_if_missing_or_empty):
+        """Helper to safely get a value from a CSV row, case-insensitively."""
+        for k_original, v_original in row_dict.items():
+            if k_original.strip().lower() == key_name.strip().lower():
+                stripped_v = v_original.strip() if isinstance(v_original, str) else ""
+                return stripped_v if stripped_v else default_if_missing_or_empty
+        return default_if_missing_or_empty
+
     def load_info_to_inputs_from_csv(self, selected_month, selected_year):
         filename = "meter_calculation_history.csv"
         selected_month_year_str_ui = f"{selected_month} {selected_year}"
-        
+
         if not os.path.exists(filename):
             QMessageBox.warning(self, "File Not Found", f"{filename} does not exist.")
             return
 
+        main_data_row = None
+        room_data_rows = []
+        found_main_row = False
+
         try:
             with open(filename, mode='r', newline='', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
-                all_rows = list(reader) # Read all rows into memory
-                
-                main_data_row = None
-                room_data_rows = []
-
-                def get_csv_value(row_dict, key_name, default_if_missing_or_empty):
-                    for k_original, v_original in row_dict.items():
-                        if k_original.strip().lower() == key_name.strip().lower():
-                            stripped_v = v_original.strip() if isinstance(v_original, str) else ""
-                            return stripped_v if stripped_v else default_if_missing_or_empty
-                    return default_if_missing_or_empty
-
-                # Find the main data row first
-                for i, row in enumerate(all_rows):
-                    csv_month_year_str = get_csv_value(row, "Month", "")
-                    if csv_month_year_str.strip().lower() == selected_month_year_str_ui.lower():
-                        main_data_row = row
-                        # If this row also contains room data (which it should for the first room), add it
-                        if get_csv_value(row, "Room Name", ""): # Check if room data exists in this row
+                for row in reader:
+                    csv_month_year_str = self._get_csv_value(row, "Month", "")
+                    
+                    if not found_main_row:
+                        if csv_month_year_str.strip().lower() == selected_month_year_str_ui.lower():
+                            main_data_row = row
+                            found_main_row = True
+                            # If this row also contains room data, add it
+                            if self._get_csv_value(row, "Room Name", ""):
+                                room_data_rows.append(row)
+                    elif found_main_row:
+                        # Collect subsequent room-only rows
+                        if not csv_month_year_str.strip():
                             room_data_rows.append(row)
-                        
-                        # Now, collect subsequent room-only rows
-                        for j in range(i + 1, len(all_rows)):
-                            next_row = all_rows[j]
-                            next_month_val = get_csv_value(next_row, "Month", "")
-                            if not next_month_val.strip(): # If Month is empty, it's a room-only row
-                                room_data_rows.append(next_row)
-                            else: # Found a new main entry, stop collecting room rows
-                                break
-                        break # Found main data and collected all associated rooms, exit outer loop
-
-                if not main_data_row:
-                    QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
-                    return
-                
-                # Load main tab data
-                self.month_combo.setCurrentText(selected_month)
-                self.year_spinbox.setValue(selected_year)
-                
-                meter_values_csv = [get_csv_value(main_data_row, f"Meter-{i+1}", "0") for i in range(10)]
-                diff_values_csv = [get_csv_value(main_data_row, f"Diff-{i+1}", "0") for i in range(10)]
-                
-                # Filter out trailing "0"s to set spinbox counts correctly
-                num_meters = len(meter_values_csv)
-                while num_meters > 0 and meter_values_csv[num_meters-1] == "0":
-                    num_meters -=1
-                num_meters = max(1, num_meters) # At least 1
-
-                num_diffs = len(diff_values_csv)
-                while num_diffs > 0 and diff_values_csv[num_diffs-1] == "0":
-                    num_diffs -=1
-                num_diffs = max(1, num_diffs)
-
-                max_meters = self.meter_count_spinbox.maximum()
-                max_diffs  = self.diff_count_spinbox.maximum()
-                if num_meters > max_meters or num_diffs > max_diffs:
-                    QMessageBox.warning(self, "Data Truncated",
-                                        "Incoming data contains more readings than the UI "
-                                        "can display. Extra values will be ignored.")
-                self.meter_count_spinbox.setValue(min(num_meters, max_meters))
-                self.diff_count_spinbox.setValue(min(num_diffs,  max_diffs))
-
-                for i, val_str in enumerate(meter_values_csv[:num_meters]):
-                    if i < len(self.meter_entries):
-                        # Normalize numeric values so that "123.0" → "123" while preserving
-                        # any truly non-integer strings (unlikely given validators).
-                        display_val = str(val_str)
-                        try:
-                            num_val = float(val_str)
-                            # If the float is effectively an int (e.g. 123.0) drop the decimal part
-                            if num_val.is_integer():
-                                display_val = str(int(num_val))
-                        except (ValueError, TypeError):
-                            # Leave display_val as-is if it is not a plain number
-                            pass
-                        self.meter_entries[i].setText(display_val)
-                for i, val_str in enumerate(diff_values_csv[:num_diffs]):
-                    if i < len(self.diff_entries):
-                        display_val = str(val_str)
-                        try:
-                            num_val = float(val_str)
-                            if num_val.is_integer():
-                                display_val = str(int(num_val))
-                        except (ValueError, TypeError):
-                            pass
-                        self.diff_entries[i].setText(display_val)
-                    
-                self.additional_amount_input.setText(get_csv_value(main_data_row, "Added Amount", "0"))
-
-                # Load room tab data
-                if room_data_rows:
-                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_data_rows))
-                    # This will trigger update_room_inputs in RoomsTab, creating the necessary widgets
-
-                    for i, room_row in enumerate(room_data_rows):
-                        if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_csv_row'):
-                            self.main_window.rooms_tab_instance.load_room_data_from_csv_row(room_row, i)
                         else:
-                            print("Warning: rooms_tab_instance does not have load_room_data_from_csv_row method.")
-                    
-                    # After loading all room data, trigger calculation for rooms
-                    self.main_window.rooms_tab_instance.calculate_rooms()
-                else:
-                    # If no room data found, ensure rooms tab is reset or has default number of rooms
-                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1) # Or a sensible default
-                    self.main_window.rooms_tab_instance.calculate_rooms() # Recalculate with default rooms
+                            # Found a new main entry, so we're done with the previous one
+                            break
+            
+            if not main_data_row:
+                QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
+                return
 
-                QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year_str_ui} loaded into input fields from CSV.")
+            # Load main tab data
+            self.month_combo.setCurrentText(selected_month)
+            self.year_spinbox.setValue(selected_year)
+            
+            meter_values_csv = [self._get_csv_value(main_data_row, f"Meter-{i+1}", "0") for i in range(10)]
+            diff_values_csv = [self._get_csv_value(main_data_row, f"Diff-{i+1}", "0") for i in range(10)]
+            
+            num_meters = next((i for i, v in reversed(list(enumerate(meter_values_csv))) if v != "0"), 0) + 1
+            num_diffs = next((i for i, v in reversed(list(enumerate(diff_values_csv))) if v != "0"), 0) + 1
+
+            self.meter_count_spinbox.setValue(min(num_meters, self.meter_count_spinbox.maximum()))
+            self.diff_count_spinbox.setValue(min(num_diffs, self.diff_count_spinbox.maximum()))
+
+            for i, val_str in enumerate(meter_values_csv[:num_meters]):
+                if i < len(self.meter_entries):
+                    self.meter_entries[i].setText(str(int(float(val_str))) if val_str.replace('.', '', 1).isdigit() and float(val_str).is_integer() else val_str)
+            
+            for i, val_str in enumerate(diff_values_csv[:num_diffs]):
+                if i < len(self.diff_entries):
+                    self.diff_entries[i].setText(str(int(float(val_str))) if val_str.replace('.', '', 1).isdigit() and float(val_str).is_integer() else val_str)
+                
+            self.additional_amount_input.setText(self._get_csv_value(main_data_row, "Added Amount", "0"))
+
+            # Load room tab data
+            if room_data_rows:
+                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_data_rows))
+                for i, room_row in enumerate(room_data_rows):
+                    self.main_window.rooms_tab_instance.load_room_data_from_csv_row(room_row, i)
+                self.main_window.rooms_tab_instance.calculate_rooms()
+            else:
+                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1)
+                self.main_window.rooms_tab_instance.calculate_rooms()
+
+            QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year_str_ui} loaded into input fields from CSV.")
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to load data from CSV: {e}\n{traceback.format_exc()}")
 

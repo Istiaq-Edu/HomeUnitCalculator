@@ -112,8 +112,23 @@ except ImportError:
 class MeterCalculationApp(FluentWindow):
     def __init__(self):
         super().__init__()
+
+        # Set a modern, cross-platform default font to avoid rendering issues
+        # with missing system fonts like MS Shell Dlg 2, which can cause
+        # "OpenType support missing" warnings.
+        font = QFont("Segoe UI", 9)
+        QApplication.setFont(font)
+
         self.setWindowTitle("Home Unit Calculator")
-        self.setGeometry(100, 100, 1300, 860)
+        
+        # Force update the title bar after setting the title
+        if hasattr(self, 'titleBar') and hasattr(self.titleBar, 'titleLabel'):
+            self.titleBar.titleLabel.setText("Home Unit Calculator")
+            
+        # Use resize instead of setGeometry to allow flexible positioning
+        self.resize(1300, 860)
+        # Set minimum size to ensure usability
+        self.setMinimumSize(800, 600)
 
         # Set dark theme and accent color
         setTheme(Theme.DARK)
@@ -128,15 +143,61 @@ class MeterCalculationApp(FluentWindow):
         # Force Qt file dialogs to use the non-native variant so QSS styling applies
         self._patch_file_dialog_options()
 
-        # Use Fluent icon as window icon for consistency with Fluent design
-        self.setWindowIcon(FluentIcon.EDIT.icon())
-        
+        # Set window icon early in initialization
+        self._set_window_icon_early()
 
+        # Improve title bar text styling and visibility
+        self.titleBar.titleLabel.setAlignment(Qt.AlignCenter)
+        self.titleBar.titleLabel.setStyleSheet("""
+            QLabel {
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 0px 10px;
+            }
+        """)
+        
+        # Ensure the title bar itself has proper styling and height for larger icon
+        self.titleBar.setStyleSheet("""
+            TitleBar {
+                background-color: #2b2b2b;
+                border-bottom: 1px solid #3d3d3d;
+                min-height: 40px;
+            }
+            TitleBar QLabel {
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            TitleBarButton {
+                qproperty-normalColor: rgb(255,255,255);
+                qproperty-hoverColor: rgb(240,240,240);
+                qproperty-pressedColor: rgb(220,220,220);
+                padding-top: 6px;
+                padding-bottom: 4px;
+            }
+        """)
+        
+        # Set minimum height to accommodate larger icon (32x32 + padding)
+        self.titleBar.setMinimumHeight(40)
+        # Adjust layout to position buttons on the right and center vertically
+        self.titleBar.hBoxLayout.setStretch(1, 0)  # Set title stretch to 0
+        spacer = self.titleBar.hBoxLayout.takeAt(2)  # Remove existing spacer if any
+        self.titleBar.hBoxLayout.insertStretch(2)  # Add stretch between title and buttons
+
+        # Vertically center all title bar elements
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.iconLabel, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.titleLabel, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.minBtn, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.maxBtn, Qt.AlignVCenter)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.closeBtn, Qt.AlignVCenter)
+        
         # Ensure the data/images directory exists
         self.image_storage_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'data', 'images')
         os.makedirs(self.image_storage_dir, exist_ok=True)
         
         self.db_manager = DBManager()
+        self.db_manager.bootstrap_rentals_table()
         self.encryption_util = EncryptionUtil()
         self.supabase_manager = SupabaseManager() # Initialize SupabaseManager
         
@@ -147,14 +208,12 @@ class MeterCalculationApp(FluentWindow):
         self.load_info_source_combo.setIconSize(QSize(16, 16))
         # Apply custom delegate so icon also appears when combo is closed
         
-        
         self.load_history_source_combo = ComboBox()
         self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
         self.load_history_source_combo.setItemIcon(0, FluentIcon.DOCUMENT.icon())
         self.load_history_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
         self.load_history_source_combo.setIconSize(QSize(16, 16))
         
-
         self.main_tab_instance = MainTab(self)
         self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self)
         self.history_tab_instance = HistoryTab(self)
@@ -164,32 +223,19 @@ class MeterCalculationApp(FluentWindow):
         
         self._initialize_supabase_client()
         
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        # Sync the history tab button display after Supabase initialization
+        self.history_tab_instance.sync_source_button_display()
 
         self.init_navigation()
         self.setup_navigation()
         self.center_window()
         self.refresh_all_rental_tabs()
+        
+        # Set title bar icon after everything is initialized
+        self._set_title_bar_icon()
+        
+        # Force icon to be visible
+        self._force_icon_visibility()
 
         # Global keyboard shortcuts
         try:
@@ -198,6 +244,193 @@ class MeterCalculationApp(FluentWindow):
             self._kb_nav_manager = KeyboardNavigationManager(self)
         except Exception as nav_exc:  # pragma: no cover – keep UI alive even if navigation fails
             print(f"Keyboard navigation failed to initialise: {nav_exc}")
+
+    def _set_title_bar_icon(self):
+        """Set a larger title bar icon by directly manipulating the title bar widgets."""
+        if not hasattr(self, 'titleBar'):
+            return
+            
+        try:
+            # Try multiple possible icon paths
+            possible_icon_paths = [
+                "icons/icon.png",
+                os.path.join(os.path.dirname(__file__), "..", "..", "icons", "icon.png"),
+                os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "icons", "icon.png")
+            ]
+            
+            icon_to_use = None
+            icon_path_used = None
+            
+            # Try to load custom icon first
+            for icon_path in possible_icon_paths:
+                if os.path.exists(icon_path):
+                    pixmap = QPixmap(icon_path)
+                    if not pixmap.isNull():
+                        icon_to_use = QIcon()
+                        # Create larger icon - 28x28 for better visibility
+                        icon_to_use.addPixmap(pixmap.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                        icon_path_used = icon_path
+                        break
+            
+            # Fallback to FluentIcon if custom icon failed
+            if icon_to_use is None:
+                icon_to_use = FluentIcon.CALCULATOR.icon()
+                icon_path_used = "FluentIcon.CALCULATOR"
+            
+            # Set window icon (for taskbar)
+            self.setWindowIcon(icon_to_use)
+            
+            # Method 1: Try the standard setIcon method
+            if hasattr(self.titleBar, 'setIcon'):
+                self.titleBar.setIcon(icon_to_use)
+                
+                # Now make sure the icon label is visible and properly sized
+                if hasattr(self.titleBar, 'iconLabel'):
+                    icon_label = self.titleBar.iconLabel
+                    if icon_label:
+                        # Make the icon larger and visible
+                        larger_pixmap = icon_to_use.pixmap(32, 32)  # Create 32x32 pixmap
+                        icon_label.setPixmap(larger_pixmap)
+                        icon_label.setFixedSize(36, 36)  # Container size
+                        icon_label.setVisible(True)
+                        icon_label.show()
+                        icon_label.setAlignment(Qt.AlignCenter)
+                        icon_label.setStyleSheet("""
+                            QLabel {
+                                background: transparent;
+                                padding: 2px;
+                                margin: 2px;
+                            }
+                        """)
+                        return
+                
+                # Fallback: find the icon label manually
+                for child in self.titleBar.findChildren(QLabel):
+                    if hasattr(child, 'pixmap') and child.pixmap() and not child.pixmap().isNull():
+                        # This is likely the icon label
+                        larger_pixmap = icon_to_use.pixmap(32, 32)
+                        child.setPixmap(larger_pixmap)
+                        child.setFixedSize(36, 36)
+                        child.setVisible(True)
+                        child.show()
+                        child.setAlignment(Qt.AlignCenter)
+                        child.setStyleSheet("""
+                            QLabel {
+                                background: transparent;
+                                padding: 2px;
+                                margin: 2px;
+                            }
+                        """)
+                        return
+            
+            # Method 2: Find and modify icon widgets directly
+            icon_set = False
+            
+            # Look for existing icon widgets in the title bar
+            for child in self.titleBar.findChildren(QLabel):
+                # Skip the title label
+                if hasattr(child, 'text') and child.text() == self.windowTitle():
+                    continue
+                    
+                # Try to set icon on labels that might be icon containers
+                if hasattr(child, 'setPixmap'):
+                    pixmap = icon_to_use.pixmap(28, 28)  # Get 28x28 pixmap
+                    child.setPixmap(pixmap)
+                    child.setFixedSize(32, 32)  # Slightly larger container
+                    child.setAlignment(Qt.AlignCenter)
+                    child.setVisible(True)
+                    child.show()
+                    child.setStyleSheet("""
+                        QLabel {
+                            background: transparent;
+                            padding: 2px;
+                            margin: 2px;
+                        }
+                    """)
+                    print(f"Icon set on QLabel: {child.objectName()}")
+                    icon_set = True
+                    break
+            
+            # Method 3: Look for buttons that might hold icons
+            if not icon_set:
+                for child in self.titleBar.findChildren(QPushButton):
+                    # Skip window control buttons (minimize, maximize, close)
+                    if any(name in child.objectName().lower() for name in ['min', 'max', 'close', 'restore']):
+                        continue
+                    
+                    child.setIcon(icon_to_use)
+                    child.setIconSize(QSize(28, 28))
+                    child.setFixedSize(36, 36)
+                    child.setVisible(True)
+                    child.show()
+                    child.setStyleSheet("""
+                        QPushButton {
+                            background: transparent;
+                            border: none;
+                            padding: 4px;
+                            margin: 2px;
+                        }
+                        QPushButton:hover {
+                            background: rgba(255, 255, 255, 0.1);
+                            border-radius: 4px;
+                        }
+                    """)
+                    icon_set = True
+                    break
+                
+        except Exception as e:
+            pass
+
+    def _set_window_icon_early(self):
+        """Set window icon early in initialization process."""
+        try:
+            # Load the custom icon
+            icon_path = "icons/icon.png"
+            if os.path.exists(icon_path):
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    icon = QIcon()
+                    icon.addPixmap(pixmap.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    self.setWindowIcon(icon)
+                    return
+            
+            # Fallback
+            fluent_icon = FluentIcon.HOME.icon()
+            self.setWindowIcon(fluent_icon)
+        except Exception as e:
+            pass
+
+    def _force_icon_visibility(self):
+        """Ensure the title bar icon is visible by targeting the specific icon label."""
+        if not hasattr(self, 'titleBar'):
+            return
+            
+        try:
+            # Method 1: Use the iconLabel property if available
+            if hasattr(self.titleBar, 'iconLabel'):
+                icon_label = self.titleBar.iconLabel
+                if icon_label and hasattr(icon_label, 'pixmap') and icon_label.pixmap():
+                    icon_label.setVisible(True)
+                    icon_label.show()
+                    icon_label.raise_()
+                    # Ensure it has a reasonable size
+                    if icon_label.size().width() < 20:
+                        icon_label.setFixedSize(36, 36)
+                    return
+            
+            # Method 2: Find icon labels manually
+            for child in self.titleBar.findChildren(QLabel):
+                if hasattr(child, 'pixmap') and child.pixmap() and not child.pixmap().isNull():
+                    child.setVisible(True)
+                    child.show()
+                    child.raise_()
+                    # Ensure it has a reasonable size
+                    if child.size().width() < 20:
+                        child.setFixedSize(36, 36)
+                    
+        except Exception as e:
+            pass
+
 
     def _apply_global_dark_styles(self):
         """Apply a single dark stylesheet to the entire QApplication so that
@@ -235,6 +468,25 @@ class MeterCalculationApp(FluentWindow):
             color: #ffffff;
         }
 
+        /* Title bar customization */
+        TitleBar {
+            background-color: #2b2b2b;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        
+        TitleBar QLabel {
+            color: white !important;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 0px 10px;
+        }
+        
+        FluentWindow > TitleBar > QLabel {
+            font-weight: bold;
+            font-size: 14px;
+            color: white !important;
+        }
+
         /* Tooltips */
         QToolTip {
             background-color: #3d3d3d;
@@ -258,8 +510,7 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     border: 1px solid #0078D4;
 }
-        }
-        """
+"""
 
         app = QApplication.instance()
         if app is not None:
@@ -336,6 +587,8 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
         except Exception as e:
             # Silently continue if patching fails; better to show default than crash
             print(f"Failed to patch CardWidget for dark theme: {e}")
+
+
 
     def check_internet_connectivity(self):
         import socket

@@ -16,6 +16,7 @@ from qfluentwidgets import (
 # Assuming these modules are in the same directory or accessible in PYTHONPATH
 from src.core.utils import resource_path # For icons
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
+from src.ui.flow_layout import FlowLayout
 
 # Local _clear_layout function to avoid circular dependency with utils
 def _clear_layout(layout):
@@ -73,7 +74,7 @@ class RoomsTab(QWidget):
         self.rooms_scroll_area = AutoScrollArea()
         self.rooms_scroll_area.setWidgetResizable(True)
         self.rooms_scroll_widget = QWidget()
-        self.rooms_scroll_layout = QGridLayout(self.rooms_scroll_widget) # Use QGridLayout
+        self.rooms_scroll_layout = FlowLayout(self.rooms_scroll_widget) # Use FlowLayout
         self.rooms_scroll_area.setWidget(self.rooms_scroll_widget)
         scroll_wrapper_layout.addWidget(self.rooms_scroll_area)
         layout.addWidget(scroll_wrapper)
@@ -81,7 +82,7 @@ class RoomsTab(QWidget):
         # Calculate Button
         self.calculate_rooms_button = PrimaryPushButton(FluentIcon.EDIT, "Calculate Room Bills")
         self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
-        self.calculate_rooms_button.setFixedHeight(40)
+        # self.calculate_rooms_button.setFixedHeight(40) # Removed for responsiveness
         layout.addWidget(self.calculate_rooms_button)
 
         self.update_room_inputs() # Initial population of room inputs
@@ -107,6 +108,7 @@ class RoomsTab(QWidget):
             outer_layout.addWidget(header_line)
             room_layout = QFormLayout()
             outer_layout.addLayout(room_layout)
+            room_group.setMinimumWidth(295)  # Set to ensure 4 boxes per row with better space utilization
             room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             # room_group border removed as per design feedback
 
@@ -181,13 +183,7 @@ class RoomsTab(QWidget):
             })
             
             # Add to grid layout
-            row, col = divmod(i, 3) # Arrange in 3 columns
-            self.rooms_scroll_layout.addWidget(room_group, row, col)
-
-        # Ensure columns are stretched correctly for the QGridLayout
-        # QGridLayout.columnCount() always returns 0 in PyQt5, so manually set stretch for 3 columns
-        for col in range(3):
-            self.rooms_scroll_layout.setColumnStretch(col, 1)
+            self.rooms_scroll_layout.addWidget(room_group)
         
         # Re-configure navigation whenever room widgets change
         self.setup_navigation_rooms_tab()
@@ -288,14 +284,13 @@ class RoomsTab(QWidget):
         Assumes the row dictionary contains keys like 'Room Name', 'Present Unit', etc.
         """
         if room_index >= len(self.room_entries):
-            # This can happen if the CSV has more rooms than currently displayed in UI
-            # For now, we'll just log and skip, or could dynamically add rooms if needed.
             print(f"Warning: CSV row has data for room {room_index+1}, but only {len(self.room_entries)} rooms are displayed. Skipping.")
             return
 
         room_data = self.room_entries[room_index]
 
         def get_csv_value(row_dict, key_name, default_if_missing_or_empty):
+            # This helper can be removed if it's centralized in the main tab
             for k_original, v_original in row_dict.items():
                 if k_original.strip().lower() == key_name.strip().lower():
                     stripped_v = v_original.strip() if isinstance(v_original, str) else ""
@@ -309,11 +304,6 @@ class RoomsTab(QWidget):
             gas_bill_csv = get_csv_value(row, "Gas Bill", "0.00")
             water_bill_csv = get_csv_value(row, "Water Bill", "0.00")
             house_rent_csv = get_csv_value(row, "House Rent", "0.00")
-            
-            # Note: Real Unit, Unit Bill, Grand Total are calculated, not directly loaded
-            # from CSV for input fields, but we can set their labels if needed for display.
-            # However, the calculate_rooms method will re-calculate them.
-            # So, we only load the input fields.
 
             # Set text for input fields
             room_data['present_entry'].setText(present_unit_csv)
@@ -321,10 +311,6 @@ class RoomsTab(QWidget):
             room_data['gas_bill_entry'].setText(gas_bill_csv)
             room_data['water_bill_entry'].setText(water_bill_csv)
             room_data['house_rent_entry'].setText(house_rent_csv)
-
-            # After loading, trigger calculation for this room or all rooms
-            # It's safer to trigger calculate_rooms() for all rooms after all data is loaded
-            # in the main_tab.py, to ensure per_unit_cost is correctly set.
             
         except Exception as e:
             QMessageBox.critical(self, "Load Room Data Error", f"Failed to load room data for room {room_index+1}: {e}\n{traceback.format_exc()}")
