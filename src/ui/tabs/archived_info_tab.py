@@ -26,7 +26,7 @@ from qfluentwidgets import (
 
 from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
-from src.ui.custom_widgets import FluentProgressDialog  # Avoid top-level import to keep optional
+from src.ui.custom_widgets import FluentProgressDialog, SmoothTableWidget  # Avoid top-level import to keep optional
 from src.ui.components import EnhancedTableMixin
 # >>> ADD
 # Optional Fluent-widgets progress bar (inline)
@@ -124,7 +124,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         self.load_source_combo.currentIndexChanged.connect(self.load_archived_records)
         table_layout.addWidget(self.load_source_combo)
 
-        self.archived_records_table = TableWidget()
+        self.archived_records_table = SmoothTableWidget()
         
         # Use simple table header creation without icons
         archive_headers = ["Tenant Name", "Room Number", "Advanced Paid", "Created At", "Updated At"]
@@ -265,7 +265,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         # Apply intelligent column widths after populating data
         self._set_intelligent_column_widths(self.archived_records_table)
 
-    def _set_intelligent_column_widths(self, table: TableWidget):
+    def _set_intelligent_column_widths(self, table: SmoothTableWidget):
         """Set responsive column widths that adapt to window size while preventing truncation"""
         if table.columnCount() == 0:
             return
@@ -319,7 +319,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         # Always allow horizontal scrollbar when needed
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-    def _on_table_resize(self, table: TableWidget):
+    def _on_table_resize(self, table: SmoothTableWidget):
         """Handle table resize events"""
         QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
 
@@ -392,7 +392,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
             logging.error(f"Failed to open record details dialog: {e}", exc_info=True)
             QMessageBox.warning(self, "Error", "Unable to open record details. Please try again.")
 
-    def _style_table(self, table: TableWidget):
+    def _style_table(self, table: SmoothTableWidget):
         """Apply History tab's exact table styling to match the UI design"""
         # Basic table properties matching History tab
         table.setBorderVisible(True)
@@ -402,9 +402,9 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         table.horizontalHeader().setHighlightSections(False)
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from History tab
         
-        # Configure scroll behavior and selection
+        # Configure scroll behavior and selection with smooth scrolling
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         
@@ -522,7 +522,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         # Set minimum section size
         table.horizontalHeader().setMinimumSectionSize(80)
 
-    def _apply_center_alignment(self, table: TableWidget):
+    def _apply_center_alignment(self, table: SmoothTableWidget):
         """Apply center alignment to all table cells"""
         for r in range(table.rowCount()):
             for c in range(table.columnCount()):
@@ -534,7 +534,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
 
 
 
-    def _on_table_resize(self, table: TableWidget):
+    def _on_table_resize(self, table: SmoothTableWidget):
         """Handle table resize events"""
         QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
 

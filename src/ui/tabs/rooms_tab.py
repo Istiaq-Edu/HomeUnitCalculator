@@ -2,7 +2,7 @@ import sys
 import traceback
 
 from PyQt5.QtCore import Qt, QRegExp
-from PyQt5.QtGui import QIcon, QRegExpValidator
+from PyQt5.QtGui import QIcon, QRegExpValidator, QPainter, QColor, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QWidget, QVBoxLayout, QLabel, QGridLayout,
@@ -83,6 +83,44 @@ class RoomsTab(QWidget):
         self.calculate_rooms_button = PrimaryPushButton(FluentIcon.EDIT, "Calculate Room Bills")
         self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
         # self.calculate_rooms_button.setFixedHeight(40) # Removed for responsiveness
+        # Set button text color to white with proper icon positioning and white icon color
+        self.calculate_rooms_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 8px 24px 8px 48px;
+                text-align: center;
+                qproperty-iconSize: 16px 16px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+            PrimaryPushButton::icon {
+                color: white;
+            }
+        """)
+        # Create a white version of the edit icon
+        original_icon = FluentIcon.EDIT.icon()
+        white_pixmap = original_icon.pixmap(16, 16)
+        # Create a white version by applying a color overlay
+        white_icon_pixmap = QPixmap(16, 16)
+        white_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
+        painter = QPainter(white_icon_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        painter.drawPixmap(0, 0, white_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(white_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
+        painter.end()
+        white_edit_icon = QIcon(white_icon_pixmap)
+        self.calculate_rooms_button.setIcon(white_edit_icon)
         layout.addWidget(self.calculate_rooms_button)
 
         self.update_room_inputs() # Initial population of room inputs

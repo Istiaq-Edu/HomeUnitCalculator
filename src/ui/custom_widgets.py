@@ -1,9 +1,9 @@
-from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer, QSize
-from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor
+from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer, QSize, QPropertyAnimation, QEasingCurve, pyqtSignal
+from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor, QKeySequence
 from PyQt5.QtWidgets import (
-    QSizePolicy, QDialog, QVBoxLayout, QLabel, QProgressBar
+    QSizePolicy, QDialog, QVBoxLayout, QLabel, QProgressBar, QScrollBar, QAbstractScrollArea, QShortcut
 )
-from qfluentwidgets import LineEdit, ScrollArea, SpinBox, PushButton
+from qfluentwidgets import LineEdit, ScrollArea, SpinBox, PushButton, TableWidget, SmoothMode
 
 from src.core.utils import resource_path
 
@@ -394,7 +394,7 @@ class CustomNavButton(PushButton):
 # ------------------------------------------------------------------
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QHeaderView
-from qfluentwidgets import TableWidget, setCustomStyleSheet
+from qfluentwidgets import setCustomStyleSheet
 
 __all__ = [
     "apply_center_alignment",
@@ -402,7 +402,7 @@ __all__ = [
     "style_fluent_table",
 ]
 
-def apply_center_alignment(table: TableWidget) -> None:
+def apply_center_alignment(table) -> None:
     """Center-align all existing items in *table*."""
     for row in range(table.rowCount()):
         for col in range(table.columnCount()):
@@ -410,7 +410,7 @@ def apply_center_alignment(table: TableWidget) -> None:
             if item is not None:
                 item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
 
-def set_intelligent_column_widths(table: TableWidget) -> None:
+def set_intelligent_column_widths(table) -> None:
     """Adapt column widths intelligently so they neither truncate nor waste space.
 
     The logic mirrors *HistoryTab._set_intelligent_column_widths* so that any
@@ -455,7 +455,7 @@ def set_intelligent_column_widths(table: TableWidget) -> None:
 
     table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-def style_fluent_table(table: TableWidget) -> None:
+def style_fluent_table(table) -> None:
     """Apply modern Fluent-compatible styling, alternate rows, header tweaks, etc."""
     # Basic properties
     table.setShowGrid(False)
@@ -612,3 +612,258 @@ class FluentProgressDialog(QDialog):
     def __exit__(self, exc_type, exc_val, exc_tb):  # noqa: D401
         self.close()
         return False
+
+
+# ===================== QFluentWidgets Smooth Scrolling Implementation =====================
+
+from qfluentwidgets import SmoothMode
+
+class SmoothTableWidget(TableWidget):
+    """TableWidget with enhanced smooth scrolling using qfluentwidgets built-in capabilities"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        # Configure smooth scrolling using qfluentwidgets built-in functionality
+        QTimer.singleShot(50, self._configure_smooth_scrolling)
+        
+        # Set up keyboard shortcuts for enhanced navigation
+        QTimer.singleShot(100, self._setup_keyboard_shortcuts)
+    
+    def _configure_smooth_scrolling(self):
+        """Configure smooth scrolling using qfluentwidgets built-in scroll delegate"""
+        try:
+            # Configure scroll sensitivity and smoothness
+            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+                # Don't disable smooth scrolling - keep it enabled but make it more responsive
+                # self.scrollDelagate.verticalSmoothScroll.setSmoothMode(SmoothMode.NO_SMOOTH)
+                
+                # Set balanced animation parameters
+                if hasattr(self.scrollDelagate.verticalSmoothScroll, 'setScrollAnimation'):
+                    # Balanced animation with smooth easing
+                    self.scrollDelagate.verticalSmoothScroll.setScrollAnimation(
+                        duration=200,  # Balanced animation speed
+                        easing=QEasingCurve.OutQuad  # Smooth easing
+                    )
+                
+                # Configure horizontal smooth scrolling if available
+                if hasattr(self.scrollDelagate, 'horizontalSmoothScroll'):
+                    if hasattr(self.scrollDelagate.horizontalSmoothScroll, 'setScrollAnimation'):
+                        self.scrollDelagate.horizontalSmoothScroll.setScrollAnimation(
+                            duration=150,
+                            easing=QEasingCurve.OutCubic
+                        )
+            
+            # Configure scroll bar step sizes for better sensitivity
+            self._configure_scroll_sensitivity()
+            
+            # Apply modern scroll bar styling
+            self._apply_scroll_bar_styling()
+            
+        except Exception as e:
+            print(f"Warning: Could not configure smooth scrolling: {e}")
+            # Fallback to basic smooth scrolling if advanced features aren't available
+            self._enable_basic_smooth_scrolling()
+    
+    def _configure_scroll_sensitivity(self):
+        """Configure scroll bar sensitivity for balanced scrolling"""
+        try:
+            # Set balanced scroll steps
+            v_bar = self.verticalScrollBar()
+            h_bar = self.horizontalScrollBar()
+            
+            # Moderate single step for balanced wheel scrolling
+            v_bar.setSingleStep(25)  # Balanced step size
+            h_bar.setSingleStep(25)
+            
+            # Set reasonable page step
+            v_bar.setPageStep(120)  # Moderate page steps
+            h_bar.setPageStep(120)
+            
+        except Exception as e:
+            print(f"Warning: Could not configure scroll sensitivity: {e}")
+    
+    def _apply_scroll_bar_styling(self):
+        """Apply modern styling to scroll bars"""
+        scroll_bar_style = """
+            QScrollBar:vertical {
+                background: rgba(0, 0, 0, 0.05);
+                width: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(0, 120, 212, 0.7);
+                border-radius: 6px;
+                min-height: 20px;
+                margin: 1px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(0, 120, 212, 0.9);
+            }
+            QScrollBar::handle:vertical:pressed {
+                background: rgba(0, 120, 212, 1.0);
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+                background: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            
+            QScrollBar:horizontal {
+                background: rgba(0, 0, 0, 0.05);
+                height: 12px;
+                border-radius: 6px;
+                margin: 0px;
+                border: none;
+            }
+            QScrollBar::handle:horizontal {
+                background: rgba(0, 120, 212, 0.7);
+                border-radius: 6px;
+                min-width: 20px;
+                margin: 1px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: rgba(0, 120, 212, 0.9);
+            }
+            QScrollBar::handle:horizontal:pressed {
+                background: rgba(0, 120, 212, 1.0);
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+                background: none;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
+        """
+        
+        # Apply the styling to the table's scroll bars
+        current_style = self.styleSheet()
+        self.setStyleSheet(current_style + scroll_bar_style)
+    
+    def _enable_basic_smooth_scrolling(self):
+        """Fallback smooth scrolling implementation with balanced sensitivity"""
+        # Set balanced single step for good scrolling
+        if hasattr(self, 'verticalScrollBar'):
+            v_bar = self.verticalScrollBar()
+            v_bar.setSingleStep(20)  # Balanced steps
+            v_bar.setPageStep(100)   # Moderate page scrolling
+        
+        if hasattr(self, 'horizontalScrollBar'):
+            h_bar = self.horizontalScrollBar()
+            h_bar.setSingleStep(20)  # Balanced steps
+            h_bar.setPageStep(100)   # Moderate page scrolling
+    
+    def _setup_keyboard_shortcuts(self):
+        """Set up keyboard shortcuts for enhanced navigation"""
+        # Home/End for smooth scrolling to top/bottom
+        home_shortcut = QShortcut(QKeySequence.MoveToStartOfDocument, self)
+        home_shortcut.activated.connect(self.smooth_scroll_to_top)
+        
+        end_shortcut = QShortcut(QKeySequence.MoveToEndOfDocument, self)
+        end_shortcut.activated.connect(self.smooth_scroll_to_bottom)
+        
+        # Page Up/Down for smooth page scrolling
+        page_up_shortcut = QShortcut(QKeySequence.MoveToPreviousPage, self)
+        page_up_shortcut.activated.connect(self._smooth_page_up)
+        
+        page_down_shortcut = QShortcut(QKeySequence.MoveToNextPage, self)
+        page_down_shortcut.activated.connect(self._smooth_page_down)
+    
+    def smooth_scroll_to_top(self):
+        """Quickly scroll to the top of the content"""
+        try:
+            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+                # Use qfluentwidgets smooth scrolling
+                self.scrollDelagate.verticalSmoothScroll.scrollTo(0)
+            else:
+                # Fallback to regular scrolling
+                self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
+        except Exception:
+            self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
+    
+    def smooth_scroll_to_bottom(self):
+        """Quickly scroll to the bottom of the content"""
+        try:
+            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+                # Use qfluentwidgets smooth scrolling
+                max_value = self.verticalScrollBar().maximum()
+                self.scrollDelagate.verticalSmoothScroll.scrollTo(max_value)
+            else:
+                # Fallback to regular scrolling
+                self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
+        except Exception:
+            self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
+    
+    def _smooth_page_up(self):
+        """Quickly scroll up by one page"""
+        try:
+            v_bar = self.verticalScrollBar()
+            page_step = v_bar.pageStep()
+            target = max(v_bar.minimum(), v_bar.value() - page_step)
+            
+            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+                self.scrollDelagate.verticalSmoothScroll.scrollTo(target)
+            else:
+                v_bar.setValue(target)
+        except Exception:
+            v_bar = self.verticalScrollBar()
+            page_step = v_bar.pageStep()
+            target = max(v_bar.minimum(), v_bar.value() - page_step)
+            v_bar.setValue(target)
+    
+    def _smooth_page_down(self):
+        """Quickly scroll down by one page"""
+        try:
+            v_bar = self.verticalScrollBar()
+            page_step = v_bar.pageStep()
+            target = min(v_bar.maximum(), v_bar.value() + page_step)
+            
+            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+                self.scrollDelagate.verticalSmoothScroll.scrollTo(target)
+            else:
+                v_bar.setValue(target)
+        except Exception:
+            v_bar = self.verticalScrollBar()
+            page_step = v_bar.pageStep()
+            target = min(v_bar.maximum(), v_bar.value() + page_step)
+            v_bar.setValue(target)
+    
+    def wheelEvent(self, event):
+        """Enhanced wheel event handling for balanced responsive scrolling"""
+        # Get the scroll delta
+        delta = event.angleDelta().y()
+        
+        # Calculate balanced scroll amount - not too fast, not too slow
+        scroll_multiplier = 1.2  # Balanced sensitivity
+        scroll_amount = int(abs(delta) / 120 * 45 * scroll_multiplier)  # Moderate responsiveness
+        
+        # Get the vertical scroll bar
+        v_bar = self.verticalScrollBar()
+        current_value = v_bar.value()
+        
+        # Calculate target value
+        if delta > 0:
+            # Scroll up
+            target_value = max(v_bar.minimum(), current_value - scroll_amount)
+        else:
+            # Scroll down
+            target_value = min(v_bar.maximum(), current_value + scroll_amount)
+        
+        # Try to use smooth scrolling if available
+        try:
+            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+                # Use qfluentwidgets smooth scrolling with our target
+                self.scrollDelagate.verticalSmoothScroll.scrollTo(target_value)
+            else:
+                # Fallback to direct scroll bar control
+                v_bar.setValue(target_value)
+        except Exception:
+            # Final fallback
+            v_bar.setValue(target_value)
+        
+        event.accept()

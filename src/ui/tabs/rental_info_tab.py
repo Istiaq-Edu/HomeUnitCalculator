@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer
-from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap # Keep QPixmap for _validate_image_file
+from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap, QPainter, QColor # Keep QPixmap for _validate_image_file
 from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
@@ -43,7 +43,7 @@ from qfluentwidgets import (
 )
 
 from src.core.utils import resource_path, _clear_layout
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgressDialog
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgressDialog, SmoothTableWidget
 from src.ui.dialogs import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.components import EnhancedTableMixin
@@ -316,6 +316,44 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.save_record_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         # self.save_record_btn.setMinimumWidth(120)  # Removed for responsiveness
         self.save_record_btn.clicked.connect(self.save_rental_record)
+        # Set button text color to white with proper icon positioning and white icon color
+        self.save_record_btn.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 8px 24px 8px 48px;
+                text-align: center;
+                qproperty-iconSize: 16px 16px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+            PrimaryPushButton::icon {
+                color: white;
+            }
+        """)
+        # Create a white version of the save icon
+        original_icon = FluentIcon.SAVE.icon()
+        white_pixmap = original_icon.pixmap(16, 16)
+        # Create a white version by applying a color overlay
+        white_icon_pixmap = QPixmap(16, 16)
+        white_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
+        painter = QPainter(white_icon_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        painter.drawPixmap(0, 0, white_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(white_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
+        painter.end()
+        white_save_icon = QIcon(white_icon_pixmap)
+        self.save_record_btn.setIcon(white_save_icon)
         action_buttons_layout.addWidget(self.save_record_btn)
 
         # Clear Form Button
@@ -323,6 +361,28 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.clear_form_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         # self.clear_form_btn.setMinimumWidth(120)  # Removed for responsiveness
         self.clear_form_btn.clicked.connect(self.clear_form)
+        # Set button text color to white with proper icon positioning and white icon color
+        self.clear_form_btn.setStyleSheet("""
+            PushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 8px 24px 8px 48px;
+                text-align: center;
+                qproperty-iconSize: 16px 16px;
+                qproperty-iconColor: white;
+            }
+            PushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
         action_buttons_layout.addWidget(self.clear_form_btn)
         
         left_column_layout.addLayout(action_buttons_layout)
@@ -379,6 +439,26 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.refresh_button = ToolButton(FluentIcon.UPDATE)
         self.refresh_button.setToolTip("Refresh records")
         self.refresh_button.clicked.connect(self.load_rental_records)
+        # Set button text color to white
+        self.refresh_button.setStyleSheet("""
+            ToolButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                padding: 4px;
+                qproperty-iconSize: 16px 16px;
+                qproperty-iconColor: white;
+            }
+            ToolButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            ToolButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
 
         table_controls_layout.addWidget(source_label)
         table_controls_layout.addWidget(self.load_source_combo)
@@ -395,8 +475,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         
         table_layout.addLayout(table_controls_layout)
 
-        # Create modern table with History tab styling
-        self.rental_records_table = TableWidget()
+        # Create modern table with History tab styling and smooth scrolling
+        self.rental_records_table = SmoothTableWidget()
         self.rental_records_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # Use simple table header creation without icons
@@ -473,6 +553,29 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         upload_btn.setFixedSize(70, 28)  # Good size for visibility
         upload_btn.setToolTip(f"Upload {title}")
         upload_btn.clicked.connect(lambda: self._handle_file_upload(file_type, status_label))
+        # Set button text color to white
+        upload_btn.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 4px 8px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+            PrimaryPushButton::icon {
+                color: white;
+            }
+        """)
         button_layout.addWidget(upload_btn)
         
         # Clear button
@@ -480,6 +583,26 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         clear_btn.setFixedSize(28, 28)  # Proper size
         clear_btn.setToolTip("Remove file")
         clear_btn.clicked.connect(lambda: self._clear_file_upload(file_type, status_label))
+        # Set button text color to white
+        clear_btn.setStyleSheet("""
+            TransparentToolButton {
+                color: white;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            TransparentToolButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+                border-color: rgba(255, 255, 255, 0.2);
+            }
+            TransparentToolButton:pressed {
+                background-color: rgba(255, 255, 255, 0.2);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+            TransparentToolButton::icon {
+                color: white;
+            }
+        """)
         button_layout.addWidget(clear_btn)
         
         right_layout.addLayout(button_layout)
@@ -493,7 +616,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         
         return widget
 
-    def _style_table(self, table: TableWidget):
+    def _style_table(self, table: SmoothTableWidget):
         """Apply History tab's exact table styling to match the UI design"""
         # Basic table properties matching History tab
         table.setBorderVisible(True)
@@ -503,9 +626,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         table.horizontalHeader().setHighlightSections(False)
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from History tab
         
-        # Configure scroll behavior and selection
+        # Configure scroll behavior and selection with smooth scrolling
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         

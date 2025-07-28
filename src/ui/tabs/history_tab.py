@@ -7,7 +7,7 @@ import traceback
 from datetime import datetime
 
 from PyQt5.QtCore import Qt, QRegExp, QSize, QTimer
-from PyQt5.QtGui import QRegExpValidator, QIcon, QFont
+from PyQt5.QtGui import QRegExpValidator, QIcon, QFont, QPainter, QColor, QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFormLayout, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
@@ -811,6 +811,44 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.main_window.load_history_source_combo.setVisible(False)
         self.load_history_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
         # self.load_history_source_button.setFixedWidth(190) # Removed for responsiveness
+        # Set button text color to white with proper icon positioning and white icon color
+        self.load_history_source_button.setStyleSheet("""
+            DropDownPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 8px 24px 8px 48px;
+                text-align: center;
+                qproperty-iconSize: 16px 16px;
+            }
+            DropDownPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            DropDownPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+            DropDownPushButton::icon {
+                color: white;
+            }
+        """)
+        # Create a white version of the document icon
+        original_doc_icon = FluentIcon.DOCUMENT.icon()
+        white_doc_pixmap = original_doc_icon.pixmap(16, 16)
+        # Create a white version by applying a color overlay
+        white_doc_icon_pixmap = QPixmap(16, 16)
+        white_doc_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
+        painter = QPainter(white_doc_icon_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        painter.drawPixmap(0, 0, white_doc_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(white_doc_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
+        painter.end()
+        white_document_icon = QIcon(white_doc_icon_pixmap)
+        self.load_history_source_button.setIcon(white_document_icon)
         menu = RoundMenu(parent=self.load_history_source_button)
         def _set_source(text, icon, label):
             self.main_window.load_history_source_combo.setCurrentText(text)
@@ -823,6 +861,44 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         load_history_button = PrimaryPushButton(FluentIcon.DOWNLOAD, "Load")
         load_history_button.clicked.connect(self.load_history)
         load_history_button.setFixedHeight(40)
+        # Set button text color to white with proper icon positioning and white icon color
+        load_history_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 8px 24px 8px 48px;
+                text-align: center;
+                qproperty-iconSize: 16px 16px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+            PrimaryPushButton::icon {
+                color: white;
+            }
+        """)
+        # Create a white version of the download icon
+        original_icon = FluentIcon.DOWNLOAD.icon()
+        white_pixmap = original_icon.pixmap(16, 16)
+        # Create a white version by applying a color overlay
+        white_icon_pixmap = QPixmap(16, 16)
+        white_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
+        painter = QPainter(white_icon_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        painter.drawPixmap(0, 0, white_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(white_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
+        painter.end()
+        white_download_icon = QIcon(white_icon_pixmap)
+        load_history_button.setIcon(white_download_icon)
         lr_layout.addWidget(load_history_button)
         lr_layout.addStretch(1)
         controls_card = CardWidget()

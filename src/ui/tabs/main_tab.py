@@ -238,7 +238,7 @@ class MainTab(QWidget):
                 background-color: #0078D4;
                 border: 1px solid #0078D4;
                 border-radius: 4px;
-                font-weight: normal;
+                font-weight: 600;
                 padding: 8px 16px;
                 text-align: center;
             }
@@ -270,7 +270,7 @@ class MainTab(QWidget):
                 background-color: #0078D4;
                 border: 1px solid #0078D4;
                 border-radius: 4px;
-                font-weight: normal;
+                font-weight: 600;
                 padding: 8px 16px;
                 text-align: center;
             }
@@ -295,7 +295,7 @@ class MainTab(QWidget):
                 background-color: #0078D4;
                 border: 1px solid #0078D4;
                 border-radius: 4px;
-                font-weight: normal;
+                font-weight: 600;
                 padding: 8px 16px;
                 text-align: center;
             }
@@ -320,7 +320,7 @@ class MainTab(QWidget):
                 background-color: #0078D4;
                 border: 1px solid #0078D4;
                 border-radius: 4px;
-                font-weight: normal;
+                font-weight: 600;
                 padding: 8px 16px;
                 text-align: center;
             }
@@ -516,7 +516,7 @@ class MainTab(QWidget):
                 background-color: #0078D4;
                 border: 1px solid #0078D4;
                 border-radius: 4px;
-                font-weight: normal;
+                font-weight: 600;
                 padding: 8px 16px;
                 text-align: center;
             }
@@ -539,6 +539,44 @@ class MainTab(QWidget):
         self.main_window.load_info_source_combo.setVisible(False)
         self.load_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
         # self.load_source_button.setFixedWidth(190) # Removed for responsiveness
+        # Set button text color to white with proper icon positioning and white icon color
+        self.load_source_button.setStyleSheet("""
+            DropDownPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 8px 24px 8px 48px;
+                text-align: center;
+                qproperty-iconSize: 16px 16px;
+            }
+            DropDownPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            DropDownPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+            DropDownPushButton::icon {
+                color: white;
+            }
+        """)
+        # Create a white version of the document icon
+        original_doc_icon = FluentIcon.DOCUMENT.icon()
+        white_doc_pixmap = original_doc_icon.pixmap(16, 16)
+        # Create a white version by applying a color overlay
+        white_doc_icon_pixmap = QPixmap(16, 16)
+        white_doc_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
+        painter = QPainter(white_doc_icon_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        painter.drawPixmap(0, 0, white_doc_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(white_doc_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
+        painter.end()
+        white_document_icon = QIcon(white_doc_icon_pixmap)
+        self.load_source_button.setIcon(white_document_icon)
 
         # Build Fluent-style round menu
         menu = RoundMenu(parent=self.load_source_button)
