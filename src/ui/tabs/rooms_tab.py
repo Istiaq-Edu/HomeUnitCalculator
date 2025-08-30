@@ -309,8 +309,8 @@ class RoomsTab(QWidget):
                 grand_total = unit_bill + gas_bill + water_bill + house_rent
 
                 real_unit_label.setText(f"{real_unit}")
-                unit_bill_label.setText(f"{unit_bill:.2f} TK")
-                grand_total_label.setText(f"{grand_total:.2f} TK")
+                unit_bill_label.setText(f"{int(unit_bill + 0.5)} TK")
+                grand_total_label.setText(f"{int(grand_total + 0.5)} TK")
         except ValueError as ve:
             QMessageBox.warning(self, "Calculation Error", f"Error in room calculation: {ve}")
         except Exception as e:
@@ -332,6 +332,9 @@ class RoomsTab(QWidget):
             for k_original, v_original in row_dict.items():
                 if k_original.strip().lower() == key_name.strip().lower():
                     stripped_v = v_original.strip() if isinstance(v_original, str) else ""
+                    # Replace "N/A" with "0"
+                    if stripped_v.upper() == "N/A":
+                        stripped_v = "0"
                     return stripped_v if stripped_v else default_if_missing_or_empty
             return default_if_missing_or_empty
 

@@ -680,11 +680,11 @@ class MainTab(QWidget):
             per_unit_cost = (total_unit / total_diff) if total_diff != 0 else 0.0 # Ensure float division
             in_total = total_unit + additional_amount
 
-            self.total_unit_value_label.setText(f"{total_unit}")
-            self.total_diff_value_label.setText(f"{total_diff}")
+            self.total_unit_value_label.setText(f"{int(total_unit)}")
+            self.total_diff_value_label.setText(f"{int(total_diff)}")
             self.per_unit_cost_value_label.setText(f"{per_unit_cost:.2f} TK")
-            self.additional_amount_value_label.setText(f"{additional_amount:.2f} TK")
-            self.in_total_value_label.setText(f"{in_total:.2f} TK")
+            self.additional_amount_value_label.setText(f"{int(additional_amount)} TK")
+            self.in_total_value_label.setText(f"{int(in_total)} TK")
         except ValueError:
             QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values for all readings.")
         except Exception as e:
@@ -713,80 +713,124 @@ class MainTab(QWidget):
         for k_original, v_original in row_dict.items():
             if k_original.strip().lower() == key_name.strip().lower():
                 stripped_v = v_original.strip() if isinstance(v_original, str) else ""
+                # Replace "N/A" with "0"
+                if stripped_v.upper() == "N/A":
+                    stripped_v = "0"
                 return stripped_v if stripped_v else default_if_missing_or_empty
         return default_if_missing_or_empty
 
     def load_info_to_inputs_from_csv(self, selected_month, selected_year):
         filename = "meter_calculation_history.csv"
         selected_month_year_str_ui = f"{selected_month} {selected_year}"
-
+        
         if not os.path.exists(filename):
             QMessageBox.warning(self, "File Not Found", f"{filename} does not exist.")
             return
 
-        main_data_row = None
-        room_data_rows = []
-        found_main_row = False
-
         try:
             with open(filename, mode='r', newline='', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
-                for row in reader:
-                    csv_month_year_str = self._get_csv_value(row, "Month", "")
-                    
-                    if not found_main_row:
-                        if csv_month_year_str.strip().lower() == selected_month_year_str_ui.lower():
-                            main_data_row = row
-                            found_main_row = True
-                            # If this row also contains room data, add it
-                            if self._get_csv_value(row, "Room Name", ""):
-                                room_data_rows.append(row)
-                    elif found_main_row:
-                        # Collect subsequent room-only rows
-                        if not csv_month_year_str.strip():
-                            room_data_rows.append(row)
-                        else:
-                            # Found a new main entry, so we're done with the previous one
-                            break
-            
-            if not main_data_row:
-                QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
-                return
-
-            # Load main tab data
-            self.month_combo.setCurrentText(selected_month)
-            self.year_spinbox.setValue(selected_year)
-            
-            meter_values_csv = [self._get_csv_value(main_data_row, f"Meter-{i+1}", "0") for i in range(10)]
-            diff_values_csv = [self._get_csv_value(main_data_row, f"Diff-{i+1}", "0") for i in range(10)]
-            
-            num_meters = next((i for i, v in reversed(list(enumerate(meter_values_csv))) if v != "0"), 0) + 1
-            num_diffs = next((i for i, v in reversed(list(enumerate(diff_values_csv))) if v != "0"), 0) + 1
-
-            self.meter_count_spinbox.setValue(min(num_meters, self.meter_count_spinbox.maximum()))
-            self.diff_count_spinbox.setValue(min(num_diffs, self.diff_count_spinbox.maximum()))
-
-            for i, val_str in enumerate(meter_values_csv[:num_meters]):
-                if i < len(self.meter_entries):
-                    self.meter_entries[i].setText(str(int(float(val_str))) if val_str.replace('.', '', 1).isdigit() and float(val_str).is_integer() else val_str)
-            
-            for i, val_str in enumerate(diff_values_csv[:num_diffs]):
-                if i < len(self.diff_entries):
-                    self.diff_entries[i].setText(str(int(float(val_str))) if val_str.replace('.', '', 1).isdigit() and float(val_str).is_integer() else val_str)
+                all_rows = list(reader) # Read all rows into memory
                 
-            self.additional_amount_input.setText(self._get_csv_value(main_data_row, "Added Amount", "0"))
+                main_data_row = None
+                room_data_rows = []
 
-            # Load room tab data
-            if room_data_rows:
-                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_data_rows))
-                for i, room_row in enumerate(room_data_rows):
-                    self.main_window.rooms_tab_instance.load_room_data_from_csv_row(room_row, i)
-                self.main_window.rooms_tab_instance.calculate_rooms()
-            else:
-                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1)
-                self.main_window.rooms_tab_instance.calculate_rooms()
+                # Find the main data row first
+                for i, row in enumerate(all_rows):
+                    csv_month_year_str = self._get_csv_value(row, "Month", "")
+                    if csv_month_year_str.strip().lower() == selected_month_year_str_ui.lower():
+                        main_data_row = row
+                        # If this row also contains room data (which it should for the first room), add it
+                        if self._get_csv_value(row, "Room Name", ""): # Check if room data exists in this row
+                            room_data_rows.append(row)
+                        
+                        # Now, collect subsequent room-only rows
+                        for j in range(i + 1, len(all_rows)):
+                            next_row = all_rows[j]
+                            next_month_val = self._get_csv_value(next_row, "Month", "")
+                            if not next_month_val.strip(): # If Month is empty, it's a room-only row
+                                room_data_rows.append(next_row)
+                            else: # Found a new main entry, stop collecting room rows
+                                break
+                        break # Found main data and collected all associated rooms, exit outer loop
 
-            QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year_str_ui} loaded into input fields from CSV.")
+                if not main_data_row:
+                    QMessageBox.warning(self, "Data Not Found", f"No data found for {selected_month_year_str_ui} in {filename}.")
+                    return
+                
+                # Load main tab data
+                self.month_combo.setCurrentText(selected_month)
+                self.year_spinbox.setValue(selected_year)
+                
+                meter_values_csv = [self._get_csv_value(main_data_row, f"Meter-{i+1}", "0") for i in range(10)]
+                diff_values_csv = [self._get_csv_value(main_data_row, f"Diff-{i+1}", "0") for i in range(10)]
+                
+                # Filter out trailing "0"s to set spinbox counts correctly
+                num_meters = len(meter_values_csv)
+                while num_meters > 0 and meter_values_csv[num_meters-1] == "0":
+                    num_meters -=1
+                num_meters = max(1, num_meters) # At least 1
+
+                num_diffs = len(diff_values_csv)
+                while num_diffs > 0 and diff_values_csv[num_diffs-1] == "0":
+                    num_diffs -=1
+                num_diffs = max(1, num_diffs)
+
+                max_meters = self.meter_count_spinbox.maximum()
+                max_diffs  = self.diff_count_spinbox.maximum()
+                if num_meters > max_meters or num_diffs > max_diffs:
+                    QMessageBox.warning(self, "Data Truncated",
+                                        "Incoming data contains more readings than the UI "
+                                        "can display. Extra values will be ignored.")
+                self.meter_count_spinbox.setValue(min(num_meters, max_meters))
+                self.diff_count_spinbox.setValue(min(num_diffs,  max_diffs))
+
+                for i, val_str in enumerate(meter_values_csv[:num_meters]):
+                    if i < len(self.meter_entries):
+                        # Normalize numeric values so that "123.0" → "123" while preserving
+                        # any truly non-integer strings (unlikely given validators).
+                        display_val = str(val_str)
+                        try:
+                            num_val = float(val_str)
+                            # If the float is effectively an int (e.g. 123.0) drop the decimal part
+                            if num_val.is_integer():
+                                display_val = str(int(num_val))
+                        except (ValueError, TypeError):
+                            # Leave display_val as-is if it is not a plain number
+                            pass
+                        self.meter_entries[i].setText(display_val)
+                for i, val_str in enumerate(diff_values_csv[:num_diffs]):
+                    if i < len(self.diff_entries):
+                        display_val = str(val_str)
+                        try:
+                            num_val = float(val_str)
+                            if num_val.is_integer():
+                                display_val = str(int(num_val))
+                        except (ValueError, TypeError):
+                            pass
+                        self.diff_entries[i].setText(display_val)
+                    
+                self.additional_amount_input.setText(self._get_csv_value(main_data_row, "Added Amount", "0"))
+
+                # Load room tab data
+                if room_data_rows:
+                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_data_rows))
+                    # This will trigger update_room_inputs in RoomsTab, creating the necessary widgets
+
+                    for i, room_row in enumerate(room_data_rows):
+                        if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_csv_row'):
+                            self.main_window.rooms_tab_instance.load_room_data_from_csv_row(room_row, i)
+                        else:
+                            print("Warning: rooms_tab_instance does not have load_room_data_from_csv_row method.")
+                    
+                    # After loading all room data, trigger calculation for rooms
+                    self.main_window.rooms_tab_instance.calculate_rooms()
+                else:
+                    # If no room data found, ensure rooms tab is reset or has default number of rooms
+                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1) # Or a sensible default
+                    self.main_window.rooms_tab_instance.calculate_rooms() # Recalculate with default rooms
+
+                QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year_str_ui} loaded into input fields from CSV.")
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to load data from CSV: {e}\n{traceback.format_exc()}")
 
@@ -819,6 +863,17 @@ class MainTab(QWidget):
             
             meter_values = main_data.get("meter_readings", [])
             diff_values = main_data.get("diff_readings", [])
+            
+            # Handle both dictionary and list formats
+            if isinstance(meter_values, dict):
+                # Convert dictionary to list (sorted by key to maintain order)
+                meter_list = [meter_values.get(f'meter_{i+1}', 0) for i in range(len(meter_values))]
+                meter_values = meter_list
+                
+            if isinstance(diff_values, dict):
+                # Convert dictionary to list (sorted by key to maintain order)
+                diff_list = [diff_values.get(f'diff_{i+1}', 0) for i in range(len(diff_values))]
+                diff_values = diff_list
             
             num_meters = len(meter_values)
             num_diffs = len(diff_values)

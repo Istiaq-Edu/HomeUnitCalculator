@@ -372,7 +372,6 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 padding: 8px 24px 8px 48px;
                 text-align: center;
                 qproperty-iconSize: 16px 16px;
-                qproperty-iconColor: white;
             }
             PushButton:hover {
                 background-color: #106ebe;
@@ -448,7 +447,6 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 border-radius: 4px;
                 padding: 4px;
                 qproperty-iconSize: 16px 16px;
-                qproperty-iconColor: white;
             }
             ToolButton:hover {
                 background-color: #106ebe;

@@ -305,8 +305,8 @@ class EditRecordDialog(ResponsiveDialog):
 
             updated_room_records_for_supabase = []
             for rws in self.room_edit_widgets:
-                present = _s_float(rws["present_edit"].text()) # Use _s_float for consistency
-                previous = _s_float(rws["previous_edit"].text()) # Use _s_float for consistency
+                present = _s_int(rws["present_edit"].text()) # Use _s_int for consistency with meter readings
+                previous = _s_int(rws["previous_edit"].text()) # Use _s_int for consistency with meter readings
                 if present < previous:
                     QMessageBox.warning(self, "Input Error",
                                         f"Present reading ({present}) cannot be less than previous reading "
@@ -638,11 +638,21 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         table.horizontalHeader().setMinimumSectionSize(80)
 
     def _set_intelligent_column_widths(self, table: TableWidget):
-        """Set responsive column widths that adapt to window size while preventing truncation"""
+        """Set responsive column widths with absolute priority for month column display"""
         if table.columnCount() == 0:
             return
             
-        # Set minimum column widths to prevent truncation
+        # Find month column first - it gets absolute priority
+        month_col_index = -1
+        month_col_width = 180  # Extra generous width to ensure full month names + year are always visible
+        
+        for col in range(table.columnCount()):
+            header = table.horizontalHeaderItem(col)
+            if header and "month" in header.text().strip().lower():
+                month_col_index = col
+                break
+        
+        # Set minimum column widths for non-month columns
         min_widths = {}
         
         for col in range(table.columnCount()):
@@ -652,39 +662,268 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 
             header_text = header.text().strip().lower()
             
-            # Set minimum widths based on content type from your analysis
+            # Month column gets absolute priority - always full width
             if "month" in header_text:
-                min_widths[col] = 120  # Month names
+                min_widths[col] = month_col_width
             elif any(keyword in header_text for keyword in ["room", "number"]):
-                min_widths[col] = 100  # Room numbers
+                min_widths[col] = 90   # Reduced to give month priority
             elif any(keyword in header_text for keyword in ["meter", "diff"]):
-                min_widths[col] = 90   # Numeric values
+                min_widths[col] = 80   # Reduced to give month priority
             elif any(keyword in header_text for keyword in ["total", "cost", "bill", "rent", "amount", "grand"]):
-                min_widths[col] = 130  # Money values
+                min_widths[col] = 110  # Reduced to give month priority
             elif "grand total" in header_text:
-                min_widths[col] = 140  # Grand totals
+                min_widths[col] = 120  # Reduced to give month priority
             elif any(keyword in header_text for keyword in ["present", "previous", "real"]):
-                min_widths[col] = 110  # Unit readings
+                min_widths[col] = 90   # Reduced to give month priority
             else:
-                min_widths[col] = 110  # Default
+                min_widths[col] = 90   # Reduced default to give month priority
         
-        # Calculate total minimum width needed
-        total_min_width = sum(min_widths.values())
+        # Calculate available width for non-month columns
         available_width = table.viewport().width()
+        month_reserved_width = month_col_width if month_col_index >= 0 else 0
+        remaining_width = max(0, available_width - month_reserved_width)
         
-        # If total minimum width exceeds available space, use fixed widths with scrollbar
-        if total_min_width > available_width:
-            for col in range(table.columnCount()):
+        # Calculate how much space is left for other columns after reserving month column space
+        other_columns_count = table.columnCount() - (1 if month_col_index >= 0 else 0)
+        remaining_width_for_others = max(0, remaining_width)
+        
+        # Set column widths with month column getting absolute priority
+        for col in range(table.columnCount()):
+            header = table.horizontalHeaderItem(col)
+            if not header:
+                continue
+                
+            if col == month_col_index:
+                # Month column ALWAYS gets fixed width - never compressed or truncated
                 table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
-                table.setColumnWidth(col, min_widths.get(col, 110))
-        else:
-            # Use stretch mode with minimum section sizes
-            for col in range(table.columnCount()):
-                table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Stretch)
-                table.horizontalHeader().setMinimumSectionSize(min_widths.get(col, 110))
+                table.setColumnWidth(col, month_col_width)
+            else:
+                # Other columns share the remaining space, but with minimum widths
+                table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
+                if other_columns_count > 0:
+                    # Calculate fair share for other columns, but respect minimums
+                    fair_share = max(75, remaining_width_for_others // other_columns_count)
+                    column_width = min(fair_share, min_widths.get(col, 90))
+                    table.setColumnWidth(col, column_width)
+                else:
+                    table.setColumnWidth(col, min_widths.get(col, 90))
         
-        # Always allow horizontal scrollbar when needed
+        # Always allow horizontal scrollbar when needed for non-month columns
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Apply month column visibility fix
+        self._ensure_month_column_visibility(table)
+
+    def _ensure_month_column_visibility(self, table: TableWidget):
+        """Ensure the month column remains visible and properly sized during horizontal scrolling"""
+        if table.columnCount() == 0:
+            return
+            
+        # Find the month column (should be the first column)
+        month_col_index = -1
+        for col in range(table.columnCount()):
+            header = table.horizontalHeaderItem(col)
+            if header and "month" in header.text().strip().lower():
+                month_col_index = col
+                break
+        
+        if month_col_index == -1:
+            return
+            
+        # ABSOLUTE PRIORITY: Force the month column to have a fixed, generous width
+        month_width = 180  # Extra generous width to handle longest month names + year
+        
+        # Single, clean application to prevent flickering
+        table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
+        table.setColumnWidth(month_col_index, month_width)
+        
+        # Set minimum section size to prevent any shrinking
+        table.horizontalHeader().setMinimumSectionSize(month_width)
+        
+        # Apply custom styling to make month column stand out
+        self._style_month_column(table, month_col_index)
+        
+        # Implement a custom frozen column effect
+        self._implement_frozen_month_column(table, month_col_index)
+        
+        # Add a single delayed check to ensure month column priority is maintained
+        QTimer.singleShot(200, lambda: self._ensure_month_priority_maintained(table, month_col_index))
+    
+
+    
+    def _apply_immediate_month_priority(self, table: TableWidget):
+        """Apply immediate month column priority right after data population - no flickering"""
+        # Find month column
+        month_col_index = -1
+        for col in range(table.columnCount()):
+            header = table.horizontalHeaderItem(col)
+            if header and "month" in header.text().strip().lower():
+                month_col_index = col
+                break
+        
+        if month_col_index == -1:
+            return
+        
+        # Single, clean application - no multiple timers
+        month_width = 180
+        table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
+        table.setColumnWidth(month_col_index, month_width)
+        
+        # One delayed application to ensure it sticks, but no flickering
+        QTimer.singleShot(100, lambda: self._force_month_width_once(table, month_col_index, month_width))
+    
+    def _force_month_width_once(self, table: TableWidget, month_col_index: int, month_width: int):
+        """Force the month column to maintain its width - single application to prevent flickering"""
+        if month_col_index >= 0 and month_col_index < table.columnCount():
+            current_width = table.columnWidth(month_col_index)
+            if current_width != month_width:  # Only change if different to prevent unnecessary updates
+                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
+                table.setColumnWidth(month_col_index, month_width)
+    
+    def _ensure_month_priority_maintained(self, table: TableWidget, month_col_index: int):
+        """Ensure month column priority is maintained without causing flickering"""
+        if month_col_index >= 0 and month_col_index < table.columnCount():
+            current_width = table.columnWidth(month_col_index)
+            target_width = 180
+            
+            # Only adjust if the width is significantly different to avoid micro-adjustments
+            if abs(current_width - target_width) > 5:
+                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
+                table.setColumnWidth(month_col_index, target_width)
+                
+                # Also ensure the resize mode is properly set for other columns
+                for col in range(table.columnCount()):
+                    if col != month_col_index:
+                        table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
+    
+    def _style_month_column(self, table: TableWidget, month_col_index: int):
+        """Apply special styling to the month column with absolute priority - optimized to prevent flickering"""
+        # Import required classes at the top
+        from PyQt5.QtGui import QColor, QBrush
+        from qfluentwidgets import isDarkTheme
+        
+        # Check if styling is already applied to prevent unnecessary redraws
+        if hasattr(table, '_month_styled') and table._month_styled:
+            return
+        
+        # Style the header first
+        header_item = table.horizontalHeaderItem(month_col_index)
+        if header_item:
+            font = header_item.font()
+            if not font.bold() or font.pointSize() != 12:  # Only change if needed
+                font.setBold(True)
+                font.setPointSize(12)  # Fixed absolute font size
+                header_item.setFont(font)
+        
+        # Style all month column cells
+        for row in range(table.rowCount()):
+            item = table.item(row, month_col_index)
+            if item:
+                # Only apply styling if not already applied
+                current_font = item.font()
+                if not current_font.bold() or current_font.pointSize() != 11:
+                    font = item.font()
+                    font.setBold(True)
+                    font.setPointSize(11)  # Fixed absolute font size
+                    item.setFont(font)
+                
+                # Always set background to ensure consistency (avoid complex checking)
+                if isDarkTheme():
+                    item.setBackground(QBrush(QColor(45, 55, 75)))
+                    item.setForeground(QBrush(QColor(255, 255, 255)))
+                else:
+                    item.setBackground(QBrush(QColor(230, 240, 255)))
+                    item.setForeground(QBrush(QColor(0, 0, 0)))
+                
+                # Ensure text is centered
+                if item.textAlignment() != (Qt.AlignCenter | Qt.AlignVCenter):
+                    item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                
+                # Set tooltip if not already set
+                if not item.toolTip():
+                    item.setToolTip(str(item.text()))
+        
+        # Mark as styled to prevent redundant styling
+        table._month_styled = True
+    
+    def _implement_frozen_month_column(self, table: TableWidget, month_col_index: int):
+        """Implement a frozen column effect for the month column"""
+        # Override the table's horizontal scroll behavior
+        horizontal_scrollbar = table.horizontalScrollBar()
+        if horizontal_scrollbar:
+            # Store original scroll method
+            if not hasattr(table, '_original_scroll_to'):
+                table._original_scroll_to = table.scrollTo
+            
+            # Create custom scroll behavior that keeps month column visible
+            def custom_scroll_to(index, hint=None):
+                # Call original scroll method
+                if hint is not None:
+                    table._original_scroll_to(index, hint)
+                else:
+                    table._original_scroll_to(index)
+                
+                # After scrolling, ensure month column is always visible
+                if month_col_index == 0:  # Only for first column
+                    viewport_left = table.horizontalScrollBar().value()
+                    if viewport_left > 0:
+                        # If we've scrolled past the month column, adjust
+                        month_col_width = table.columnWidth(month_col_index)
+                        if viewport_left > month_col_width:
+                            # Keep month column visible by limiting scroll
+                            table.horizontalScrollBar().setValue(max(0, viewport_left - month_col_width))
+            
+            # Replace the scroll method
+            table.scrollTo = custom_scroll_to
+            
+            # Connect to resize events to maintain month column priority
+            if not hasattr(table, '_month_resize_connected'):
+                table.resizeEvent = self._create_resize_handler(table, month_col_index, table.resizeEvent)
+                table._month_resize_connected = True
+            
+            # Also connect to horizontal scrollbar to maintain priority during scrolling
+            h_scrollbar = table.horizontalScrollBar()
+            if h_scrollbar and not hasattr(table, '_month_scroll_connected'):
+                h_scrollbar.valueChanged.connect(
+                    lambda: self._maintain_month_priority_on_scroll(table, month_col_index)
+                )
+                table._month_scroll_connected = True
+    
+    def _maintain_month_priority_on_scroll(self, table: TableWidget, month_col_index: int):
+        """Maintain month column priority during horizontal scrolling"""
+        if month_col_index >= 0 and month_col_index < table.columnCount():
+            current_width = table.columnWidth(month_col_index)
+            if current_width < 180:  # Only adjust if width was somehow reduced
+                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
+                table.setColumnWidth(month_col_index, 180)
+    
+    def _create_resize_handler(self, table: TableWidget, month_col_index: int, original_resize):
+        """Create a resize event handler that maintains month column priority without flickering"""
+        def resize_handler(event):
+            # Call original resize handler first
+            if original_resize:
+                original_resize(event)
+            
+            # Maintain month column priority after resize
+            if month_col_index >= 0 and month_col_index < table.columnCount():
+                # Always ensure month column has priority width
+                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
+                table.setColumnWidth(month_col_index, 180)
+                
+                # Adjust other columns to accommodate month column priority
+                available_width = table.viewport().width() - 180  # Reserve space for month column
+                other_columns = table.columnCount() - 1
+                
+                if other_columns > 0 and available_width > 0:
+                    # Distribute remaining width among other columns
+                    other_col_width = max(80, available_width // other_columns)  # Minimum 80px per column
+                    
+                    for col in range(table.columnCount()):
+                        if col != month_col_index:
+                            table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
+                            table.setColumnWidth(col, other_col_width)
+        
+        return resize_handler
 
     def _create_centered_item(self, text: str, column_type: str = "", is_priority: bool = False):
         """Create a centered table item with priority-aware styling"""
@@ -1015,26 +1254,25 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self._set_table_headers_with_icons(self.room_history_table, room_headers, 'room_table')
         # Column widths will be set by _set_intelligent_column_widths method 
         self.room_history_table.setAlternatingRowColors(True)
-        # Enable horizontal scrollbar for room table if content exceeds width
-        self.room_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # Always show horizontal scrollbar to prevent flickering during resize
+        # This eliminates the layout changes that cause flickering when scrollbar appears/disappears
+        self.room_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # Vertical scrolling handled by main scroll area
         self.room_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.room_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        # Remove all height restrictions and let table grow naturally
+        # Set size policy for responsive behavior (same as main table)
         self.room_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        # Resize table to content height and adjust table height to show all rows
-        self.room_history_table.resizeRowsToContents()
         self._style_table(self.room_history_table)
-        # Connect resize event for dynamic column width adjustment
-        self.room_history_table.horizontalHeader().sectionResized.connect(
-            lambda: self._on_table_resize(self.room_history_table)
-        )
+        # Disable resize handler for room table to prevent flickering
+        # Month column priority is maintained by other mechanisms
+        # self.room_history_table.horizontalHeader().sectionResized.connect(
+        #     lambda: self._on_table_resize(self.room_history_table)
+        # )
         # Connect selection changed signals to update button states/styles now that tables exist
         self.main_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
         self.room_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
         # Ensure initial button style state
         self.update_action_buttons_state()
-        self.resize_table_to_content(self.room_history_table)
         room_calc_layout.addWidget(self.room_history_table)
         layout.addWidget(room_calc_group)  # No stretch factor - let it size naturally
 
@@ -1343,7 +1581,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         # Modern typography - semi-bold with elegant sizing
         font = item.font()
         font.setWeight(QFont.DemiBold)
-        font.setPointSizeF(font.pointSizeF() + 1)  # Slightly larger for prominence
+        font.setPointSizeF(10.5)  # Fixed absolute font size for identifier items
         item.setFont(font)
         
         return item
@@ -1396,27 +1634,113 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         
     def _on_table_resize(self, table: TableWidget):
-        """Handle table resize events to adjust column widths"""
+        """Handle table resize events to adjust column widths while maintaining month column priority"""
         # Use a small delay to avoid excessive recalculations during resize
-        QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
+        QTimer.singleShot(150, lambda: self._resize_with_month_priority(table))
+    
+    def _resize_with_month_priority(self, table: TableWidget):
+        """Resize table while ensuring month column priority is maintained without flickering"""
+        # Temporarily disable updates to reduce flickering
+        table.setUpdatesEnabled(False)
+        
+        try:
+            # First apply intelligent column widths
+            self._set_intelligent_column_widths(table)
+            
+            # Then immediately ensure month column priority is maintained
+            self._ensure_month_column_visibility(table)
+        finally:
+            # Re-enable updates
+            table.setUpdatesEnabled(True)
+    
+
+    
+
         
     def resizeEvent(self, event):
-        """Handle window resize events to adjust all table column widths"""
+        """Handle window resize events to adjust all table column widths without flickering"""
         super().resizeEvent(event)
-        # Recalculate column widths for all tables when window is resized
-        QTimer.singleShot(200, lambda: self._recalculate_all_table_widths())
         
-    def _recalculate_all_table_widths(self):
-        """Recalculate column widths for all tables"""
+        # Debounced approach for window resize
+        if hasattr(self, '_window_resize_timer') and self._window_resize_timer.isActive():
+            self._window_resize_timer.stop()
+        
+        if not hasattr(self, '_window_resize_timer'):
+            self._window_resize_timer = QTimer()
+            self._window_resize_timer.setSingleShot(True)
+            self._window_resize_timer.timeout.connect(self._recalculate_all_table_widths_smooth)
+        
+        # Longer delay to ensure resize is complete
+        self._window_resize_timer.start(250)
+        
+    def _recalculate_all_table_widths_smooth(self):
+        """Recalculate column widths for all tables with smooth, flicker-free updates"""
         try:
+            # Process all tables with updates disabled to prevent flickering
+            tables = []
             if hasattr(self, 'main_history_table'):
-                self._set_intelligent_column_widths(self.main_history_table)
+                tables.append(self.main_history_table)
             if hasattr(self, 'room_history_table'):
-                self._set_intelligent_column_widths(self.room_history_table)
+                tables.append(self.room_history_table)
             if hasattr(self, 'totals_table'):
-                self._set_intelligent_column_widths(self.totals_table)
+                tables.append(self.totals_table)
+            
+            # Disable updates for all tables
+            for table in tables:
+                table.blockSignals(True)
+                table.setUpdatesEnabled(False)
+            
+            try:
+                # Apply changes to all tables
+                for table in tables:
+                    self._set_intelligent_column_widths(table)
+                    self._ensure_month_column_visibility(table)
+            finally:
+                # Re-enable updates for all tables at once
+                for table in tables:
+                    table.setUpdatesEnabled(True)
+                    table.blockSignals(False)
+                    table.update()  # Single repaint per table
+                    
         except:
             pass  # Ignore errors during window resize
+    
+    def _recalculate_all_table_widths(self):
+        """Legacy method - redirects to smooth version"""
+        self._recalculate_all_table_widths_smooth()
+    
+    def _disconnect_resize_handlers(self):
+        """Temporarily disconnect resize handlers to prevent conflicts"""
+        try:
+            if hasattr(self, 'main_history_table'):
+                self.main_history_table.horizontalHeader().sectionResized.disconnect()
+            if hasattr(self, 'room_history_table'):
+                self.room_history_table.horizontalHeader().sectionResized.disconnect()
+            if hasattr(self, 'totals_table'):
+                self.totals_table.horizontalHeader().sectionResized.disconnect()
+        except:
+            pass  # Ignore if already disconnected
+    
+    def _reconnect_resize_handlers(self):
+        """Reconnect resize handlers after data loading"""
+        try:
+            if hasattr(self, 'main_history_table'):
+                self.main_history_table.horizontalHeader().sectionResized.connect(
+                    lambda: self._on_table_resize(self.main_history_table)
+                )
+            # Skip room table to prevent flickering - month priority maintained by other means
+            # if hasattr(self, 'room_history_table'):
+            #     self.room_history_table.horizontalHeader().sectionResized.connect(
+            #         lambda: self._on_table_resize(self.room_history_table)
+            #     )
+            if hasattr(self, 'totals_table'):
+                self.totals_table.horizontalHeader().sectionResized.connect(
+                    lambda: self._on_table_resize(self.totals_table)
+                )
+        except:
+            pass  # Ignore connection errors
+    
+
     
     def _enhance_headers_with_icons(self, table: TableWidget):
         """Add icons to table headers for better visual identification"""
@@ -1490,9 +1814,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             
             # Format with thousand separators
             if num == 0:
-                return "0.0"
+                return "0"
             elif num == int(num):  # Whole number
-                return f"{int(num):,}.0"
+                return f"{int(num):,}"
             else:  # Has decimals
                 return f"{num:,.2f}"
                 
@@ -1755,24 +2079,47 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         self.room_history_table.setItem(row_idx, 7, self._create_centered_item(water_bill))
                         self.room_history_table.setItem(row_idx, 8, self._create_centered_item(house_rent))
                         self.room_history_table.setItem(row_idx, 9, self._create_special_item(grand_total, "grand_total"))
+                    
+                    # IMMEDIATE: Apply month column priority right after populating room data
+                    self._apply_immediate_month_priority(self.room_history_table)
 
                 # Calculate and display totals using the filtered main rows instead of all room rows
                 self.calculate_and_display_totals_from_main_rows(filtered_main_rows, get_csv_value)
 
-                # Resize tables to fit content after loading data
-                self.resize_table_to_content(self.main_history_table)
-                self.resize_table_to_content(self.room_history_table)
-                self.resize_table_to_content(self.totals_table)
+                # Temporarily disconnect resize handlers to prevent conflicts during setup
+                self._disconnect_resize_handlers()
+                
+                try:
+                    # Resize tables to fit content after loading data
+                    self.resize_table_to_content(self.main_history_table)
+                    self.resize_table_to_content(self.room_history_table)
+                    self.resize_table_to_content(self.totals_table)
 
-                # Re-apply column widths after data load (styling already applied at initialization)
-                self._calculate_intelligent_column_widths(self.main_history_table, 'main_table')
-                self._calculate_intelligent_column_widths(self.room_history_table, 'room_table')
-                self._calculate_intelligent_column_widths(self.totals_table, 'totals_table')
+                    # Re-apply column widths after data load (styling already applied at initialization)
+                    self._set_intelligent_column_widths(self.main_history_table)
+                    self._set_intelligent_column_widths(self.room_history_table)
+                    self._set_intelligent_column_widths(self.totals_table)
+                finally:
+                    # Reconnect resize handlers
+                    self._reconnect_resize_handlers()
 
                 if not filtered_main_rows:
                     QMessageBox.information(self, "No Data", "No records found for the selected filters in CSV.")
                 else:
                     QMessageBox.information(self, "Load Successful", f"Loaded {len(filtered_main_rows)} main records and {len(all_room_rows_sorted_with_context)} room records from CSV.")
+                
+                # Reset styling flags before applying new styling
+                if hasattr(self.main_history_table, '_month_styled'):
+                    self.main_history_table._month_styled = False
+                if hasattr(self.room_history_table, '_month_styled'):
+                    self.room_history_table._month_styled = False
+                if hasattr(self.totals_table, '_month_styled'):
+                    self.totals_table._month_styled = False
+                
+                # Ensure month columns are properly visible and styled after loading data
+                self._ensure_month_column_visibility(self.main_history_table)
+                self._ensure_month_column_visibility(self.room_history_table)
+                self._ensure_month_column_visibility(self.totals_table)
 
         except Exception as e:
             QMessageBox.critical(self, "Load History Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
@@ -1902,20 +2249,44 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     self.room_history_table.setItem(row_idx, 7, self._create_centered_item(str(room_data.get("water_bill", ""))))
                     self.room_history_table.setItem(row_idx, 8, self._create_centered_item(str(room_data.get("house_rent", ""))))
                     self.room_history_table.setItem(row_idx, 9, self._create_special_item(str(room_data.get("grand_total", "")), "grand_total"))
+            
+            # IMMEDIATE: Apply month column priority right after populating room data
+            if all_room_rows:
+                self._apply_immediate_month_priority(self.room_history_table)
 
             self.calculate_and_display_totals_from_supabase_records(main_calculations, all_room_rows)
             
-            # Resize tables to fit content
-            self.resize_table_to_content(self.main_history_table)
-            self.resize_table_to_content(self.room_history_table)
-            self.resize_table_to_content(self.totals_table)
+            # Temporarily disconnect resize handlers to prevent conflicts during setup
+            self._disconnect_resize_handlers()
             
-            # Re-apply column widths after data load
-            self._calculate_intelligent_column_widths(self.main_history_table, 'main_table')
-            self._calculate_intelligent_column_widths(self.room_history_table, 'room_table')
-            self._calculate_intelligent_column_widths(self.totals_table, 'totals_table')
+            try:
+                # Resize tables to fit content
+                self.resize_table_to_content(self.main_history_table)
+                self.resize_table_to_content(self.room_history_table)
+                self.resize_table_to_content(self.totals_table)
+                
+                # Re-apply column widths after data load
+                self._set_intelligent_column_widths(self.main_history_table)
+                self._set_intelligent_column_widths(self.room_history_table)
+                self._set_intelligent_column_widths(self.totals_table)
+            finally:
+                # Reconnect resize handlers
+                self._reconnect_resize_handlers()
 
             QMessageBox.information(self, "Load Successful", f"Loaded {len(main_calculations)} main records and {len(all_room_rows)} room records from Supabase.")
+            
+            # Reset styling flags before applying new styling
+            if hasattr(self.main_history_table, '_month_styled'):
+                self.main_history_table._month_styled = False
+            if hasattr(self.room_history_table, '_month_styled'):
+                self.room_history_table._month_styled = False
+            if hasattr(self.totals_table, '_month_styled'):
+                self.totals_table._month_styled = False
+            
+            # Ensure month columns are properly visible and styled after loading data
+            self._ensure_month_column_visibility(self.main_history_table)
+            self._ensure_month_column_visibility(self.room_history_table)
+            self._ensure_month_column_visibility(self.totals_table)
 
         except Exception as e:
             QMessageBox.critical(self, "Load History Error", f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}")

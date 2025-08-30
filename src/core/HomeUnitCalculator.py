@@ -816,18 +816,65 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
                 if not file_exists or os.path.getsize(filename) == 0:
                     header = ["Month"] + [f"Meter-{i+1}" for i in range(10)] + \
                                 [f"Diff-{i+1}" for i in range(10)] + \
-                                ["Total-Unit-Cost", "Total-Diffs", "Per-Unit-Cost", "Added-Amount", "Grand-Total"]
+                                ["Total Unit", "Total Diff", "Per Unit Cost", "Added Amount", "In Total"] + \
+                                ["Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill",
+                                 "Gas Bill", "Water Bill", "House Rent", "Grand Total",
+                                 "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"]
                     writer.writerow(header)
-                
-                row_data = [month_name] + meter_texts + diff_texts + \
-                           [self.main_tab_instance.total_unit_value_label.text(), self.main_tab_instance.total_diff_value_label.text(), 
-                            self.main_tab_instance.per_unit_cost_value_label.text(), self.main_tab_instance.additional_amount_value_label.text(), 
-                            self.main_tab_instance.in_total_value_label.text()]
-                writer.writerow(row_data)
+                main_data_row = [month_name]
+                for i in range(10): 
+                    main_data_row.append(self.main_tab_instance.meter_entries[i].text() if i < len(self.main_tab_instance.meter_entries) and self.main_tab_instance.meter_entries[i].text() else "0")
+                for i in range(10): 
+                    main_data_row.append(self.main_tab_instance.diff_entries[i].text() if i < len(self.main_tab_instance.diff_entries) and self.main_tab_instance.diff_entries[i].text() else "0")
+                main_data_row.extend([
+                    (self.main_tab_instance.total_unit_value_label.text().split(':')[-1].replace("TK", "").strip() or "0"),
+                    (self.main_tab_instance.total_diff_value_label.text().split(':')[-1].replace("TK", "").strip() or "0"),
+                    (self.main_tab_instance.per_unit_cost_value_label.text().split(':')[-1].replace("TK", "").strip() or "0.00"),
+                    str(self.main_tab_instance.get_additional_amount()),
+                    (self.main_tab_instance.in_total_value_label.text().split(':')[-1].replace("TK", "").strip() or "0.00")
+                ])
+                if hasattr(self.rooms_tab_instance, 'room_entries') and self.rooms_tab_instance.room_entries:
+                    for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
+                        # Try to get room name from group widget, fallback to generic name
+                        try:
+                            room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
+                            room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
+                        except:
+                            room_name = f"Room {i+1}"
+                        
+                        present_text = room_data['present_entry'].text() or "0"
+                        previous_text = room_data['previous_entry'].text() or "0"
+                        real_unit = room_data['real_unit_label'].text() if room_data['real_unit_label'].text() != "Incomplete" else "N/A"
+                        unit_bill = room_data['unit_bill_label'].text().replace(" TK", "") if room_data['unit_bill_label'].text() != "Incomplete" else "N/A"
+                        gas_bill = room_data['gas_bill_entry'].text() or "0.00"
+                        water_bill = room_data['water_bill_entry'].text() or "0.00"
+                        house_rent = room_data['house_rent_entry'].text() or "0.00"
+                        grand_total = room_data['grand_total_label'].text().replace(" TK", "") if room_data['grand_total_label'].text() != "Incomplete" else "N/A"
 
-            QMessageBox.information(self, "CSV Saved", f"Calculation history saved to {filename}")
+                        room_csv_data_parts = [
+                            room_name, present_text, previous_text, real_unit, unit_bill,
+                            gas_bill, water_bill, house_rent, grand_total
+                        ]
+                        if i == 0:
+                            # For the first room, append room data and then the summary totals
+                            if hasattr(self.rooms_tab_instance, 'get_all_room_bill_totals'):
+                                room_bill_totals = self.rooms_tab_instance.get_all_room_bill_totals()
+                                summary_csv_parts = [
+                                    f"{room_bill_totals['total_house_rent']:.2f}",
+                                    f"{room_bill_totals['total_water_bill']:.2f}",
+                                    f"{room_bill_totals['total_gas_bill']:.2f}",
+                                    f"{room_bill_totals['total_room_unit_bill']:.2f}"
+                                ]
+                            else:
+                                summary_csv_parts = ["0.00", "0.00", "0.00", "0.00"]
+                            writer.writerow(main_data_row + room_csv_data_parts + summary_csv_parts)
+                        else:
+                             writer.writerow([""] * len(main_data_row) + room_csv_data_parts + [""] * 4) # Empty cells for totals in subsequent room rows
+                else:
+                    writer.writerow(main_data_row + ["N/A"] * 9 + ["0.00"] * 4) # 9 new fields for rooms + 4 for totals
+            QMessageBox.information(self, "Save Successful", f"Data saved to {filename}")
         except Exception as e:
-            QMessageBox.critical(self, "CSV Save Error", f"Failed to save CSV: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save data to CSV: {e}\n{traceback.format_exc()}")
 
     def save_calculation_to_supabase(self):
         if not self.supabase_manager.is_client_initialized() or not self.check_internet_connectivity():
@@ -835,55 +882,87 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
             return
         
         try:
-            month = f"{self.main_tab_instance.month_combo.currentText()} {self.main_tab_instance.year_spinbox.value()}"
+            month = self.main_tab_instance.month_combo.currentText()
+            year = self.main_tab_instance.year_spinbox.value()
             
             # Check for existing record
-            if self.supabase_manager.record_exists('calculations', month):
+            existing_record = self.supabase_manager.get_main_calculation_by_month_year(month, year)
+            if existing_record:
                 reply = QMessageBox.question(self, 'Record Exists', 
-                                             f"A record for {month} already exists. Do you want to overwrite it?",
+                                             f"A record for {month} {year} already exists. Do you want to overwrite it?",
                                              QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                 if reply == QMessageBox.No:
                     return
 
-            # Main calculation data
+            # Helper function to safely extract numeric values from labels
+            def extract_numeric_value(text):
+                if not text or text in ["N/A", "Incomplete"]:
+                    return 0.0
+                # Remove "TK" and other text, keep only numbers and decimal points
+                cleaned = text.replace("TK", "").replace(" ", "").strip()
+                # Extract only digits and decimal points
+                cleaned = ''.join(c for c in cleaned if c.isdigit() or c == '.')
+                try:
+                    return float(cleaned) if cleaned else 0.0
+                except ValueError:
+                    return 0.0
+
+            # Main calculation data - using field names that match what HistoryTab expects
+            meter_readings = {f'meter_{i+1}': int(self.main_tab_instance.meter_entries[i].text() or 0) for i in range(len(self.main_tab_instance.meter_entries))}
+            diff_readings = {f'diff_{i+1}': int(self.main_tab_instance.diff_entries[i].text() or 0) for i in range(len(self.main_tab_instance.diff_entries))}
+            
             main_data = {
                 'month': month,
-                'meter_readings': {f'meter_{i+1}': float(self.main_tab_instance.meter_entries[i].text() or 0) for i in range(len(self.main_tab_instance.meter_entries))},
-                'diff_readings': {f'diff_{i+1}': float(self.main_tab_instance.diff_entries[i].text() or 0) for i in range(len(self.main_tab_instance.diff_entries))},
-                'total_unit_cost': float(self.main_tab_instance.total_unit_value_label.text() or 0),
-                'total_diffs': float(self.main_tab_instance.total_diff_value_label.text() or 0),
-                'per_unit_cost': float(self.main_tab_instance.per_unit_cost_value_label.text() or 0),
-                'added_amount': float(self.main_tab_instance.additional_amount_value_label.text() or 0),
-                'grand_total': float(self.main_tab_instance.in_total_value_label.text() or 0)
+                'year': year,
+                'meter_readings': meter_readings,
+                'diff_readings': diff_readings,
+                'total_unit_cost': extract_numeric_value(self.main_tab_instance.total_unit_value_label.text()),
+                'total_diff_units': extract_numeric_value(self.main_tab_instance.total_diff_value_label.text()),
+                'per_unit_cost': extract_numeric_value(self.main_tab_instance.per_unit_cost_value_label.text()),
+                'added_amount': extract_numeric_value(self.main_tab_instance.additional_amount_value_label.text()),
+                'grand_total': extract_numeric_value(self.main_tab_instance.in_total_value_label.text())
             }
+            
+            # Also add individual meter and diff readings as separate fields for HistoryTab compatibility
+            main_data.update(meter_readings)
+            main_data.update(diff_readings)
 
-            if self.supabase_manager.record_exists('calculations', month):
-                self.supabase_manager.update_record('calculations', month, main_data)
-            else:
-                self.supabase_manager.insert_record('calculations', main_data)
+            # Save main calculation
+            main_calc_id = self.supabase_manager.save_main_calculation(main_data)
+            
+            if not main_calc_id:
+                QMessageBox.critical(self, "Cloud Save Error", "Failed to save main calculation data. Check console for details.")
+                return
 
             # Room calculation data
+            room_data_list = []
             if self.rooms_tab_instance.room_entries:
                 for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
-                    room_name = f"Room {i+1}"
                     room_record = {
-                        'month': month,
-                        'room_number': room_name,
-                        'present_reading': float(room_data['present_entry'].text() or 0),
-                        'previous_reading': float(room_data['previous_entry'].text() or 0),
-                        'real_unit': float(room_data['real_unit_label'].text() or 0),
-                        'unit_bill': float(room_data['unit_bill_label'].text() or 0),
+                        'room_name': f"Room {i+1}",
+                        'present_unit': int(room_data['present_entry'].text() or 0),
+                        'previous_unit': int(room_data['previous_entry'].text() or 0),
+                        'real_unit': extract_numeric_value(room_data['real_unit_label'].text()),
+                        'unit_bill': extract_numeric_value(room_data['unit_bill_label'].text()),
                         'gas_bill': float(room_data['gas_bill_entry'].text() or 0),
                         'water_bill': float(room_data['water_bill_entry'].text() or 0),
                         'house_rent': float(room_data['house_rent_entry'].text() or 0),
-                        'grand_total': float(room_data['grand_total_label'].text() or 0)
+                        'grand_total': extract_numeric_value(room_data['grand_total_label'].text())
                     }
+                    room_data_list.append({'room_data': room_record})
 
-                    if self.supabase_manager.record_exists('rooms', month, room_name):
-                        self.supabase_manager.update_room_record('rooms', month, room_name, room_record)
-                    else:
-                        self.supabase_manager.insert_record('rooms', room_record)
+            # Save room calculations
+            if room_data_list:
+                print(f"Debug - Saving {len(room_data_list)} room records...")
+                room_save_success = self.supabase_manager.save_room_calculations(main_calc_id, room_data_list)
+                print(f"Debug - Room save success: {room_save_success}")
+                if not room_save_success:
+                    QMessageBox.warning(self, "Partial Save", "Main calculation saved, but room data failed to save.")
+                    return
+            else:
+                print("Debug - No room data to save")
 
+            print("Debug - About to show success message")
             QMessageBox.information(self, "Cloud Save", "Data saved to Supabase successfully.")
 
         except APIError as e:
