@@ -4,17 +4,20 @@ import os
 from datetime import datetime
 from collections import namedtuple
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QUrl
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QFormLayout, QMessageBox, QDialog, QWidget,
     QGridLayout
 )
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply, QNetworkDiskCache
+from PyQt5.QtCore import QStandardPaths
 from qfluentwidgets import (
     CardWidget, PrimaryPushButton, PushButton, TitleLabel
 )
 from .responsive_components import ResponsiveDialog
 from .responsive_image import ResponsiveImagePreviewGrid
+from .background_workers import FetchImageWorker
 
 # Suppress SSL certificate warnings when verify=False is used in requests
 try:
@@ -69,6 +72,24 @@ class RentalRecordDialog(ResponsiveDialog):
         self.main_window = main_window_ref # Store reference to main window
         self.current_source = current_source # New: To know if record came from Local DB or Supabase
         self.supabase_id = supabase_id or record_data.get("supabase_id")
+
+        # Async image loading state
+        self._image_cache = {}           # url -> bytes (in-memory)
+        self._image_workers = {}         # img_type -> worker (fallback only)
+        self._current_image_urls = {}    # img_type -> url
+
+        # Shared Qt network manager with disk cache for faster HTTP fetches
+        self._qnam = QNetworkAccessManager(self)
+        cache = QNetworkDiskCache(self)
+        cache_dir = QStandardPaths.writableLocation(QStandardPaths.CacheLocation)
+        if cache_dir:
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+            except Exception:
+                pass
+            cache.setCacheDirectory(cache_dir)
+            cache.setMaximumCacheSize(50 * 1024 * 1024)  # ~50MB
+            self._qnam.setCache(cache)
 
         self.init_ui()
         if self.record_data:
@@ -204,25 +225,62 @@ class RentalRecordDialog(ResponsiveDialog):
         for img_type, label in image_labels.items():
             path = image_paths[img_type]
             placeholder_text = f"No {img_type.replace('_', ' ').title()}"
-            
+
             print(f"DEBUG: Processing {img_type} with path: {path}")
-            
-            if path and path != "No file selected" and path.startswith("http"):
+
+            if path and path != "No file selected" and isinstance(path, str) and path.startswith("http"):
+                # Prefer Qt's network stack with disk cache for speed and reuse
+                self._current_image_urls[img_type] = path
+
+                # Serve from in-memory cache quickly if present
+                cached = self._image_cache.get(path)
+                if cached:
+                    label.setImageData(cached, placeholder_text)
+                    print(f"DEBUG: Loaded {img_type} from in-memory cache")
+                    continue
+
                 try:
-                    import requests
-                    # Disable TLS certificate verification to avoid failures in bundled executables
-                    resp = requests.get(path, timeout=5, verify=False)
-                    if resp.status_code == 200:
-                        label.setImageData(resp.content, placeholder_text)
-                        print(f"DEBUG: Successfully loaded {img_type} from URL")
-                    else:
-                        label._show_placeholder(placeholder_text)
-                        print(f"DEBUG: Failed to load {img_type} from URL, status: {resp.status_code}")
-                except Exception as e:
-                    label._show_placeholder(placeholder_text)
-                    print(f"DEBUG: Exception loading {img_type} from URL: {e}")
+                    label._show_placeholder(f"Loading {img_type.replace('_', ' ').title()}...")
+                except Exception:
+                    label.setText(f"Loading {img_type.replace('_', ' ').title()}...")
+
+                req = QNetworkRequest(QUrl(path))
+                # Prefer cache when available, else network
+                req.setAttribute(QNetworkRequest.CacheLoadControlAttribute, QNetworkRequest.PreferCache)
+                reply = self._qnam.get(req)
+
+                def handle_finished(rep=reply, it=img_type, url=path, lbl=label):
+                    # Ensure reply belongs to the current expected url for this slot
+                    try:
+                        if self._current_image_urls.get(it) != url:
+                            rep.deleteLater()
+                            return
+                        if rep.error() == QNetworkReply.NoError:
+                            data = bytes(rep.readAll())
+                            if data:
+                                # soft cap cache
+                                try:
+                                    if len(self._image_cache) > 64:
+                                        self._image_cache.pop(next(iter(self._image_cache)))
+                                except Exception:
+                                    pass
+                                self._image_cache[url] = data
+                                lbl.setImageData(data, placeholder_text)
+                                print(f"DEBUG: Loaded {it} via QNetworkAccessManager (cached={rep.attribute(QNetworkRequest.SourceIsFromCacheAttribute)})")
+                            else:
+                                lbl._show_placeholder(placeholder_text)
+                                print(f"DEBUG: Empty data for {it} from {url}")
+                        else:
+                            # Fallback to worker one-off attempt (rare)
+                            print(f"DEBUG: QNAM error for {it}: {rep.errorString()} - Falling back to worker")
+                            self._start_worker_image_fetch(url, img_type, label, placeholder_text)
+                    finally:
+                        rep.deleteLater()
+
+                reply.finished.connect(handle_finished)
+
             elif path and path != "No file selected" and os.path.exists(path):
-                # Simplified check - just verify file exists
+                # Local file path (fast)
                 try:
                     success = label.setImagePath(path, placeholder_text)
                     if success:
@@ -242,6 +300,72 @@ class RentalRecordDialog(ResponsiveDialog):
         # The actual PDF path will be set after generation via generate_pdf_from_dialog
         self.pdf_path_label.setText("No PDF generated yet for this record.")
         self.pdf_path_label.setToolTip("Click 'Save PDF' to generate and and view.")
+
+    def closeEvent(self, event):
+        """Ensure background image workers are cleaned up when dialog closes."""
+        try:
+            # Abort pending network replies by resetting the manager (Qt will clean up replies)
+            try:
+                self._qnam.setParent(None)
+                self._qnam.deleteLater()
+            except Exception:
+                pass
+            for it, worker in list(self._image_workers.items()):
+                try:
+                    worker.image_downloaded.disconnect()
+                except Exception:
+                    pass
+                try:
+                    worker.error_occurred.disconnect()
+                except Exception:
+                    pass
+                try:
+                    worker.requestInterruption()
+                except Exception:
+                    pass
+                try:
+                    worker.quit()
+                except Exception:
+                    pass
+                try:
+                    worker.wait(100)
+                except Exception:
+                    pass
+            self._image_workers.clear()
+            self._current_image_urls.clear()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    # Fallback: start threaded fetch using requests if QNetworkAccessManager fails
+    def _start_worker_image_fetch(self, url: str, img_type: str, label: QLabel, placeholder_text: str):
+        try:
+            if img_type in self._image_workers:
+                self._image_workers.pop(img_type, None)
+            worker = FetchImageWorker(url, timeout=8, verify_tls=False, parent=self)
+
+            def on_downloaded(data: bytes, it=img_type, u=url, lbl=label):
+                if self._current_image_urls.get(it) == u and data:
+                    try:
+                        if len(self._image_cache) > 64:
+                            self._image_cache.pop(next(iter(self._image_cache)))
+                    except Exception:
+                        pass
+                    self._image_cache[u] = data
+                    lbl.setImageData(data, placeholder_text)
+                    print(f"DEBUG: Loaded {it} via worker fallback")
+
+            def on_error(err: str, it=img_type, u=url, lbl=label):
+                if self._current_image_urls.get(it) == u:
+                    lbl._show_placeholder(placeholder_text)
+                    print(f"DEBUG: Worker fallback error for {it}: {err}")
+
+            worker.image_downloaded.connect(on_downloaded)
+            worker.error_occurred.connect(on_error)
+            self._image_workers[img_type] = worker
+            worker.start()
+        except Exception as e:
+            print(f"DEBUG: Failed to start worker fallback for {img_type}: {e}")
 
     def _is_safe_path(self, file_path):
         """Validate that the file path is safe to access"""

@@ -22,10 +22,9 @@ from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap, QPainter, QColor # Keep QPixmap for _validate_image_file
 from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QGridLayout, QFormLayout, QMessageBox, QSizePolicy, QDialog,
-    QFileDialog, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QProgressDialog, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGridLayout, QGroupBox, QFormLayout,
+    QFileDialog, QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView,
+    QFrame, QAbstractItemView, QSizePolicy, QLineEdit
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -47,6 +46,7 @@ from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgress
 from src.ui.dialogs import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.components import EnhancedTableMixin
+
 # >>> ADD
 # Fluent-widgets progress bar
 try:
@@ -54,6 +54,23 @@ try:
 except ImportError:
     IndeterminateProgressBar = None  # type: ignore
 # <<< ADD
+
+
+class NumericTableWidgetItem(QTableWidgetItem):
+    def __lt__(self, other):
+        # Prefer comparing numeric sort keys stored in UserRole
+        try:
+            a = self.data(Qt.UserRole)
+            b = other.data(Qt.UserRole)
+            if a is not None and b is not None:
+                return float(a) < float(b)
+        except Exception:
+            pass
+        # Fallback: try parsing text
+        try:
+            return float(self.text()) < float(other.text())
+        except Exception:
+            return super().__lt__(other)
 
 
 class RentalInfoTab(QWidget, EnhancedTableMixin):
@@ -133,6 +150,17 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.current_rental_id = None  # Local DB primary key (if editing an existing record)
         self.current_supabase_id = None  # Supabase record UUID (if editing an existing record)
         self.current_is_archived = False  # Preserve archive status when editing
+
+        # Cloud pagination state
+        self._cloud_page_size = 25
+        self._cloud_offset = 0
+        self._cloud_has_more = True
+        self._cloud_records_cache = []
+        self._is_fetching = False
+        self._cloud_append = False
+
+        # Local cache to persist table data between source switches
+        self._local_records_cache = None
 
         self.init_ui()
         self.load_rental_records() # Initial load will be from default source
@@ -437,7 +465,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Add refresh button
         self.refresh_button = ToolButton(FluentIcon.UPDATE)
         self.refresh_button.setToolTip("Refresh records")
-        self.refresh_button.clicked.connect(self.load_rental_records)
+        # Force refresh clears caches and reloads
+        self.refresh_button.clicked.connect(lambda: self.load_rental_records(force_refresh=True))
         # Set button text color to white
         self.refresh_button.setStyleSheet("""
             ToolButton {
@@ -489,7 +518,13 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.rental_records_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.rental_records_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.rental_records_table.clicked.connect(self.show_record_details_dialog)
-        
+
+        # Infinite scroll: auto-load next page on near-bottom
+        try:
+            self.rental_records_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
+        except Exception:
+            pass
+
         table_layout.addWidget(self.rental_records_table)
 
         records_card_layout.addLayout(table_layout)
@@ -1281,7 +1316,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             QMessageBox.critical(self, "Save Error", f"An unexpected error occurred while saving: {e}")
             print(f"Save error traceback: {traceback.format_exc()}")
 
-    def load_rental_records(self):
+    def load_rental_records(self, force_refresh: bool = False):
         # Clear current table contents first
         self.rental_records_table.clearContents()
         self.rental_records_table.setRowCount(0)
@@ -1289,12 +1324,17 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         selected_source = self.load_source_combo.currentText()
 
         if selected_source == "Local DB":
-            # --- synchronous path (unchanged) ---
+            # Use cache unless forced to refresh
             try:
+                if self._local_records_cache is not None and not force_refresh:
+                    self._populate_rental_table(selected_source, self._local_records_cache)
+                    return
+
                 records = self.db_manager.execute_query(
                     "SELECT id, tenant_name, room_number, advanced_paid, created_at, updated_at, photo_path, nid_front_path, nid_back_path, police_form_path, is_archived, supabase_id "
                     "FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC"
                 )
+                self._local_records_cache = records
                 print(f"Loaded {len(records)} records from Local DB.")
                 self._populate_rental_table(selected_source, records)
             except Exception as e:
@@ -1302,32 +1342,58 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 traceback.print_exc()
             return
 
-        # ---------- Cloud (Supabase) using background thread ----------
+        # ---------- Cloud (Supabase) using background thread with pagination ----------
         if not self.main_window.supabase_manager.is_client_initialized():
             QMessageBox.warning(
                 self, "Supabase Not Configured", "Supabase client is not initialized. Cannot load from cloud."
             )
             return
 
-        # ---------- Inline Fluent progress bar ----------
-        # >>> ADD BLOCK
+        # If we have cached cloud records and not forcing refresh, render from cache and continue infinite scroll
+        if self._cloud_records_cache and not force_refresh:
+            self._populate_rental_table(selected_source, self._cloud_records_cache, append=False)
+            # If more to load, let scroll trigger fetch
+            return
+
+        # Reset pagination state for a fresh load
+        self._cloud_offset = 0
+        self._cloud_has_more = True
+        self._cloud_records_cache = []
+
+        # Start first page fetch
+        self._start_cloud_fetch(append=False)
+
+    def _start_cloud_fetch(self, append: bool):
+        if self._is_fetching or not self._cloud_has_more:
+            return
+        self._is_fetching = True
+        self._cloud_append = append
+
+        # Inline progress bar
         if IndeterminateProgressBar is not None and self._inline_progress_bar is None:
             self._inline_progress_bar = IndeterminateProgressBar(parent=self)
             self._inline_progress_bar.setFixedHeight(4)
             self._inline_progress_bar.start()
-            # Insert just below the source combo (index 1)
             self.table_layout.insertWidget(1, self._inline_progress_bar)
-        # <<< ADD BLOCK
 
         # Disable source combo to prevent re-entrancy
         self.load_source_combo.setEnabled(False)
 
-        # Start the background worker
+        # Start the background worker with pagination params
         self._fetch_worker = FetchSupabaseRentalRecordsWorker(
-            self.main_window.supabase_manager, is_archived=False, parent=self
+            self.main_window.supabase_manager,
+            is_archived=False,
+            select=(
+                "id, supabase_id, tenant_name, room_number, advanced_paid, photo_url, nid_front_url, nid_back_url, police_form_url, is_archived, created_at, updated_at"
+            ),
+            limit=self._cloud_page_size,
+            offset=self._cloud_offset,
+            parent=self,
         )
+        # Capture current source label
+        source_label = self.load_source_combo.currentText()
         self._fetch_worker.records_fetched.connect(
-            lambda recs: self._on_cloud_records_ready(recs, selected_source)
+            lambda recs: self._on_cloud_records_ready(recs, source_label)
         )
         self._fetch_worker.error_occurred.connect(self._on_cloud_records_error)
         self._fetch_worker.finished.connect(self._on_cloud_records_finished)
@@ -1339,10 +1405,16 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
     def _on_cloud_records_ready(self, records, source):
         """Handle successful retrieval of records."""
-        if not records:
-            # Message already displayed by caller (load_rental_records or worker callback)
-            return
-        self._populate_rental_table(source, records)
+        # Update pagination state
+        fetched_count = len(records or [])
+        self._cloud_has_more = fetched_count >= self._cloud_page_size
+        self._cloud_offset += fetched_count
+
+        if records:
+            self._cloud_records_cache.extend(records)
+            self._populate_rental_table(source, records, append=self._cloud_append)
+
+        # No button; infinite scroll will trigger further loads
 
     def _on_cloud_records_error(self, message: str):
         QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {message}")
@@ -1358,27 +1430,50 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def _on_cloud_records_finished(self):
         """Always called when worker thread ends—success or fail."""
         self.load_source_combo.setEnabled(True)
-        # >>> MODIFY
         if self._inline_progress_bar is not None:
             self._inline_progress_bar.stop()
             self.table_layout.removeWidget(self._inline_progress_bar)
             self._inline_progress_bar.deleteLater()
             self._inline_progress_bar = None
-        # <<< MODIFY
+        self._is_fetching = False
+
+    def _on_table_scroll(self, value: int):
+        """Called on scroll; if near bottom and cloud source is active, auto-load next page."""
+        try:
+            source_label = self.load_source_combo.currentText()
+            if source_label != "Cloud (Supabase)":
+                return
+            sb = self.rental_records_table.verticalScrollBar()
+            # Threshold when remaining scroll distance is small
+            remaining = sb.maximum() - value
+            if remaining <= max(20, int(sb.pageStep() * 0.5)):
+                self._start_cloud_fetch(append=True)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Helper to populate table (shared between local & cloud paths)  
     # ------------------------------------------------------------------
 
-    def _populate_rental_table(self, source_label: str, records: list):
-        """Fill the QTableWidget with rental records."""
+    def _populate_rental_table(self, source_label: str, records: list, append: bool = False):
+        """Fill or append to the QTableWidget with rental records."""
         if not records:
-            # Message already displayed by caller (load_rental_records or worker callback)
             return
 
-        self.rental_records_table.setRowCount(len(records))
+        # Temporarily disable sorting while inserting rows to avoid jitter
+        prev_sorting = self.rental_records_table.isSortingEnabled()
+        if prev_sorting:
+            self.rental_records_table.setSortingEnabled(False)
 
-        for row_idx, record in enumerate(records):
+        if append:
+            start_row = self.rental_records_table.rowCount()
+            self.rental_records_table.setRowCount(start_row + len(records))
+        else:
+            start_row = 0
+            self.rental_records_table.setRowCount(len(records))
+
+        for idx, record in enumerate(records):
+            row_idx = start_row + idx
             if source_label == "Local DB":
                 # SQLite tuple; keep same unpacking as before
                 display_id, tenant_name, room_number, advanced_paid, created_at, updated_at = (
@@ -1407,7 +1502,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             
             # Create items using sophisticated History tab methods for enhanced visual hierarchy
             tenant_item = self._create_identifier_item(str(tenant_name), "tenant")
-            room_item = self._create_identifier_item(str(room_number), "room")
+            # Use NumericTableWidgetItem for numeric sorting on Room Number
+            # Copy styling from the identifier item helper to keep visuals consistent
+            _styled_room = self._create_identifier_item(str(room_number), "room")
+            room_item = NumericTableWidgetItem(_styled_room.text())
+            room_item.setTextAlignment(_styled_room.textAlignment())
+            room_item.setForeground(_styled_room.foreground())
+            room_item.setFont(_styled_room.font())
+            # Set numeric key for sorting
+            try:
+                _room_num_int = int(str(room_number).strip())
+                room_item.setData(Qt.UserRole, _room_num_int)
+                # Also set EditRole so proxy/model-based sorting treats it as numeric
+                room_item.setData(Qt.EditRole, _room_num_int)
+            except Exception:
+                room_item.setData(Qt.UserRole, 0)
+                room_item.setData(Qt.EditRole, 0)
             advanced_item = self._create_special_item(str(advanced_paid), "advanced_paid", is_priority=True)
             created_item = self._create_identifier_item(str(created_at), "date")
             updated_item = self._create_identifier_item(str(updated_at), "date")
@@ -1421,8 +1531,14 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             # Attach raw data for later dialog (store in first column)
             self.rental_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
         
-        # Apply intelligent column widths after populating data
-        self._set_intelligent_column_widths(self.rental_records_table)
+        # Apply intelligent column widths after populating data (only on reset to avoid jitter)
+        if not append:
+            self._set_intelligent_column_widths(self.rental_records_table)
+        
+        # Re-enable sorting and enforce numeric order by Room Number
+        if prev_sorting:
+            self.rental_records_table.setSortingEnabled(True)
+            self.rental_records_table.sortItems(1, Qt.AscendingOrder)
     
     def _set_intelligent_column_widths(self, table: TableWidget):
         """Set responsive column widths that adapt to window size while preventing truncation"""

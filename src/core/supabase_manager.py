@@ -396,23 +396,54 @@ class SupabaseManager:
         except Exception as e:
             return f"Error saving rental record: {e}"
 
-    def get_rental_records(self, is_archived: bool | None = None) -> list[dict]:
+    def get_rental_records(
+        self,
+        is_archived: bool | None = None,
+        select: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str = "created_at",
+        desc: bool = True,
+    ) -> list[dict]:
         """
-        Retrieves rental records from Supabase, optionally filtering by archive status.
+        Retrieve rental records with optional filtering, projection, pagination and ordering.
+
+        Args:
+            is_archived: filter by archive status if provided.
+            select: comma-separated list of columns to select. Defaults to full set used previously.
+            limit: page size. If provided with offset, applies Supabase range pagination.
+            offset: starting row index for pagination (0-based).
+            order_by: column to order by (default: created_at).
+            desc: sort direction (default: True for descending).
         """
         if not self.is_client_initialized():
             print("Supabase client not initialized. Cannot retrieve rental records.")
             return []
         try:
-            # Select individual columns
-            query = self.supabase.table("rental_records").select(
-                "id, supabase_id, tenant_name, room_number, advanced_paid, photo_url, nid_front_url, nid_back_url, police_form_url, is_archived, created_at, updated_at"
+            # Default to the previously returned full set to preserve compatibility
+            select_clause = (
+                select
+                or "id, supabase_id, tenant_name, room_number, advanced_paid, photo_url, nid_front_url, nid_back_url, police_form_url, is_archived, created_at, updated_at"
             )
+
+            query = self.supabase.table("rental_records").select(select_clause)
 
             if is_archived is not None:
                 query = query.eq("is_archived", is_archived)
 
-            response = query.order("created_at", desc=True).execute()
+            # Apply ordering
+            try:
+                query = query.order(order_by, desc=desc)
+            except Exception:
+                # Fallback to created_at if the provided column is invalid
+                query = query.order("created_at", desc=True)
+
+            # Apply pagination via range if both provided
+            if limit is not None and offset is not None and limit > 0 and offset >= 0:
+                # Supabase .range is inclusive: range(from, to)
+                query = query.range(offset, offset + limit - 1)
+
+            response = query.execute()
 
             return response.data if response.data else []
 
