@@ -411,49 +411,115 @@ def apply_center_alignment(table) -> None:
                 item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
 
 def set_intelligent_column_widths(table) -> None:
-    """Adapt column widths intelligently so they neither truncate nor waste space.
+    """SIMPLIFIED - Force all columns to stretch equally"""
+    try:
+        if not table or table.columnCount() == 0:
+            return
+            
+        header = table.horizontalHeader()
+        
+        # SIMPLE: All columns stretch to fill space equally
+        for col in range(table.columnCount()):
+            header.setSectionResizeMode(col, QHeaderView.Stretch)
+        
+        _log_resize_debug(f"Set all columns to stretch for {type(table).__name__}")
+        
+    except Exception as e:
+        _log_resize_error(f"Failed to set stretch columns for {type(table).__name__}", e)
 
-    The logic mirrors *HistoryTab._set_intelligent_column_widths* so that any
-    table – rental records, history, etc. – behaves consistently.
-    """
-    if table.columnCount() == 0:
-        return
+def _validate_table_for_resize(table, operation_name: str) -> bool:
+    """Validate table state before resize operations"""
+    try:
+        if table is None:
+            _log_resize_error(f"Table is None in {operation_name}", None)
+            return False
+            
+        if not hasattr(table, 'columnCount'):
+            _log_resize_error(f"Table does not have columnCount method in {operation_name}", None)
+            return False
+            
+        if not hasattr(table, 'isVisible'):
+            _log_resize_error(f"Table does not have isVisible method in {operation_name}", None)
+            return False
+            
+        # Check if table is properly initialized
+        try:
+            table.columnCount()
+            table.isVisible()
+        except Exception as e:
+            _log_resize_error(f"Table methods are not accessible in {operation_name}", e)
+            return False
+            
+        return True
+        
+    except Exception as e:
+        _log_resize_error(f"Validation failed for table in {operation_name}", e)
+        return False
 
-    # Determine sensible minimum widths based on header names
-    min_widths: dict[int, int] = {}
-    for col in range(table.columnCount()):
-        header_item = table.horizontalHeaderItem(col)
-        if header_item is None:
-            continue
-        h_text = header_item.text().lower()
-        if "month" in h_text:
-            min_widths[col] = 120
-        elif "room" in h_text or "number" in h_text:
-            min_widths[col] = 100
-        elif any(k in h_text for k in ("meter", "diff")):
-            min_widths[col] = 90
-        elif any(k in h_text for k in ("total", "cost", "bill", "rent", "amount")):
-            min_widths[col] = 130
-        elif "grand total" in h_text:
-            min_widths[col] = 140
+def _log_resize_debug(message: str):
+    """Log debug information for resize operations"""
+    try:
+        print(f"[CUSTOM_WIDGETS RESIZE DEBUG] {message}")
+    except Exception:
+        pass  # Silently ignore logging errors
+
+def _log_resize_error(message: str, exception: Exception):
+    """Log error information for resize operations with meaningful messages"""
+    try:
+        if exception:
+            print(f"[CUSTOM_WIDGETS RESIZE ERROR] {message}: {str(exception)}")
+            # Only print traceback for unexpected errors, not validation failures
+            if not isinstance(exception, (AttributeError, TypeError)):
+                import traceback
+                print(f"[CUSTOM_WIDGETS RESIZE ERROR] Traceback: {traceback.format_exc()}")
         else:
-            min_widths[col] = 110
+            print(f"[CUSTOM_WIDGETS RESIZE ERROR] {message}")
+    except Exception:
+        pass  # Silently ignore logging errors
 
-    total_min = sum(min_widths.values())
-    avail = table.viewport().width()
-    header = table.horizontalHeader()
-
-    if total_min > avail:
-        # Fixed widths + horizontal scrollbar
-        for c, w in min_widths.items():
-            header.setSectionResizeMode(c, QHeaderView.Fixed)
-            table.setColumnWidth(c, w)
-    else:
-        for c, w in min_widths.items():
-            header.setSectionResizeMode(c, QHeaderView.Stretch)
-            header.setMinimumSectionSize(w)
-
-    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+def _fallback_table_resize(table) -> bool:
+    """Provide graceful fallback when intelligent resize fails"""
+    try:
+        if not _validate_table_for_resize(table, "_fallback_table_resize"):
+            return False
+            
+        if table.columnCount() == 0:
+            return False
+            
+        # Simple fallback: set all columns to equal width
+        header = table.horizontalHeader()
+        if not header:
+            return False
+            
+        # Get available width safely
+        try:
+            viewport_width = table.viewport().width() if table.viewport() else table.width()
+            if viewport_width <= 0:
+                viewport_width = 800  # Default fallback width
+                
+            available_width = max(viewport_width - 50, 300)  # Ensure minimum width
+            column_count = table.columnCount()
+            
+            if column_count > 0:
+                equal_width = max(available_width // column_count, 90)  # Minimum 90px per column for readability
+                
+                for col in range(column_count):
+                    header.setSectionResizeMode(col, QHeaderView.Fixed)
+                    table.setColumnWidth(col, equal_width)
+                
+                header.setMinimumSectionSize(90)
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+                
+                _log_resize_debug(f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each")
+                return True
+                
+        except Exception as e:
+            _log_resize_error(f"Fallback resize calculation failed for {type(table).__name__}", e)
+            return False
+            
+    except Exception as e:
+        _log_resize_error(f"Fallback table resize failed for {type(table).__name__}", e)
+        return False
 
 def style_fluent_table(table) -> None:
     """Apply modern Fluent-compatible styling, alternate rows, header tweaks, etc."""
@@ -495,7 +561,7 @@ def style_fluent_table(table) -> None:
             text-align: center;
         }
         QTableWidget::item {
-            padding: 12px 16px;
+            padding: 1px 2px;
             border: none;
             border-right: 1px solid #f0f0f0;
             text-align: center;
@@ -525,7 +591,7 @@ def style_fluent_table(table) -> None:
             text-align: center;
         }
         QTableWidget::item {
-            padding: 12px 16px;
+            padding: 1px 2px;
             border: none;
             border-right: 1px solid #30363d;
             text-align: center;

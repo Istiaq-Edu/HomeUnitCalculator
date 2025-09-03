@@ -17,7 +17,7 @@ class EnhancedTableMixin:
     FONT_SIZES = {
         'priority_columns': 12,
         'regular_columns': 10,
-        'headers': 11
+        'headers': 13
     }
     
     FONT_WEIGHTS = {
@@ -92,62 +92,12 @@ class EnhancedTableMixin:
                     font.setWeight(self.FONT_WEIGHTS['headers'] + 100)  # Extra bold
                     header_item.setFont(font)
     
-    def _calculate_intelligent_column_widths(self, table: TableWidget, table_type: str):
-        """Calculate optimal column widths based on content and priority"""
-        if not table or table.columnCount() == 0:
-            return
-            
-        header = table.horizontalHeader()
-        total_width = table.viewport().width()
-        column_count = table.columnCount()
-        
-        # Base widths for different column types
-        base_widths = {
-            'priority': 140,  # Priority columns get more space
-            'regular': 100,   # Regular columns get standard space
-            'identifier': 120 # ID, Room Number get medium space
-        }
-        
-        # Calculate required widths
-        column_widths = []
-        total_required = 0
-        
-        for i in range(column_count):
-            header_item = table.horizontalHeaderItem(i)
-            if header_item:
-                header_text = header_item.text()
-                is_priority = self._is_priority_column(table_type, header_text)
-                
-                if header_text.upper() in ['ID', 'ROOM_NUMBER', 'ROOM NUMBER']:
-                    width = base_widths['identifier']
-                elif is_priority:
-                    width = base_widths['priority']
-                else:
-                    width = base_widths['regular']
-                    
-                column_widths.append(width)
-                total_required += width
-        
-        # If we have extra space, distribute it proportionally
-        if total_width > total_required:
-            extra_space = total_width - total_required
-            priority_count = sum(1 for i, width in enumerate(column_widths) 
-                               if self._is_priority_column(table_type, 
-                                   table.horizontalHeaderItem(i).text() if table.horizontalHeaderItem(i) else ""))
-            
-            if priority_count > 0:
-                priority_bonus = int(extra_space * 0.3 / priority_count)
-                for i, width in enumerate(column_widths):
-                    header_text = table.horizontalHeaderItem(i).text() if table.horizontalHeaderItem(i) else ""
-                    is_priority = self._is_priority_column(table_type, header_text)
-                    
-                    # Priority columns get 30% more of the extra space
-                    if is_priority:
-                        column_widths[i] += priority_bonus
-        
-        # Apply the calculated widths
-        for i, width in enumerate(column_widths):
-            header.resizeSection(i, width)
+    def _calculate_intelligent_column_widths(self, table: TableWidget):
+        """
+        DISABLED - Let the main table handle its own column widths
+        """
+        # Do nothing - let the main table's _set_intelligent_column_widths handle everything
+        return
     
     def _create_centered_item(self, text: str, column_name: str = "", is_priority: bool = False) -> QTableWidgetItem:
         """Create a table widget item with center alignment, number formatting, and priority-aware styling"""

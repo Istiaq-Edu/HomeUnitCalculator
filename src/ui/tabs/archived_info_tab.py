@@ -262,62 +262,129 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
             # Store full record data in the first column
             self.archived_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
         
-        # Apply intelligent column widths after populating data
-        self._set_intelligent_column_widths(self.archived_records_table)
+        # Apply intelligent column widths after populating data with delay to ensure table is fully rendered
+        QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(self.archived_records_table))
 
     def _set_intelligent_column_widths(self, table: SmoothTableWidget):
-        """Set responsive column widths that adapt to window size while preventing truncation"""
+        """Set responsive column widths based on content and window size (inspired by history tab)"""
         if table.columnCount() == 0:
             return
-            
-        # Set minimum column widths to prevent truncation
-        min_widths = {}
         
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if not header:
-                continue
-                
-            header_text = header.text().strip().lower()
-            
-            # Set minimum widths based on content type
-            if "id" in header_text:
-                min_widths[col] = 60   # ID column
-            elif any(keyword in header_text for keyword in ["tenant", "name"]):
-                min_widths[col] = 150  # Tenant names need more space
-            elif any(keyword in header_text for keyword in ["room", "number"]):
-                min_widths[col] = 100  # Room numbers
-            elif any(keyword in header_text for keyword in ["advanced", "paid"]):
-                min_widths[col] = 120  # Money values
-            elif any(keyword in header_text for keyword in ["created", "updated"]):
-                min_widths[col] = 130  # Dates
-            else:
-                min_widths[col] = 110  # Default
-        
-        # Calculate total minimum width needed
-        total_min_width = sum(min_widths.values())
+        header = table.horizontalHeader()
         available_width = table.viewport().width()
+        column_count = table.columnCount()
         
-        # If total minimum width exceeds available space, use fixed widths with scrollbar
-        if total_min_width > available_width:
-            for col in range(table.columnCount()):
-                table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
-                table.setColumnWidth(col, min_widths.get(col, 110))
-        else:
-            # Use stretch mode with minimum section sizes for responsiveness
-            for col in range(table.columnCount()):
-                header_text = table.horizontalHeaderItem(col).text().strip().lower() if table.horizontalHeaderItem(col) else ""
-                
-                # Tenant name column gets stretch behavior for responsiveness
-                if any(keyword in header_text for keyword in ["tenant", "name"]):
-                    table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Stretch)
-                else:
-                    table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeToContents)
-                
-                table.horizontalHeader().setMinimumSectionSize(min_widths.get(col, 110))
+        # Calculate content-based widths for each column with minimal padding
+        content_widths = {}
+        total_min_width = 0
         
-        # Always allow horizontal scrollbar when needed
+        for col in range(column_count):
+            # Start with header text width
+            header_item = table.horizontalHeaderItem(col)
+            header_text = header_item.text() if header_item else ""
+            
+            # Calculate minimum width needed for header with minimal padding
+            from PyQt5.QtGui import QFontMetrics
+            if header_item:
+                font_metrics = QFontMetrics(header_item.font())
+            else:
+                font_metrics = QFontMetrics(table.font())
+            header_width = font_metrics.boundingRect(header_text).width() + 8  # Minimal padding
+            
+            # Check content width for sample rows (for performance)
+            max_content_width = header_width
+            for row in range(min(table.rowCount(), 5)):  # Sample fewer rows
+                item = table.item(row, col)
+                if item:
+                    content_text = item.text()
+                    content_width = font_metrics.boundingRect(content_text).width() + 8  # Minimal padding
+                    max_content_width = max(max_content_width, content_width)
+            
+            # Set compact minimum widths based on column type (following history tab pattern)
+            header_lower = header_text.lower()
+            if any(keyword in header_lower for keyword in ["tenant", "name"]):
+                # Tenant name column needs space for names - priority column like month
+                content_widths[col] = max(max_content_width, 140)
+            elif "id" in header_lower:
+                # ID columns very compact
+                content_widths[col] = max(max_content_width, 50)
+            elif any(keyword in header_lower for keyword in ["room", "number"]):
+                # Room columns compact
+                content_widths[col] = max(max_content_width, 70)
+            elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount", "grand"]):
+                # Financial columns compact
+                content_widths[col] = max(max_content_width, 80)
+            elif any(keyword in header_lower for keyword in ["created", "updated"]):
+                # Date columns compact
+                content_widths[col] = max(max_content_width, 90)
+            else:
+                # Default column width - compact
+                content_widths[col] = max(max_content_width, 65)
+            
+            total_min_width += content_widths[col]
+        
+        # If total width is less than available width, distribute extra space proportionally
+        if total_min_width < available_width and available_width > 0:
+            extra_space = available_width - total_min_width
+            for col in range(column_count):
+                proportion = content_widths[col] / total_min_width if total_min_width > 0 else 1.0 / column_count
+                content_widths[col] += int(extra_space * proportion)
+        
+        # Apply the calculated widths
+        for col in range(column_count):
+            header.setSectionResizeMode(col, QHeaderView.Fixed)
+            table.setColumnWidth(col, content_widths[col])
+        
+        # Enable horizontal scrolling when needed
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Apply special styling to tenant name column
+        self._apply_tenant_name_column_styling(table)
+    
+    def _apply_tenant_name_column_styling(self, table: SmoothTableWidget):
+        """Apply special styling to the tenant name column for better visual distinction (matching month column style)"""
+        if table.columnCount() == 0:
+            return
+        
+        # Find the tenant name column
+        tenant_col = -1
+        for col in range(table.columnCount()):
+            header_item = table.horizontalHeaderItem(col)
+            if header_item and any(keyword in header_item.text().lower() for keyword in ["tenant", "name"]):
+                tenant_col = col
+                break
+        
+        if tenant_col == -1:
+            return  # No tenant name column found
+        
+        from PyQt5.QtGui import QColor, QBrush, QFont
+        from qfluentwidgets import isDarkTheme
+        
+        # Style the header to match month column
+        header_item = table.horizontalHeaderItem(tenant_col)
+        if header_item:
+            font = header_item.font()
+            font.setBold(True)
+            font.setPointSize(13)  # Slightly larger for tenant name header
+            header_item.setFont(font)
+        
+        # Style all tenant name column cells with distinct background (matching month column exactly)
+        for row in range(table.rowCount()):
+            item = table.item(row, tenant_col)
+            if item:
+                # Apply distinct styling matching month column
+                font = item.font()
+                font.setBold(True)
+                font.setPointSize(11)
+                item.setFont(font)
+                
+                # Apply theme-aware background color matching month column exactly
+                if isDarkTheme():
+                    item.setBackground(QBrush(QColor(45, 55, 75)))  # Darker blue background (same as month)
+                    item.setForeground(QBrush(QColor(220, 230, 255)))  # Light blue text (same as month)
+                else:
+                    item.setBackground(QBrush(QColor(230, 240, 255)))  # Light blue background (same as month)
+                    item.setForeground(QBrush(QColor(25, 50, 100)))  # Dark blue text (same as month)
 
     def _on_table_resize(self, table: SmoothTableWidget):
         """Handle table resize events"""
@@ -430,7 +497,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
                 border: none;
                 border-bottom: 3px solid #d0d7de;
                 border-right: 1px solid #d0d7de;
-                padding: 1px 0px;
+                padding: 0px 1px;
                 text-align: center;
                 text-transform: uppercase;
                 letter-spacing: 0.3px;
@@ -442,7 +509,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
                 border-right: none;
             }
             QTableWidget::item {
-                padding: 8px 12px;
+                padding: 0px 1px;
                 border: none;
                 border-right: 1px solid #f0f0f0;
                 text-align: center;
@@ -481,7 +548,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
                 border: none;
                 border-bottom: 3px solid #30363d;
                 border-right: 1px solid #30363d;
-                padding: 1px 0px;
+                padding: 0px 1px;
                 text-align: center;
                 text-transform: uppercase;
                 letter-spacing: 0.3px;
@@ -493,7 +560,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
                 border-right: none;
             }
             QTableWidget::item {
-                padding: 8px 12px;
+                padding: 0px 1px;
                 border: none;
                 border-right: 1px solid #30363d;
                 text-align: center;

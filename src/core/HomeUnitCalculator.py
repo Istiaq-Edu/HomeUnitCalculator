@@ -8,7 +8,7 @@ from datetime import datetime as dt_class
 
 import functools
 import logging
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize
+from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize, QTimer
 from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -638,6 +638,10 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
         current_widget = self.stackedWidget.widget(index)
         if hasattr(current_widget, 'set_focus_on_tab_change'):
             current_widget.set_focus_on_tab_change()
+        
+        # If switching to history tab, ensure tables are properly sized
+        if hasattr(current_widget, 'force_table_resize'):
+            QTimer.singleShot(150, current_widget.force_table_resize)
 
 
     def save_to_pdf(self):
@@ -998,6 +1002,81 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
         cp = QDesktopWidget().availableGeometry().center()
         qr.moveCenter(cp)
         self.move(qr.topLeft())
+
+    def resizeEvent(self, event):
+        """Handle main window resize events and notify tabs with error handling"""
+        try:
+            super().resizeEvent(event)
+            
+            # Validate event
+            if event is None:
+                print("[MAIN WINDOW RESIZE ERROR] Received null resize event")
+                return
+                
+            print(f"[MAIN WINDOW RESIZE DEBUG] Main window resize event: {event.size().width()}x{event.size().height()}")
+            self.notify_tabs_of_resize()
+            
+        except Exception as e:
+            print(f"[MAIN WINDOW RESIZE ERROR] Error in main window resizeEvent: {e}")
+            # Try to continue with basic functionality
+            try:
+                super().resizeEvent(event)
+            except Exception as super_error:
+                print(f"[MAIN WINDOW RESIZE ERROR] Failed to call super().resizeEvent: {super_error}")
+    
+    def changeEvent(self, event):
+        """Handle window state changes (maximize, minimize, restore) with error handling"""
+        try:
+            super().changeEvent(event)
+            
+            # Validate event
+            if event is None:
+                print("[MAIN WINDOW RESIZE ERROR] Received null change event")
+                return
+                
+            # Handle window state changes that affect table sizing
+            if event.type() == QEvent.WindowStateChange:
+                print(f"[MAIN WINDOW RESIZE DEBUG] Window state change detected: {self.windowState()}")
+                # Longer delay for window state changes as they take more time to complete
+                QTimer.singleShot(100, self.notify_tabs_of_resize)
+                
+        except Exception as e:
+            print(f"[MAIN WINDOW RESIZE ERROR] Error in changeEvent: {e}")
+            # Try to continue with basic functionality
+            try:
+                super().changeEvent(event)
+            except Exception as super_error:
+                print(f"[MAIN WINDOW RESIZE ERROR] Failed to call super().changeEvent: {super_error}")
+    
+    def get_current_tab(self):
+        """Get the currently active tab widget"""
+        return self.stackedWidget.currentWidget()
+    
+    def notify_tabs_of_resize(self):
+        """Notify current tab about resize events with comprehensive error handling"""
+        try:
+            print("[MAIN WINDOW RESIZE DEBUG] Notifying tabs of resize")
+            
+            current_tab = self.get_current_tab()
+            if current_tab is None:
+                print("[MAIN WINDOW RESIZE DEBUG] No current tab found")
+                return
+                
+            tab_type = type(current_tab).__name__
+            print(f"[MAIN WINDOW RESIZE DEBUG] Current tab type: {tab_type}")
+            
+            if hasattr(current_tab, 'force_table_resize'):
+                try:
+                    current_tab.force_table_resize()
+                    print(f"[MAIN WINDOW RESIZE DEBUG] Successfully notified {tab_type} of resize")
+                except Exception as resize_error:
+                    print(f"[MAIN WINDOW RESIZE ERROR] Failed to resize tables in {tab_type}: {resize_error}")
+            else:
+                print(f"[MAIN WINDOW RESIZE DEBUG] Tab {tab_type} does not have force_table_resize method")
+                
+        except Exception as e:
+            print(f"[MAIN WINDOW RESIZE ERROR] Error in notify_tabs_of_resize: {e}")
+            # Continue silently to prevent crashes
 
     def refresh_all_rental_tabs(self):
         # This method will be called when rental info is updated

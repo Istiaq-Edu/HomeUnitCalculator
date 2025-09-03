@@ -23,7 +23,7 @@ from qfluentwidgets import (
 # Ensure project root (containing 'src') is on sys.path when running this file standalone
 try:
     from src.core.utils import resource_path  # For icons
-    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
+    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, SmoothTableWidget
     from src.ui.responsive_components import ResponsiveDialog
     from src.ui.components import EnhancedTableMixin
 except ModuleNotFoundError:
@@ -33,7 +33,7 @@ except ModuleNotFoundError:
     if str(_project_root) not in _sys.path:
         _sys.path.append(str(_project_root))
     from src.core.utils import resource_path
-    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton
+    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, SmoothTableWidget
     from src.ui.components import EnhancedTableMixin
 
 
@@ -412,7 +412,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
     FONT_SIZES = {
         'priority_columns': 12,
         'regular_columns': 10,
-        'headers': 11
+        'headers': 13
     }
     
     FONT_WEIGHTS = {
@@ -550,9 +550,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         table.horizontalHeader().setHighlightSections(False)
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from analysis
         
-        # Configure scroll behavior and selection
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Configure scroll behavior and selection - use consistent policies matching working tabs
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         
@@ -565,7 +565,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             gridline-color: #f0f0f0;
         }
         TableWidget::item {
-            padding: 8px;
+            padding: 1px 2px;
             border: none;
         }
         TableWidget::item:selected {
@@ -579,13 +579,13 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                       stop:0 #f8f9fa, stop:1 #e9ecef);
             border: 1px solid #dee2e6;
-            padding: 1px 0px;
+            padding: 0px 2px;
             margin: 0px;
             font-weight: 600;
             text-transform: uppercase;
-            font-size: 11px;
+            font-size: 13px;
             text-align: center;
-            min-height: 24px;
+            min-height: 22px;
             qproperty-alignment: AlignCenter;
         }
         """
@@ -599,7 +599,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             color: #ffffff;
         }
         TableWidget::item {
-            padding: 8px;
+            padding: 1px 2px;
             border: none;
             color: #ffffff;
         }
@@ -614,14 +614,14 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                       stop:0 #404040, stop:1 #2b2b2b);
             border: 1px solid #555555;
-            padding: 1px 0px;
+            padding: 0px 2px;
             margin: 0px;
             font-weight: 600;
             text-transform: uppercase;
-            font-size: 11px;
+            font-size: 13px;
             color: #ffffff;
             text-align: center;
-            min-height: 24px;
+            min-height: 22px;
             qproperty-alignment: AlignCenter;
         }
         """
@@ -638,292 +638,715 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         table.horizontalHeader().setMinimumSectionSize(80)
 
     def _set_intelligent_column_widths(self, table: TableWidget):
-        """Set responsive column widths with absolute priority for month column display"""
-        if table.columnCount() == 0:
-            return
+        """Set responsive column widths based on content and window size (inspired by rental info tab)"""
+        try:
+            table_name = type(table).__name__
+            table_id = "main" if table == getattr(self, 'main_history_table', None) else \
+                      "room" if table == getattr(self, 'room_history_table', None) else \
+                      "totals" if table == getattr(self, 'totals_table', None) else "unknown"
             
-        # Find month column first - it gets absolute priority
-        month_col_index = -1
-        month_col_width = 180  # Extra generous width to ensure full month names + year are always visible
-        
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if header and "month" in header.text().strip().lower():
-                month_col_index = col
-                break
-        
-        # Set minimum column widths for non-month columns
-        min_widths = {}
-        
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if not header:
-                continue
-                
-            header_text = header.text().strip().lower()
+            self._log_resize_debug(f"=== INTELLIGENT RESIZE for {table_id} table ===")
             
-            # Month column gets absolute priority - always full width
-            if "month" in header_text:
-                min_widths[col] = month_col_width
-            elif any(keyword in header_text for keyword in ["room", "number"]):
-                min_widths[col] = 90   # Reduced to give month priority
-            elif any(keyword in header_text for keyword in ["meter", "diff"]):
-                min_widths[col] = 80   # Reduced to give month priority
-            elif any(keyword in header_text for keyword in ["total", "cost", "bill", "rent", "amount", "grand"]):
-                min_widths[col] = 110  # Reduced to give month priority
-            elif "grand total" in header_text:
-                min_widths[col] = 120  # Reduced to give month priority
-            elif any(keyword in header_text for keyword in ["present", "previous", "real"]):
-                min_widths[col] = 90   # Reduced to give month priority
+            if not table or table.columnCount() == 0:
+                return False
+            
+            header = table.horizontalHeader()
+            
+            # Force geometry update first to get accurate measurements
+            table.updateGeometry()
+            
+            # Calculate available width more accurately during resize
+            viewport_width = table.viewport().width()
+            table_width = table.width()
+            
+            # Use the most reliable width measurement
+            if viewport_width > 50:  # Valid viewport width
+                available_width = viewport_width
+            elif table_width > 50:  # Fallback to table width
+                available_width = table_width - 50  # Account for potential scrollbars
             else:
-                min_widths[col] = 90   # Reduced default to give month priority
-        
-        # Calculate available width for non-month columns
-        available_width = table.viewport().width()
-        month_reserved_width = month_col_width if month_col_index >= 0 else 0
-        remaining_width = max(0, available_width - month_reserved_width)
-        
-        # Calculate how much space is left for other columns after reserving month column space
-        other_columns_count = table.columnCount() - (1 if month_col_index >= 0 else 0)
-        remaining_width_for_others = max(0, remaining_width)
-        
-        # Set column widths with month column getting absolute priority
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if not header:
-                continue
+                # Last resort - use parent width
+                available_width = table.parent().width() - 50 if table.parent() else 500
+            
+            # DEBUG: Print detailed width information
+            print(f"\n=== WIDTH DEBUG for {table_id} table ===")
+            print(f"Viewport width: {viewport_width}")
+            print(f"Table width: {table_width}")
+            print(f"Available width used: {available_width}")
+            print("="*50)
+            
+            column_count = table.columnCount()
+            
+            # Calculate content-based widths for each column with proper padding
+            content_widths = {}
+            total_min_width = 0
+            
+            # Store table identifier for width caching
+            table_cache_key = f"{table_id}_widths"
+            
+            for col in range(column_count):
+                # Start with header text width
+                header_item = table.horizontalHeaderItem(col)
+                header_text = header_item.text() if header_item else ""
                 
-            if col == month_col_index:
-                # Month column ALWAYS gets fixed width - never compressed or truncated
-                table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
-                table.setColumnWidth(col, month_col_width)
-            else:
-                # Other columns share the remaining space, but with minimum widths
-                table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
-                if other_columns_count > 0:
-                    # Calculate fair share for other columns, but respect minimums
-                    fair_share = max(75, remaining_width_for_others // other_columns_count)
-                    column_width = min(fair_share, min_widths.get(col, 90))
-                    table.setColumnWidth(col, column_width)
+                # Calculate minimum width needed for header with proper padding
+                from PyQt5.QtGui import QFontMetrics
+                if header_item:
+                    font_metrics = QFontMetrics(header_item.font())
                 else:
-                    table.setColumnWidth(col, min_widths.get(col, 90))
-        
-        # Always allow horizontal scrollbar when needed for non-month columns
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
-        # Apply month column visibility fix
-        self._ensure_month_column_visibility(table)
-
-    def _ensure_month_column_visibility(self, table: TableWidget):
-        """Ensure the month column remains visible and properly sized during horizontal scrolling"""
-        if table.columnCount() == 0:
-            return
-            
-        # Find the month column (should be the first column)
-        month_col_index = -1
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if header and "month" in header.text().strip().lower():
-                month_col_index = col
-                break
-        
-        if month_col_index == -1:
-            return
-            
-        # ABSOLUTE PRIORITY: Force the month column to have a fixed, generous width
-        month_width = 180  # Extra generous width to handle longest month names + year
-        
-        # Single, clean application to prevent flickering
-        table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
-        table.setColumnWidth(month_col_index, month_width)
-        
-        # Set minimum section size to prevent any shrinking
-        table.horizontalHeader().setMinimumSectionSize(month_width)
-        
-        # Apply custom styling to make month column stand out
-        self._style_month_column(table, month_col_index)
-        
-        # Implement a custom frozen column effect
-        self._implement_frozen_month_column(table, month_col_index)
-        
-        # Add a single delayed check to ensure month column priority is maintained
-        QTimer.singleShot(200, lambda: self._ensure_month_priority_maintained(table, month_col_index))
-    
-
-    
-    def _apply_immediate_month_priority(self, table: TableWidget):
-        """Apply immediate month column priority right after data population - no flickering"""
-        # Find month column
-        month_col_index = -1
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if header and "month" in header.text().strip().lower():
-                month_col_index = col
-                break
-        
-        if month_col_index == -1:
-            return
-        
-        # Single, clean application - no multiple timers
-        month_width = 180
-        table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
-        table.setColumnWidth(month_col_index, month_width)
-        
-        # One delayed application to ensure it sticks, but no flickering
-        QTimer.singleShot(100, lambda: self._force_month_width_once(table, month_col_index, month_width))
-    
-    def _force_month_width_once(self, table: TableWidget, month_col_index: int, month_width: int):
-        """Force the month column to maintain its width - single application to prevent flickering"""
-        if month_col_index >= 0 and month_col_index < table.columnCount():
-            current_width = table.columnWidth(month_col_index)
-            if current_width != month_width:  # Only change if different to prevent unnecessary updates
-                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
-                table.setColumnWidth(month_col_index, month_width)
-    
-    def _ensure_month_priority_maintained(self, table: TableWidget, month_col_index: int):
-        """Ensure month column priority is maintained without causing flickering"""
-        if month_col_index >= 0 and month_col_index < table.columnCount():
-            current_width = table.columnWidth(month_col_index)
-            target_width = 180
-            
-            # Only adjust if the width is significantly different to avoid micro-adjustments
-            if abs(current_width - target_width) > 5:
-                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
-                table.setColumnWidth(month_col_index, target_width)
+                    font_metrics = QFontMetrics(table.font())
+                header_width = font_metrics.boundingRect(header_text).width() + 20  # More padding to prevent cutoff
                 
-                # Also ensure the resize mode is properly set for other columns
-                for col in range(table.columnCount()):
-                    if col != month_col_index:
-                        table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
+                # Check content width for sample rows
+                max_content_width = header_width
+                for row in range(min(table.rowCount(), 5)):
+                    item = table.item(row, col)
+                    if item:
+                        content_text = item.text()
+                        content_width = font_metrics.boundingRect(content_text).width() + 16
+                        max_content_width = max(max_content_width, content_width)
+                
+                # Set minimum widths based on column type to prevent text cutoff
+                header_lower = header_text.lower()
+                if "month" in header_lower:
+                    # Month column needs space for "January 2025" etc
+                    content_widths[col] = max(max_content_width, 140)
+                elif any(keyword in header_lower for keyword in ["meter", "diff"]):
+                    # Meter and diff columns
+                    content_widths[col] = max(max_content_width, 90)
+                elif any(keyword in header_lower for keyword in ["total", "cost", "bill", "amount", "grand"]):
+                    # Financial columns need space for numbers
+                    content_widths[col] = max(max_content_width, 120)
+                elif any(keyword in header_lower for keyword in ["room", "number"]):
+                    # Room columns
+                    content_widths[col] = max(max_content_width, 100)
+                elif any(keyword in header_lower for keyword in ["unit", "gas", "water", "rent"]):
+                    # Utility columns
+                    content_widths[col] = max(max_content_width, 85)
+                else:
+                    # Default column width with generous padding
+                    content_widths[col] = max(max_content_width, 80)
+                
+                total_min_width += content_widths[col]
+            
+            # DEBUG: Print detailed calculation info
+            print(f"Content calculation for {table_id}: total_min_width={total_min_width}, available_width={available_width}")
+            
+            # HYBRID APPROACH: Stretch when content fits, scroll when it doesn't
+            content_fits = total_min_width <= (available_width - 30)  # Larger buffer for resize accuracy
+            
+            print(f"Content decision: {total_min_width} <= {available_width-30} = {content_fits}")
+            
+            if content_fits and available_width > 200:  # Higher minimum for stretch mode
+                # Content fits - STRETCH mode (stick to edges)
+                for col in range(column_count):
+                    header.setSectionResizeMode(col, QHeaderView.Stretch)
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                print(f"✅ STRETCH MODE: Columns fill {available_width}px")
+            else:
+                # Content too wide - FIXED mode with scroll
+                for col in range(column_count):
+                    header.setSectionResizeMode(col, QHeaderView.Fixed)
+                    table.setColumnWidth(col, content_widths[col])
+                
+                # Enable scrollbar and force it to show immediately
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+                
+                # Force table to update and show scrollbar
+                table.updateGeometry()
+                table.update()
+                table.repaint()
+                
+                # Force scrollbar widget itself to update
+                scrollbar = table.horizontalScrollBar()
+                scrollbar.setRange(0, max(0, total_min_width - available_width))
+                scrollbar.show()
+                scrollbar.update()
+                
+                print(f"📜 SCROLL MODE: Fixed widths, total {total_min_width}px")
+            
+            # Set minimum section size to prevent severe truncation
+            header.setMinimumSectionSize(80)
+            
+            # FORCE TABLE TO EXPAND TO FULL PARENT WIDTH
+            table.setMinimumWidth(0)
+            table.setMaximumWidth(16777215)  # Max possible width
+            
+            # Ensure table takes full width of its parent
+            policy = table.sizePolicy()
+            policy.setHorizontalPolicy(policy.Expanding)
+            policy.setVerticalPolicy(policy.Expanding)
+            table.setSizePolicy(policy)
+            
+            # Force parent containers to expand if they exist
+            if table.parent():
+                parent = table.parent()
+                if hasattr(parent, 'setSizePolicy'):
+                    parent_policy = parent.sizePolicy()
+                    parent_policy.setHorizontalPolicy(parent_policy.Expanding)
+                    parent.setSizePolicy(parent_policy)
+                    
+                # Remove margins that might prevent full width usage
+                if hasattr(parent, 'setContentsMargins'):
+                    parent.setContentsMargins(0, 0, 0, 0)
+            
+            self._log_resize_debug(f"Applied column sizing and forced full width expansion for {table_id} table")
+            return True
+            
+        except Exception as e:
+            self._log_resize_error(f"Failed intelligent resize for {type(table).__name__}", e)
+            return False
+
+    def _validate_table_for_resize(self, table, operation_name: str) -> bool:
+        """Validate table state before resize operations"""
+        try:
+            if table is None:
+                self._log_resize_error(f"Table is None in {operation_name}", None)
+                return False
+                
+            if not hasattr(table, 'columnCount'):
+                self._log_resize_error(f"Table does not have columnCount method in {operation_name}", None)
+                return False
+                
+            if not hasattr(table, 'isVisible'):
+                self._log_resize_error(f"Table does not have isVisible method in {operation_name}", None)
+                return False
+                
+            # Check if table is properly initialized
+            try:
+                table.columnCount()
+                table.isVisible()
+            except Exception as e:
+                self._log_resize_error(f"Table methods are not accessible in {operation_name}", e)
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self._log_resize_error(f"Validation failed for table in {operation_name}", e)
+            return False
     
-    def _style_month_column(self, table: TableWidget, month_col_index: int):
-        """Apply special styling to the month column with absolute priority - optimized to prevent flickering"""
-        # Import required classes at the top
-        from PyQt5.QtGui import QColor, QBrush
-        from qfluentwidgets import isDarkTheme
-        
-        # Check if styling is already applied to prevent unnecessary redraws
-        if hasattr(table, '_month_styled') and table._month_styled:
-            return
-        
-        # Style the header first
-        header_item = table.horizontalHeaderItem(month_col_index)
-        if header_item:
-            font = header_item.font()
-            if not font.bold() or font.pointSize() != 12:  # Only change if needed
-                font.setBold(True)
-                font.setPointSize(12)  # Fixed absolute font size
+    def _log_resize_debug(self, message: str):
+        """Log debug information for resize operations"""
+        try:
+            print(f"[RESIZE DEBUG] {message}")
+        except Exception:
+            pass  # Silently ignore logging errors
+    
+    def _log_resize_error(self, message: str, exception: Exception):
+        """Log error information for resize operations with meaningful messages"""
+        try:
+            if exception:
+                print(f"[RESIZE ERROR] {message}: {str(exception)}")
+                # Only print traceback for unexpected errors, not validation failures
+                if not isinstance(exception, (AttributeError, TypeError)):
+                    import traceback
+                    print(f"[RESIZE ERROR] Traceback: {traceback.format_exc()}")
+            else:
+                print(f"[RESIZE ERROR] {message}")
+        except Exception:
+            pass  # Silently ignore logging errors
+    
+    def _fallback_table_resize(self, table) -> bool:
+        """Provide graceful fallback when intelligent resize fails"""
+        try:
+            if not self._validate_table_for_resize(table, "_fallback_table_resize"):
+                return False
+                
+            if table.columnCount() == 0:
+                return False
+                
+            # Simple fallback: set all columns to equal width
+            header = table.horizontalHeader()
+            if not header:
+                return False
+                
+            # Get available width safely
+            try:
+                viewport_width = table.viewport().width() if table.viewport() else table.width()
+                if viewport_width <= 0:
+                    viewport_width = 800  # Default fallback width
+                    
+                available_width = max(viewport_width - 50, 300)  # Ensure minimum width
+                column_count = table.columnCount()
+                
+                if column_count > 0:
+                    equal_width = max(available_width // column_count, 90)  # Minimum 90px per column for readability
+                    
+                    for col in range(column_count):
+                        header.setSectionResizeMode(col, QHeaderView.Fixed)
+                        table.setColumnWidth(col, equal_width)
+                    
+                    header.setMinimumSectionSize(90)
+                    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+                    
+                    self._log_resize_debug(f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each")
+                    return True
+                    
+            except Exception as e:
+                self._log_resize_error(f"Fallback resize calculation failed for {type(table).__name__}", e)
+                return False
+                
+        except Exception as e:
+            self._log_resize_error(f"Fallback table resize failed for {type(table).__name__}", e)
+            return False
+
+    def _apply_month_column_styling(self, table: TableWidget):
+        """Apply special styling to the month column for better visual distinction"""
+        try:
+            if not self._validate_table_for_resize(table, "_apply_month_column_styling"):
+                return
+                
+            if table.columnCount() == 0:
+                return
+            
+            # Find the month column
+            month_col_index = -1
+            for col in range(table.columnCount()):
+                header = table.horizontalHeaderItem(col)
+                if header and "month" in header.text().strip().lower():
+                    month_col_index = col
+                    break
+            
+            if month_col_index == -1:
+                return
+            
+            from PyQt5.QtGui import QColor, QBrush, QFont
+            from qfluentwidgets import isDarkTheme
+            
+            # Style the header
+            header_item = table.horizontalHeaderItem(month_col_index)
+            if header_item:
+                font = header_item.font()
+                font.setWeight(QFont.Bold)
                 header_item.setFont(font)
+            
+        except Exception as e:
+            self._log_resize_error("Failed to apply month column styling", e)
+    
+    def _validate_table_for_resize(self, table, operation_name: str) -> bool:
+        """Validate table state before resize operations"""
+        try:
+            if table is None:
+                self._log_resize_error(f"Table is None in {operation_name}", None)
+                return False
+                
+            if not hasattr(table, 'columnCount'):
+                self._log_resize_error(f"Table does not have columnCount method in {operation_name}", None)
+                return False
+                
+            if not hasattr(table, 'isVisible'):
+                self._log_resize_error(f"Table does not have isVisible method in {operation_name}", None)
+                return False
+                
+            # Check if table is properly initialized
+            try:
+                table.columnCount()
+                table.isVisible()
+            except Exception as e:
+                self._log_resize_error(f"Table methods are not accessible in {operation_name}", e)
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self._log_resize_error(f"Validation failed for table in {operation_name}", e)
+            return False
+
+    def _log_resize_debug(self, message: str):
+        """Log debug information for resize operations"""
+        try:
+            print(f"[RESIZE DEBUG] {message}")
+        except Exception:
+            pass  # Silently ignore logging errors
+    
+    def _log_resize_error(self, message: str, exception: Exception):
+        """Log error information for resize operations with meaningful messages"""
+        try:
+            if exception:
+                print(f"[RESIZE ERROR] {message}: {str(exception)}")
+                # Only print traceback for unexpected errors, not validation failures
+                if not isinstance(exception, (AttributeError, TypeError)):
+                    import traceback
+                    print(f"[RESIZE ERROR] Traceback: {traceback.format_exc()}")
+            else:
+                print(f"[RESIZE ERROR] {message}")
+        except Exception:
+            pass  # Silently ignore logging errors
+    
+    def _fallback_table_resize(self, table) -> bool:
+        """Provide graceful fallback when intelligent resize fails"""
+        try:
+            if not self._validate_table_for_resize(table, "_fallback_table_resize"):
+                return False
+                
+            if table.columnCount() == 0:
+                return False
+                
+            # Simple fallback: set all columns to equal width
+            header = table.horizontalHeader()
+            if not header:
+                return False
+                
+            # Get available width safely
+            try:
+                viewport_width = table.viewport().width() if table.viewport() else table.width()
+                if viewport_width <= 0:
+                    viewport_width = 800  # Default fallback width
+                    
+                available_width = max(viewport_width - 50, 300)  # Ensure minimum width
+                column_count = table.columnCount()
+                
+                if column_count > 0:
+                    equal_width = max(available_width // column_count, 90)  # Minimum 90px per column for readability
+                    
+                    for col in range(column_count):
+                        header.setSectionResizeMode(col, QHeaderView.Fixed)
+                        table.setColumnWidth(col, equal_width)
+                    
+                    header.setMinimumSectionSize(90)
+                    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+                    
+                    self._log_resize_debug(f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each")
+                    return True
+                    
+            except Exception as e:
+                self._log_resize_error(f"Fallback resize calculation failed for {type(table).__name__}", e)
+                return False
+                
+        except Exception as e:
+            self._log_resize_error(f"Fallback table resize failed for {type(table).__name__}", e)
+            return False
+
+    def _on_table_resize(self, table: TableWidget):
+        """Handle table resize events to adjust column widths"""
+        # Use a timer to debounce resize events with proper table reference
+        if not hasattr(self, '_resize_timers'):
+            self._resize_timers = {}
         
-        # Style all month column cells
-        for row in range(table.rowCount()):
-            item = table.item(row, month_col_index)
-            if item:
-                # Only apply styling if not already applied
-                current_font = item.font()
-                if not current_font.bold() or current_font.pointSize() != 11:
+        table_id = id(table)
+        if table_id not in self._resize_timers:
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda t=table: self._set_intelligent_column_widths(t))
+            self._resize_timers[table_id] = timer
+        
+        self._resize_timers[table_id].start(100)  # 100ms delay
+
+    def resizeEvent(self, event):
+        """Handle window resize events to update table column widths"""
+        super().resizeEvent(event)
+        
+        # Use timer to debounce window resize events
+        if not hasattr(self, '_window_resize_timer'):
+            self._window_resize_timer = QTimer()
+            self._window_resize_timer.setSingleShot(True)
+            self._window_resize_timer.timeout.connect(self._handle_window_resize)
+        
+        self._window_resize_timer.start(150)  # 150ms delay for window resize
+    
+    def changeEvent(self, event):
+        """Handle window state changes (maximize, restore, minimize) to update table columns"""
+        super().changeEvent(event)
+        
+        # Check if this is a window state change (maximize, restore, minimize)
+        if event.type() == event.WindowStateChange:
+            self._log_resize_debug("Window state changed - triggering table resize")
+            # Immediate resize for tables with data - no delay
+            if (hasattr(self, 'main_history_table') and self.main_history_table and self.main_history_table.rowCount() > 0) or \
+               (hasattr(self, 'room_history_table') and self.room_history_table and self.room_history_table.rowCount() > 0) or \
+               (hasattr(self, 'totals_table') and self.totals_table and self.totals_table.rowCount() > 0):
+                # Tables have data - immediate resize
+                self._handle_window_state_change()
+                # Also schedule delayed resize as backup
+                if not hasattr(self, '_state_change_timer'):
+                    self._state_change_timer = QTimer()
+                    self._state_change_timer.setSingleShot(True)
+                    self._state_change_timer.timeout.connect(self._handle_window_state_change)
+                self._state_change_timer.start(100)
+            else:
+                # No data - use normal delay
+                if not hasattr(self, '_state_change_timer'):
+                    self._state_change_timer = QTimer()
+                    self._state_change_timer.setSingleShot(True)
+                    self._state_change_timer.timeout.connect(self._handle_window_state_change)
+                self._state_change_timer.start(200)
+        
+        # Also handle show events when tab becomes visible after window state change
+        elif event.type() == event.Show:
+            self._log_resize_debug("Tab shown - checking if table resize needed")
+            if not hasattr(self, '_show_timer'):
+                self._show_timer = QTimer()
+                self._show_timer.setSingleShot(True)
+                self._show_timer.timeout.connect(self._handle_window_state_change)
+            
+            self._show_timer.start(100)  # Quick resize on show
+    
+    def _handle_window_state_change(self):
+        """Handle window state changes by forcing table column width recalculation"""
+        try:
+            self._log_resize_debug("Handling window state change - updating all table column widths")
+            
+            # Force multiple geometry and layout updates to ensure proper sizing with data
+            for _ in range(2):  # Multiple passes for stability with data
+                QApplication.processEvents()
+                
+            # Force immediate update of all tables when window state changes
+            tables_updated = 0
+            if hasattr(self, 'main_history_table') and self.main_history_table:
+                # More aggressive update sequence for tables with data
+                self.main_history_table.updateGeometry()
+                self.main_history_table.viewport().update()
+                QApplication.processEvents()
+                
+                # Reset all column resize modes and force content sizing first
+                header = self.main_history_table.horizontalHeader()
+                for col in range(self.main_history_table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+                QApplication.processEvents()
+                # Then switch to Fixed for intelligent sizing
+                for col in range(self.main_history_table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.Fixed)
+                
+                if self._set_intelligent_column_widths(self.main_history_table):
+                    tables_updated += 1
+                    
+            if hasattr(self, 'room_history_table') and self.room_history_table:
+                # More aggressive update sequence for tables with data
+                self.room_history_table.updateGeometry()
+                self.room_history_table.viewport().update()
+                QApplication.processEvents()
+                
+                # Reset all column resize modes to Fixed first, then reapply intelligent widths
+                header = self.room_history_table.horizontalHeader()
+                for col in range(self.room_history_table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.Fixed)
+                
+                if self._set_intelligent_column_widths(self.room_history_table):
+                    tables_updated += 1
+                    
+            if hasattr(self, 'totals_table') and self.totals_table:
+                # More aggressive update sequence for tables with data
+                self.totals_table.updateGeometry()
+                self.totals_table.viewport().update()
+                QApplication.processEvents()
+                
+                # Reset all column resize modes to Fixed first, then reapply intelligent widths
+                header = self.totals_table.horizontalHeader()
+                for col in range(self.totals_table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.Fixed)
+                
+                if self._set_intelligent_column_widths(self.totals_table):
+                    tables_updated += 1
+            
+            # Additional delay to ensure all changes are applied
+            QTimer.singleShot(50, self._force_final_resize_after_state_change)
+                    
+            self._log_resize_debug(f"Window state change: updated {tables_updated} tables")
+        except Exception as e:
+            self._log_resize_error("Failed to handle window state change", e)
+    
+    def _force_final_resize_after_state_change(self):
+        """Force one final resize pass after window state change to ensure columns stick"""
+        try:
+            self._log_resize_debug("Final resize pass after window state change")
+            if hasattr(self, 'main_history_table') and self.main_history_table:
+                self._set_intelligent_column_widths(self.main_history_table)
+            if hasattr(self, 'room_history_table') and self.room_history_table:
+                self._set_intelligent_column_widths(self.room_history_table)
+            if hasattr(self, 'totals_table') and self.totals_table:
+                self._set_intelligent_column_widths(self.totals_table)
+        except Exception as e:
+            self._log_resize_error("Failed final resize after state change", e)
+    
+    def _handle_window_resize(self):
+        """Handle window resize by updating all table column widths"""
+        try:
+            # Update all tables when window is resized
+            tables_to_resize = []
+            if hasattr(self, 'main_history_table') and self.main_history_table:
+                tables_to_resize.append(self.main_history_table)
+            if hasattr(self, 'room_history_table') and self.room_history_table:
+                tables_to_resize.append(self.room_history_table)
+            if hasattr(self, 'totals_table') and self.totals_table:
+                tables_to_resize.append(self.totals_table)
+            
+            for table in tables_to_resize:
+                if table and table.columnCount() > 0:
+                    # IMMEDIATE resize during window resize - no delays
+                    self._set_intelligent_column_widths(table)
+            
+        except Exception as e:
+            self._log_resize_error("Failed to handle window resize", e)
+
+    def _force_room_table_resize(self, source="Unknown"):
+        """Force room table to use intelligent column widths after data load"""
+        try:
+            self._log_resize_debug(f"Forcing room table resize after {source} data load")
+            if hasattr(self, 'room_history_table') and self.room_history_table:
+                if self._set_intelligent_column_widths(self.room_history_table):
+                    self._log_resize_debug(f"Successfully forced room table resize from {source}")
+                else:
+                    self._log_resize_debug(f"Room table forced resize failed from {source}")
+                    # Try fallback
+                    self._fallback_table_resize(self.room_history_table)
+        except Exception as e:
+            self._log_resize_error(f"Failed to force room table resize from {source}", e)
+
+    def init_ui(self):
+        """Initialize the history tab UI components"""
+        pass
+    
+    def _validate_table_for_resize(self, table, operation_name: str) -> bool:
+        """Validate table state before resize operations"""
+        try:
+            if table is None:
+                self._log_resize_error(f"Table is None in {operation_name}", None)
+                return False
+                
+            if not hasattr(table, 'columnCount'):
+                self._log_resize_error(f"Table does not have columnCount method in {operation_name}", None)
+                return False
+                
+            if not hasattr(table, 'isVisible'):
+                self._log_resize_error(f"Table does not have isVisible method in {operation_name}", None)
+                return False
+                
+            # Check if table is properly initialized
+            try:
+                table.columnCount()
+                table.isVisible()
+            except Exception as e:
+                self._log_resize_error(f"Table methods are not accessible in {operation_name}", e)
+                return False
+                
+            return True
+            
+        except Exception as e:
+            self._log_resize_error(f"Validation failed for table in {operation_name}", e)
+            return False
+    
+    def _log_resize_debug(self, message: str):
+        """Log debug information for resize operations"""
+        try:
+            print(f"[RESIZE DEBUG] {message}")
+        except Exception:
+            pass  # Silently ignore logging errors
+    
+    def _log_resize_error(self, message: str, exception: Exception):
+        """Log error information for resize operations with meaningful messages"""
+        try:
+            if exception:
+                print(f"[RESIZE ERROR] {message}: {str(exception)}")
+                # Only print traceback for unexpected errors, not validation failures
+                if not isinstance(exception, (AttributeError, TypeError)):
+                    import traceback
+                    print(f"[RESIZE ERROR] Traceback: {traceback.format_exc()}")
+            else:
+                print(f"[RESIZE ERROR] {message}")
+        except Exception:
+            pass  # Silently ignore logging errors
+    
+    def _fallback_table_resize(self, table) -> bool:
+        """Provide graceful fallback when intelligent resize fails"""
+        try:
+            if not self._validate_table_for_resize(table, "_fallback_table_resize"):
+                return False
+                
+            if table.columnCount() == 0:
+                return False
+                
+            # Simple fallback: set all columns to equal width
+            header = table.horizontalHeader()
+            if not header:
+                return False
+                
+            # Get available width safely
+            try:
+                viewport_width = table.viewport().width() if table.viewport() else table.width()
+                if viewport_width <= 0:
+                    viewport_width = 800  # Default fallback width
+                    
+                available_width = max(viewport_width - 50, 300)  # Ensure minimum width
+                column_count = table.columnCount()
+                
+                if column_count > 0:
+                    equal_width = max(available_width // column_count, 90)  # Minimum 90px per column for readability
+                    
+                    for col in range(column_count):
+                        header.setSectionResizeMode(col, QHeaderView.Fixed)
+                        table.setColumnWidth(col, equal_width)
+                    
+                    header.setMinimumSectionSize(90)
+                    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+                    
+                    self._log_resize_debug(f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each")
+                    return True
+                    
+            except Exception as e:
+                self._log_resize_error(f"Fallback resize calculation failed for {type(table).__name__}", e)
+                return False
+                
+        except Exception as e:
+            self._log_resize_error(f"Fallback table resize failed for {type(table).__name__}", e)
+            return False
+
+    def _apply_month_column_styling(self, table: TableWidget):
+        """Apply special styling to the month column for better visual distinction"""
+        try:
+            if not self._validate_table_for_resize(table, "_apply_month_column_styling"):
+                return
+                
+            if table.columnCount() == 0:
+                return
+            
+            # Find the month column
+            month_col_index = -1
+            for col in range(table.columnCount()):
+                header = table.horizontalHeaderItem(col)
+                if header and "month" in header.text().strip().lower():
+                    month_col_index = col
+                    break
+            
+            if month_col_index == -1:
+                return
+            
+            from PyQt5.QtGui import QColor, QBrush, QFont
+            from qfluentwidgets import isDarkTheme
+            
+            # Style the header
+            header_item = table.horizontalHeaderItem(month_col_index)
+            if header_item:
+                font = header_item.font()
+                font.setBold(True)
+                font.setPointSize(13)  # Slightly larger for month header
+                header_item.setFont(font)
+            
+            # Style all month column cells with distinct background
+            for row in range(table.rowCount()):
+                item = table.item(row, month_col_index)
+                if item:
+                    # Apply distinct styling
                     font = item.font()
                     font.setBold(True)
-                    font.setPointSize(11)  # Fixed absolute font size
+                    font.setPointSize(11)
                     item.setFont(font)
-                
-                # Always set background to ensure consistency (avoid complex checking)
-                if isDarkTheme():
-                    item.setBackground(QBrush(QColor(45, 55, 75)))
-                    item.setForeground(QBrush(QColor(255, 255, 255)))
-                else:
-                    item.setBackground(QBrush(QColor(230, 240, 255)))
-                    item.setForeground(QBrush(QColor(0, 0, 0)))
-                
-                # Ensure text is centered
-                if item.textAlignment() != (Qt.AlignCenter | Qt.AlignVCenter):
-                    item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-                
-                # Set tooltip if not already set
-                if not item.toolTip():
-                    item.setToolTip(str(item.text()))
-        
-        # Mark as styled to prevent redundant styling
-        table._month_styled = True
-    
-    def _implement_frozen_month_column(self, table: TableWidget, month_col_index: int):
-        """Implement a frozen column effect for the month column"""
-        # Override the table's horizontal scroll behavior
-        horizontal_scrollbar = table.horizontalScrollBar()
-        if horizontal_scrollbar:
-            # Store original scroll method
-            if not hasattr(table, '_original_scroll_to'):
-                table._original_scroll_to = table.scrollTo
-            
-            # Create custom scroll behavior that keeps month column visible
-            def custom_scroll_to(index, hint=None):
-                # Call original scroll method
-                if hint is not None:
-                    table._original_scroll_to(index, hint)
-                else:
-                    table._original_scroll_to(index)
-                
-                # After scrolling, ensure month column is always visible
-                if month_col_index == 0:  # Only for first column
-                    viewport_left = table.horizontalScrollBar().value()
-                    if viewport_left > 0:
-                        # If we've scrolled past the month column, adjust
-                        month_col_width = table.columnWidth(month_col_index)
-                        if viewport_left > month_col_width:
-                            # Keep month column visible by limiting scroll
-                            table.horizontalScrollBar().setValue(max(0, viewport_left - month_col_width))
-            
-            # Replace the scroll method
-            table.scrollTo = custom_scroll_to
-            
-            # Connect to resize events to maintain month column priority
-            if not hasattr(table, '_month_resize_connected'):
-                table.resizeEvent = self._create_resize_handler(table, month_col_index, table.resizeEvent)
-                table._month_resize_connected = True
-            
-            # Also connect to horizontal scrollbar to maintain priority during scrolling
-            h_scrollbar = table.horizontalScrollBar()
-            if h_scrollbar and not hasattr(table, '_month_scroll_connected'):
-                h_scrollbar.valueChanged.connect(
-                    lambda: self._maintain_month_priority_on_scroll(table, month_col_index)
-                )
-                table._month_scroll_connected = True
-    
-    def _maintain_month_priority_on_scroll(self, table: TableWidget, month_col_index: int):
-        """Maintain month column priority during horizontal scrolling"""
-        if month_col_index >= 0 and month_col_index < table.columnCount():
-            current_width = table.columnWidth(month_col_index)
-            if current_width < 180:  # Only adjust if width was somehow reduced
-                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
-                table.setColumnWidth(month_col_index, 180)
-    
-    def _create_resize_handler(self, table: TableWidget, month_col_index: int, original_resize):
-        """Create a resize event handler that maintains month column priority without flickering"""
-        def resize_handler(event):
-            # Call original resize handler first
-            if original_resize:
-                original_resize(event)
-            
-            # Maintain month column priority after resize
-            if month_col_index >= 0 and month_col_index < table.columnCount():
-                # Always ensure month column has priority width
-                table.horizontalHeader().setSectionResizeMode(month_col_index, QHeaderView.Fixed)
-                table.setColumnWidth(month_col_index, 180)
-                
-                # Adjust other columns to accommodate month column priority
-                available_width = table.viewport().width() - 180  # Reserve space for month column
-                other_columns = table.columnCount() - 1
-                
-                if other_columns > 0 and available_width > 0:
-                    # Distribute remaining width among other columns
-                    other_col_width = max(80, available_width // other_columns)  # Minimum 80px per column
                     
-                    for col in range(table.columnCount()):
-                        if col != month_col_index:
-                            table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
-                            table.setColumnWidth(col, other_col_width)
-        
-        return resize_handler
+                    # Apply theme-aware background color matching rental info tenant name column exactly
+                    if isDarkTheme():
+                        item.setBackground(QBrush(QColor(45, 55, 75)))  # Darker blue background (same as tenant)
+                        item.setForeground(QBrush(QColor(220, 230, 255)))  # Light blue text (same as tenant)
+                    else:
+                        item.setBackground(QBrush(QColor(230, 240, 255)))  # Light blue background (same as tenant)  
+                        item.setForeground(QBrush(QColor(25, 50, 100)))  # Dark blue text (same as tenant)
+                        
+        except Exception as e:
+            self._log_resize_error(f"Failed to apply month column styling to {type(table).__name__}", e)
+
+
+    
+
+
 
     def _create_centered_item(self, text: str, column_type: str = "", is_priority: bool = False):
         """Create a centered table item with priority-aware styling"""
@@ -1189,7 +1612,13 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         layout.addLayout(top_layout)
 
         main_calc_group = CardWidget()
+        # Force the CardWidget to expand to full width
+        main_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        main_calc_group.setMinimumWidth(0)
+        
         main_calc_layout = QVBoxLayout(main_calc_group)
+        main_calc_layout.setContentsMargins(5, 5, 5, 5)  # Minimal margins
+        
         # Create title with FluentIcon to match room section styling
         main_title_layout = QHBoxLayout()
         main_title_icon = QLabel()
@@ -1208,32 +1637,40 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         divider1.setFrameShape(QFrame.HLine)
         divider1.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
         main_calc_layout.addWidget(divider1)
-        self.main_history_table = TableWidget()
+        self.main_history_table = SmoothTableWidget()
+        
+        # Initialize main table headers immediately
+        main_headers = [
+            "Month", "Meter-1", "Meter-2", "Diff-1", "Diff-2", 
+            "Total Unit Cost", "Total Diff Units", "Per Unit Cost", "Added Amount", "Grand Total"
+        ]
+        self._set_table_headers_with_icons(self.main_history_table, main_headers, 'main_table')
         
         # Apply comprehensive table styling from your analysis
         self._style_table(self.main_history_table)
         
-        # Configure table properties matching your analysis
-        self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Configure table properties matching working tabs strategy
+        # Use consistent scrollbar policies matching Rental Info and Archived tabs
+        self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.main_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         
         # Initially set columns to minimum required, will update dynamically on data load
-        self.set_main_history_table_columns(3)  # default 3 meters/diffs
-        
-        # Set size policy for responsive behavior
-        self.main_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        
-        # Connect resize event for intelligent column width adjustment
         self.main_history_table.horizontalHeader().sectionResized.connect(
             lambda: self._on_table_resize(self.main_history_table)
         )
-        main_calc_layout.addWidget(self.main_history_table)
+        main_calc_layout.addWidget(self.main_history_table, 1)  # Give stretch factor
         layout.addWidget(main_calc_group)  # No stretch factor - let it size naturally
 
         room_calc_group = CardWidget()
+        # Force room CardWidget to expand to full width
+        room_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        room_calc_group.setMinimumWidth(0)
+        
         room_calc_layout = QVBoxLayout(room_calc_group)
+        room_calc_layout.setContentsMargins(5, 5, 5, 5)  # Minimal margins
+        
         room_title = TitleLabel("🏠 Room Calculation Info")
         room_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         room_title.setWordWrap(True)
@@ -1245,7 +1682,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         divider2.setFrameShape(QFrame.HLine)
         divider2.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
         room_calc_layout.addWidget(divider2)
-        self.room_history_table = TableWidget()
+        self.room_history_table = SmoothTableWidget()
         # (moved block above to add connections) -- placeholder to satisfy exact replacement
         room_headers = [
             "Month", "Room Number", "Present Unit", "Previous Unit", "Real Unit", 
@@ -1254,20 +1691,19 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self._set_table_headers_with_icons(self.room_history_table, room_headers, 'room_table')
         # Column widths will be set by _set_intelligent_column_widths method 
         self.room_history_table.setAlternatingRowColors(True)
-        # Always show horizontal scrollbar to prevent flickering during resize
-        # This eliminates the layout changes that cause flickering when scrollbar appears/disappears
+        # Use consistent scrollbar policies matching working tabs strategy
+        # This matches the successful approach used in Rental Info and Archived tabs
         self.room_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff) # Vertical scrolling handled by main scroll area
+        self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.room_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.room_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         # Set size policy for responsive behavior (same as main table)
         self.room_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._style_table(self.room_history_table)
-        # Disable resize handler for room table to prevent flickering
-        # Month column priority is maintained by other mechanisms
-        # self.room_history_table.horizontalHeader().sectionResized.connect(
-        #     lambda: self._on_table_resize(self.room_history_table)
-        # )
+        # Enable resize handler for room table to apply intelligent column widths
+        self.room_history_table.horizontalHeader().sectionResized.connect(
+            lambda: self._on_table_resize(self.room_history_table)
+        )
         # Connect selection changed signals to update button states/styles now that tables exist
         self.main_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
         self.room_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
@@ -1290,7 +1726,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         divider3.setFrameShape(QFrame.HLine)
         divider3.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
         totals_layout.addWidget(divider3)
-        self.totals_table = TableWidget()
+        self.totals_table = SmoothTableWidget()
         totals_headers = [
             "Month", "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"
         ]
@@ -1299,9 +1735,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.totals_table.setAlternatingRowColors(True)
         # Remove all height restrictions and let table grow naturally
         self.totals_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        # Disable vertical scrollbar for totals table since we're using full page scrolling
-        self.totals_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.totals_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # Use consistent scrollbar policies matching working tabs strategy
+        self.totals_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.totals_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         # Resize table to content height and adjust table height to show all rows
         self.totals_table.resizeRowsToContents()
         self.resize_table_to_content(self.totals_table)
@@ -1317,6 +1753,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
         self.setLayout(main_layout)
+        
+        # Ensure tables are properly sized after initialization
+        QTimer.singleShot(100, self._initial_table_resize)
 
     def _style_table(self, table: TableWidget):
         """Apply qfluentwidgets-compatible styling with enhanced visual design"""
@@ -1359,7 +1798,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     stop:0 #f6f8fa, stop:1 #e1e4e8);
                 color: #24292f;
                 font-weight: 700;
-                font-size: 11px;
+                font-size: 13px;
                 border: none;
                 border-bottom: 3px solid #d0d7de;
                 border-right: 1px solid #d0d7de;
@@ -1375,7 +1814,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 border-right: none;
             }
             QTableWidget::item {
-                padding: 8px 12px;
+                padding: 1px 2px;
                 border: none;
                 border-right: 1px solid #f0f0f0;
                 text-align: center;
@@ -1410,7 +1849,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     stop:0 #30363d, stop:1 #21262d);
                 color: #f0f6fc;
                 font-weight: 700;
-                font-size: 11px;
+                font-size: 13px;
                 border: none;
                 border-bottom: 3px solid #30363d;
                 border-right: 1px solid #30363d;
@@ -1426,7 +1865,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 border-right: none;
             }
             QTableWidget::item {
-                padding: 8px 12px;
+                padding: 1px 2px;
                 border: none;
                 border-right: 1px solid #30363d;
                 text-align: center;
@@ -1585,160 +2024,285 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         item.setFont(font)
         
         return item
-                    
-    def _set_intelligent_column_widths(self, table: TableWidget):
-        """Set responsive column widths that adapt to window size while preventing truncation"""
-        if table.columnCount() == 0:
-            return
-            
-        # Set minimum column widths to prevent truncation
-        min_widths = {}
+
         
-        for col in range(table.columnCount()):
-            header = table.horizontalHeaderItem(col)
-            if not header:
-                continue
-                
-            header_text = header.text().strip().lower()
-            
-            # Set minimum widths based on content type
-            if "month" in header_text:
-                min_widths[col] = 120  # Month names
-            elif any(keyword in header_text for keyword in ["room", "number"]):
-                min_widths[col] = 100  # Room numbers
-            elif any(keyword in header_text for keyword in ["meter", "diff"]):
-                min_widths[col] = 90   # Numeric values
-            elif any(keyword in header_text for keyword in ["total", "cost", "bill", "rent", "amount"]):
-                min_widths[col] = 130  # Money values
-            elif "grand total" in header_text:
-                min_widths[col] = 140  # Grand totals
-            else:
-                min_widths[col] = 110  # Default
-        
-        # Calculate total minimum width needed
-        total_min_width = sum(min_widths.values())
-        available_width = table.viewport().width()
-        
-        # If total minimum width exceeds available space, use fixed widths with scrollbar
-        if total_min_width > available_width:
-            for col in range(table.columnCount()):
-                table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Fixed)
-                table.setColumnWidth(col, min_widths.get(col, 110))
-        else:
-            # Use stretch mode with minimum section sizes
-            for col in range(table.columnCount()):
-                table.horizontalHeader().setSectionResizeMode(col, QHeaderView.Stretch)
-                table.horizontalHeader().setMinimumSectionSize(min_widths.get(col, 110))
-        
-        # Always allow horizontal scrollbar when needed
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
-    def _on_table_resize(self, table: TableWidget):
-        """Handle table resize events to adjust column widths while maintaining month column priority"""
-        # Use a small delay to avoid excessive recalculations during resize
-        QTimer.singleShot(150, lambda: self._resize_with_month_priority(table))
-    
-    def _resize_with_month_priority(self, table: TableWidget):
-        """Resize table while ensuring month column priority is maintained without flickering"""
-        # Temporarily disable updates to reduce flickering
-        table.setUpdatesEnabled(False)
-        
+    def _on_table_resize(self, table: SmoothTableWidget):
+        """Handle table resize events with error handling"""
         try:
-            # First apply intelligent column widths
-            self._set_intelligent_column_widths(table)
+            if not self._validate_table_for_resize(table, "_on_table_resize"):
+                return
+                
+            self._log_resize_debug(f"Table resize event triggered for {type(table).__name__}")
+            QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
             
-            # Then immediately ensure month column priority is maintained
-            self._ensure_month_column_visibility(table)
-        finally:
-            # Re-enable updates
-            table.setUpdatesEnabled(True)
+        except Exception as e:
+            self._log_resize_error(f"Error in _on_table_resize for {type(table).__name__}", e)
+    
+
     
 
     
 
         
     def resizeEvent(self, event):
-        """Handle window resize events to adjust all table column widths without flickering"""
-        super().resizeEvent(event)
-        
-        # Debounced approach for window resize
-        if hasattr(self, '_window_resize_timer') and self._window_resize_timer.isActive():
-            self._window_resize_timer.stop()
-        
-        if not hasattr(self, '_window_resize_timer'):
-            self._window_resize_timer = QTimer()
-            self._window_resize_timer.setSingleShot(True)
-            self._window_resize_timer.timeout.connect(self._recalculate_all_table_widths_smooth)
-        
-        # Longer delay to ensure resize is complete
-        self._window_resize_timer.start(250)
-        
-    def _recalculate_all_table_widths_smooth(self):
-        """Recalculate column widths for all tables with smooth, flicker-free updates"""
+        """Handle widget resize events with immediate and delayed resize handling"""
         try:
-            # Process all tables with updates disabled to prevent flickering
-            tables = []
-            if hasattr(self, 'main_history_table'):
-                tables.append(self.main_history_table)
-            if hasattr(self, 'room_history_table'):
-                tables.append(self.room_history_table)
-            if hasattr(self, 'totals_table'):
-                tables.append(self.totals_table)
+            super().resizeEvent(event)
             
-            # Disable updates for all tables
-            for table in tables:
-                table.blockSignals(True)
-                table.setUpdatesEnabled(False)
+            # Validate event
+            if event is None:
+                self._log_resize_error("Received null resize event", None)
+                return
+                
+            self._log_resize_debug(f"Resize event received: {event.size().width()}x{event.size().height()}")
             
+            # Immediate resize for quick responsiveness during resize
+            QTimer.singleShot(50, self._immediate_table_resize)
+            # Final adjustment after resize completes
+            QTimer.singleShot(300, self._recalculate_all_table_widths)
+            
+        except Exception as e:
+            self._log_resize_error("Error in resizeEvent", e)
+            # Try to continue with basic functionality
             try:
-                # Apply changes to all tables
-                for table in tables:
-                    self._set_intelligent_column_widths(table)
-                    self._ensure_month_column_visibility(table)
-            finally:
-                # Re-enable updates for all tables at once
-                for table in tables:
-                    table.setUpdatesEnabled(True)
-                    table.blockSignals(False)
-                    table.update()  # Single repaint per table
-                    
-        except:
-            pass  # Ignore errors during window resize
+                super().resizeEvent(event)
+            except Exception as super_error:
+                self._log_resize_error("Failed to call super().resizeEvent", super_error)
     
-    def _recalculate_all_table_widths(self):
-        """Legacy method - redirects to smooth version"""
-        self._recalculate_all_table_widths_smooth()
+
     
-    def _disconnect_resize_handlers(self):
-        """Temporarily disconnect resize handlers to prevent conflicts"""
+    def showEvent(self, event):
+        """Handle table sizing when tab becomes visible with error handling"""
         try:
+            super().showEvent(event)
+            
+            # Validate event
+            if event is None:
+                self._log_resize_error("Received null show event", None)
+                return
+                
+            self._log_resize_debug("Tab show event received - scheduling table width recalculation")
+            
+            # Recalculate table widths when tab becomes visible
+            QTimer.singleShot(100, self._recalculate_all_table_widths)
+            
+        except Exception as e:
+            self._log_resize_error("Error in showEvent", e)
+            # Try to continue with basic functionality
+            try:
+                super().showEvent(event)
+            except Exception as super_error:
+                self._log_resize_error("Failed to call super().showEvent", super_error)
+        
+    def _immediate_table_resize(self):
+        """Immediate table resize for quick responsiveness during resize operations"""
+        try:
+            self._log_resize_debug("Starting immediate table resize")
+            
+            # Quick resize for immediate visual feedback with proper validation
+            tables_resized = 0
+            
+            if hasattr(self, 'main_history_table') and self._validate_table_for_resize(self.main_history_table, "_immediate_table_resize"):
+                if self.main_history_table.isVisible() and self.main_history_table.columnCount() > 0:
+                    try:
+                        self.main_history_table.resizeColumnsToContents()
+                        tables_resized += 1
+                        self._log_resize_debug("Immediate resize applied to main_history_table")
+                    except Exception as e:
+                        self._log_resize_error("Failed immediate resize for main_history_table", e)
+                        
+            if hasattr(self, 'room_history_table') and self._validate_table_for_resize(self.room_history_table, "_immediate_table_resize"):
+                if self.room_history_table.isVisible() and self.room_history_table.columnCount() > 0:
+                    try:
+                        self.room_history_table.resizeColumnsToContents()
+                        tables_resized += 1
+                        self._log_resize_debug("Immediate resize applied to room_history_table")
+                    except Exception as e:
+                        self._log_resize_error("Failed immediate resize for room_history_table", e)
+                        
+            if hasattr(self, 'totals_table') and self._validate_table_for_resize(self.totals_table, "_immediate_table_resize"):
+                if self.totals_table.isVisible() and self.totals_table.columnCount() > 0:
+                    try:
+                        self.totals_table.resizeColumnsToContents()
+                        tables_resized += 1
+                        self._log_resize_debug("Immediate resize applied to totals_table")
+                    except Exception as e:
+                        self._log_resize_error("Failed immediate resize for totals_table", e)
+            
+            self._log_resize_debug(f"Immediate table resize completed: {tables_resized} tables resized")
+            
+        except Exception as e:
+            self._log_resize_error("Critical error in immediate table resize", e)
+        
+    def _recalculate_all_table_widths(self):
+        """Recalculate column widths for all tables with comprehensive error handling"""
+        try:
+            self._log_resize_debug("Starting recalculation of all table widths")
+            
+            tables_processed = 0
+            tables_successful = 0
+            
+            # Process main history table
             if hasattr(self, 'main_history_table'):
-                self.main_history_table.horizontalHeader().sectionResized.disconnect()
+                tables_processed += 1
+                if self._set_intelligent_column_widths(self.main_history_table):
+                    tables_successful += 1
+                    self._log_resize_debug("Successfully recalculated main_history_table widths")
+                else:
+                    self._log_resize_debug("Failed to recalculate main_history_table widths")
+            else:
+                self._log_resize_debug("main_history_table not found")
+                
+            # Process room history table
             if hasattr(self, 'room_history_table'):
-                self.room_history_table.horizontalHeader().sectionResized.disconnect()
+                tables_processed += 1
+                if self._set_intelligent_column_widths(self.room_history_table):
+                    tables_successful += 1
+                    self._log_resize_debug("Successfully recalculated room_history_table widths")
+                else:
+                    self._log_resize_debug("Failed to recalculate room_history_table widths")
+            else:
+                self._log_resize_debug("room_history_table not found")
+                
+            # Process totals table
             if hasattr(self, 'totals_table'):
-                self.totals_table.horizontalHeader().sectionResized.disconnect()
-        except:
-            pass  # Ignore if already disconnected
+                tables_processed += 1
+                if self._set_intelligent_column_widths(self.totals_table):
+                    tables_successful += 1
+                    self._log_resize_debug("Successfully recalculated totals_table widths")
+                else:
+                    self._log_resize_debug("Failed to recalculate totals_table widths")
+            else:
+                self._log_resize_debug("totals_table not found")
+            
+            self._log_resize_debug(f"Table width recalculation completed: {tables_successful}/{tables_processed} tables successful")
+            
+            # If no tables were successfully processed, log a warning
+            if tables_processed > 0 and tables_successful == 0:
+                self._log_resize_error("All table width recalculations failed", None)
+                
+        except Exception as e:
+            self._log_resize_error("Critical error in recalculate_all_table_widths", e)
+    
+    def force_table_resize(self):
+        """Public method to force table resize - can be called externally with error handling"""
+        try:
+            self._log_resize_debug("Force table resize requested")
+            self._recalculate_all_table_widths()
+        except Exception as e:
+            self._log_resize_error("Failed to force table resize", e)
+            # Try fallback approach
+            try:
+                self._log_resize_debug("Attempting fallback resize for all tables")
+                if hasattr(self, 'main_history_table'):
+                    self._fallback_table_resize(self.main_history_table)
+                if hasattr(self, 'room_history_table'):
+                    self._fallback_table_resize(self.room_history_table)
+                if hasattr(self, 'totals_table'):
+                    self._fallback_table_resize(self.totals_table)
+            except Exception as fallback_error:
+                self._log_resize_error("Fallback resize also failed", fallback_error)
+    
+    def _initial_table_resize(self):
+        """Initial table resize after UI initialization to ensure proper sizing"""
+        try:
+            self._log_resize_debug("Performing initial table resize after UI initialization")
+            # Apply intelligent column widths to all tables after initialization
+            initial_resize_success = 0
+            if hasattr(self, 'main_history_table') and self._set_intelligent_column_widths(self.main_history_table):
+                initial_resize_success += 1
+            if hasattr(self, 'room_history_table') and self._set_intelligent_column_widths(self.room_history_table):
+                initial_resize_success += 1
+            if hasattr(self, 'totals_table') and self._set_intelligent_column_widths(self.totals_table):
+                initial_resize_success += 1
+            self._log_resize_debug(f"Initial table resize completed: {initial_resize_success}/3 tables successful")
+        except Exception as e:
+            self._log_resize_error("Failed initial table resize after UI initialization", e)
+    
+
+    def _disconnect_resize_handlers(self):
+        """Temporarily disconnect resize handlers to prevent conflicts with comprehensive error handling"""
+        try:
+            self._log_resize_debug("Disconnecting resize handlers")
+            handlers_disconnected = 0
+            
+            if hasattr(self, 'main_history_table') and self.main_history_table:
+                try:
+                    if hasattr(self.main_history_table, 'horizontalHeader'):
+                        header = self.main_history_table.horizontalHeader()
+                        if header and hasattr(header, 'sectionResized'):
+                            header.sectionResized.disconnect()
+                            handlers_disconnected += 1
+                            self._log_resize_debug("Disconnected main_history_table resize handler")
+                except Exception as e:
+                    self._log_resize_debug(f"Could not disconnect main_history_table handler (may not be connected): {e}")
+                    
+            if hasattr(self, 'room_history_table') and self.room_history_table:
+                try:
+                    if hasattr(self.room_history_table, 'horizontalHeader'):
+                        header = self.room_history_table.horizontalHeader()
+                        if header and hasattr(header, 'sectionResized'):
+                            header.sectionResized.disconnect()
+                            handlers_disconnected += 1
+                            self._log_resize_debug("Disconnected room_history_table resize handler")
+                except Exception as e:
+                    self._log_resize_debug(f"Could not disconnect room_history_table handler (may not be connected): {e}")
+                    
+            if hasattr(self, 'totals_table') and self.totals_table:
+                try:
+                    if hasattr(self.totals_table, 'horizontalHeader'):
+                        header = self.totals_table.horizontalHeader()
+                        if header and hasattr(header, 'sectionResized'):
+                            header.sectionResized.disconnect()
+                            handlers_disconnected += 1
+                            self._log_resize_debug("Disconnected totals_table resize handler")
+                except Exception as e:
+                    self._log_resize_debug(f"Could not disconnect totals_table handler (may not be connected): {e}")
+            
+            self._log_resize_debug(f"Resize handler disconnection completed: {handlers_disconnected} handlers disconnected")
+            
+        except Exception as e:
+            self._log_resize_error("Error in disconnect_resize_handlers", e)
     
     def _reconnect_resize_handlers(self):
-        """Reconnect resize handlers after data loading"""
+        """Reconnect resize handlers after data loading with comprehensive error handling"""
         try:
-            if hasattr(self, 'main_history_table'):
-                self.main_history_table.horizontalHeader().sectionResized.connect(
-                    lambda: self._on_table_resize(self.main_history_table)
-                )
+            self._log_resize_debug("Reconnecting resize handlers")
+            handlers_connected = 0
+            
+            if hasattr(self, 'main_history_table') and self.main_history_table:
+                try:
+                    if hasattr(self.main_history_table, 'horizontalHeader'):
+                        header = self.main_history_table.horizontalHeader()
+                        if header and hasattr(header, 'sectionResized'):
+                            header.sectionResized.connect(
+                                lambda: self._on_table_resize(self.main_history_table)
+                            )
+                            handlers_connected += 1
+                            self._log_resize_debug("Reconnected main_history_table resize handler")
+                except Exception as e:
+                    self._log_resize_error("Failed to reconnect main_history_table handler", e)
+                    
             # Skip room table to prevent flickering - month priority maintained by other means
-            # if hasattr(self, 'room_history_table'):
-            #     self.room_history_table.horizontalHeader().sectionResized.connect(
-            #         lambda: self._on_table_resize(self.room_history_table)
-            #     )
-            if hasattr(self, 'totals_table'):
-                self.totals_table.horizontalHeader().sectionResized.connect(
-                    lambda: self._on_table_resize(self.totals_table)
-                )
-        except:
-            pass  # Ignore connection errors
+            # Room table resize handler intentionally disabled per existing logic
+            
+            if hasattr(self, 'totals_table') and self.totals_table:
+                try:
+                    if hasattr(self.totals_table, 'horizontalHeader'):
+                        header = self.totals_table.horizontalHeader()
+                        if header and hasattr(header, 'sectionResized'):
+                            header.sectionResized.connect(
+                                lambda: self._on_table_resize(self.totals_table)
+                            )
+                            handlers_connected += 1
+                            self._log_resize_debug("Reconnected totals_table resize handler")
+                except Exception as e:
+                    self._log_resize_error("Failed to reconnect totals_table handler", e)
+            
+            self._log_resize_debug(f"Resize handler reconnection completed: {handlers_connected} handlers connected")
+            
+        except Exception as e:
+            self._log_resize_error("Error in reconnect_resize_handlers", e)
     
 
     
@@ -1837,28 +2401,58 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
 
     def resize_table_to_content(self, table):
-        """Resize table height to fit all rows without scrolling"""
-        if table.rowCount() == 0:
-            # Set a reasonable minimum height instead of fixed height
-            table.setMinimumHeight(table.horizontalHeader().height() + 10)
-            table.setMaximumHeight(16777215)  # Remove height constraint
-            return
-        
-        # Calculate total height needed
-        header_height = table.horizontalHeader().height()
-        row_height = 0
-        
-        # Get the height of all rows
-        for row in range(table.rowCount()):
-            row_height += table.rowHeight(row)
-        
-        # Add some padding for borders and margins
-        total_height = header_height + row_height + 10
-        
-        # Set minimum height but allow expansion
-        table.setMinimumHeight(total_height)
-        table.setMaximumHeight(16777215)  # Remove height constraint
-        table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        """Resize table height to fit all rows without scrolling with error handling"""
+        try:
+            if not self._validate_table_for_resize(table, "resize_table_to_content"):
+                return
+                
+            if table.rowCount() == 0:
+                try:
+                    # Set a reasonable minimum height instead of fixed height
+                    header_height = table.horizontalHeader().height() if table.horizontalHeader() else 30
+                    table.setMinimumHeight(header_height + 10)
+                    table.setMaximumHeight(16777215)  # Remove height constraint
+                    self._log_resize_debug(f"Set minimum height for empty table {type(table).__name__}")
+                    return
+                except Exception as empty_table_error:
+                    self._log_resize_error(f"Failed to set height for empty table {type(table).__name__}", empty_table_error)
+                    return
+            
+            # Calculate total height needed
+            try:
+                header_height = table.horizontalHeader().height() if table.horizontalHeader() else 30
+                row_height = 0
+                
+                # Get the height of all rows
+                for row in range(table.rowCount()):
+                    try:
+                        row_height += table.rowHeight(row)
+                    except Exception as row_error:
+                        self._log_resize_debug(f"Could not get height for row {row}, using default: {row_error}")
+                        row_height += 35  # Default row height
+                
+                # Add some padding for borders and margins
+                total_height = header_height + row_height + 10
+                
+                # Set minimum height but allow expansion
+                table.setMinimumHeight(total_height)
+                table.setMaximumHeight(16777215)  # Remove height constraint
+                table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                
+                self._log_resize_debug(f"Resized table {type(table).__name__} to content height: {total_height}px")
+                
+            except Exception as height_calc_error:
+                self._log_resize_error(f"Failed to calculate height for table {type(table).__name__}", height_calc_error)
+                # Fallback to reasonable defaults
+                try:
+                    table.setMinimumHeight(200)
+                    table.setMaximumHeight(16777215)
+                    table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                except Exception as fallback_error:
+                    self._log_resize_error(f"Fallback height setting failed for {type(table).__name__}", fallback_error)
+                    
+        except Exception as e:
+            self._log_resize_error(f"Critical error in resize_table_to_content for {type(table).__name__}", e)
 
     def set_main_history_table_columns(self, num_meters):
         # num_meters: number of meter/diff pairs to show, max 10
@@ -1877,7 +2471,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         # Remove the ResizeToContents override that was causing column width issues
         
         # Apply intelligent column widths after setting headers
-        self._set_intelligent_column_widths(self.main_history_table)
+        try:
+            self._log_resize_debug("Applying initial column widths to main_history_table")
+            if not self._set_intelligent_column_widths(self.main_history_table):
+                self._log_resize_debug("Initial main_history_table resize failed, but continuing with initialization")
+        except Exception as init_resize_error:
+            self._log_resize_error("Failed to apply initial column widths to main_history_table", init_resize_error)
 
     def load_history(self):
         try:
@@ -2080,8 +2679,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         self.room_history_table.setItem(row_idx, 8, self._create_centered_item(house_rent))
                         self.room_history_table.setItem(row_idx, 9, self._create_special_item(grand_total, "grand_total"))
                     
-                    # IMMEDIATE: Apply month column priority right after populating room data
-                    self._apply_immediate_month_priority(self.room_history_table)
+                    # Apply responsive column widths after populating room data
+                    try:
+                        self._log_resize_debug("Applying column widths to room table after CSV room data population")
+                        # Force immediate resize without timer to ensure it works
+                        self._force_room_table_resize("CSV")
+                        # Also schedule a delayed resize as backup
+                        QTimer.singleShot(100, lambda: self._force_room_table_resize("CSV-delayed"))
+                    except Exception as room_csv_resize_error:
+                        self._log_resize_error("Failed to resize room table after CSV room data population", room_csv_resize_error)
 
                 # Calculate and display totals using the filtered main rows instead of all room rows
                 self.calculate_and_display_totals_from_main_rows(filtered_main_rows, get_csv_value)
@@ -2096,9 +2702,23 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     self.resize_table_to_content(self.totals_table)
 
                     # Re-apply column widths after data load (styling already applied at initialization)
-                    self._set_intelligent_column_widths(self.main_history_table)
-                    self._set_intelligent_column_widths(self.room_history_table)
-                    self._set_intelligent_column_widths(self.totals_table)
+                    try:
+                        self._log_resize_debug("Applying column widths after CSV data load")
+                        resize_success = 0
+                        if self._set_intelligent_column_widths(self.main_history_table):
+                            resize_success += 1
+                        if self._set_intelligent_column_widths(self.room_history_table):
+                            resize_success += 1
+                        if self._set_intelligent_column_widths(self.totals_table):
+                            resize_success += 1
+                        self._log_resize_debug(f"Column width application completed: {resize_success}/3 tables successful")
+                        
+                        # Apply month column styling after data is loaded
+                        self._apply_month_column_styling(self.main_history_table)
+                        self._apply_month_column_styling(self.room_history_table)
+                        
+                    except Exception as resize_error:
+                        self._log_resize_error("Failed to apply column widths after CSV data load", resize_error)
                 finally:
                     # Reconnect resize handlers
                     self._reconnect_resize_handlers()
@@ -2116,10 +2736,28 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 if hasattr(self.totals_table, '_month_styled'):
                     self.totals_table._month_styled = False
                 
-                # Ensure month columns are properly visible and styled after loading data
-                self._ensure_month_column_visibility(self.main_history_table)
-                self._ensure_month_column_visibility(self.room_history_table)
-                self._ensure_month_column_visibility(self.totals_table)
+                # Apply responsive column widths after loading data
+                try:
+                    self._log_resize_debug("Final column width application after CSV load")
+                    final_resize_success = 0
+                    if self._set_intelligent_column_widths(self.main_history_table):
+                        final_resize_success += 1
+                    if self._set_intelligent_column_widths(self.room_history_table):
+                        final_resize_success += 1
+                    if self._set_intelligent_column_widths(self.totals_table):
+                        final_resize_success += 1
+                    self._log_resize_debug(f"Final column width application completed: {final_resize_success}/3 tables successful")
+                    
+                    # Ensure resize is triggered after CSV data loading completes
+                    QTimer.singleShot(50, self.force_table_resize)
+                except Exception as final_resize_error:
+                    self._log_resize_error("Failed final column width application after CSV load", final_resize_error)
+                
+                # Force table resize after data is loaded to ensure proper sizing
+                try:
+                    QTimer.singleShot(100, self.force_table_resize)
+                except Exception as timer_error:
+                    self._log_resize_error("Failed to schedule force table resize", timer_error)
 
         except Exception as e:
             QMessageBox.critical(self, "Load History Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
@@ -2250,9 +2888,16 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     self.room_history_table.setItem(row_idx, 8, self._create_centered_item(str(room_data.get("house_rent", ""))))
                     self.room_history_table.setItem(row_idx, 9, self._create_special_item(str(room_data.get("grand_total", "")), "grand_total"))
             
-            # IMMEDIATE: Apply month column priority right after populating room data
+            # Apply responsive column widths after populating room data
             if all_room_rows:
-                self._apply_immediate_month_priority(self.room_history_table)
+                try:
+                    self._log_resize_debug("Applying column widths to room table after Supabase data population")
+                    # Force immediate resize without timer to ensure it works
+                    self._force_room_table_resize("Supabase")
+                    # Also schedule a delayed resize as backup
+                    QTimer.singleShot(100, lambda: self._force_room_table_resize("Supabase-delayed"))
+                except Exception as room_resize_error:
+                    self._log_resize_error("Failed to resize room table after Supabase data population", room_resize_error)
 
             self.calculate_and_display_totals_from_supabase_records(main_calculations, all_room_rows)
             
@@ -2266,9 +2911,23 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 self.resize_table_to_content(self.totals_table)
                 
                 # Re-apply column widths after data load
-                self._set_intelligent_column_widths(self.main_history_table)
-                self._set_intelligent_column_widths(self.room_history_table)
-                self._set_intelligent_column_widths(self.totals_table)
+                try:
+                    self._log_resize_debug("Re-applying column widths after Supabase data load")
+                    supabase_resize_success = 0
+                    if self._set_intelligent_column_widths(self.main_history_table):
+                        supabase_resize_success += 1
+                    if self._set_intelligent_column_widths(self.room_history_table):
+                        supabase_resize_success += 1
+                    if self._set_intelligent_column_widths(self.totals_table):
+                        supabase_resize_success += 1
+                    self._log_resize_debug(f"Supabase data load column width application: {supabase_resize_success}/3 tables successful")
+                    
+                    # Apply month column styling after Supabase data is loaded
+                    self._apply_month_column_styling(self.main_history_table)
+                    self._apply_month_column_styling(self.room_history_table)
+                    
+                except Exception as supabase_resize_error:
+                    self._log_resize_error("Failed to re-apply column widths after Supabase data load", supabase_resize_error)
             finally:
                 # Reconnect resize handlers
                 self._reconnect_resize_handlers()
@@ -2283,10 +2942,28 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             if hasattr(self.totals_table, '_month_styled'):
                 self.totals_table._month_styled = False
             
-            # Ensure month columns are properly visible and styled after loading data
-            self._ensure_month_column_visibility(self.main_history_table)
-            self._ensure_month_column_visibility(self.room_history_table)
-            self._ensure_month_column_visibility(self.totals_table)
+            # Apply responsive column widths after loading data
+            try:
+                self._log_resize_debug("Final column width application after Supabase load")
+                final_supabase_resize_success = 0
+                if self._set_intelligent_column_widths(self.main_history_table):
+                    final_supabase_resize_success += 1
+                if self._set_intelligent_column_widths(self.room_history_table):
+                    final_supabase_resize_success += 1
+                if self._set_intelligent_column_widths(self.totals_table):
+                    final_supabase_resize_success += 1
+                self._log_resize_debug(f"Final Supabase column width application: {final_supabase_resize_success}/3 tables successful")
+                
+                # Ensure resize is triggered after Supabase data loading completes
+                QTimer.singleShot(50, self.force_table_resize)
+            except Exception as final_supabase_resize_error:
+                self._log_resize_error("Failed final column width application after Supabase load", final_supabase_resize_error)
+            
+            # Force table resize after data is loaded to ensure proper sizing
+            try:
+                QTimer.singleShot(100, self.force_table_resize)
+            except Exception as timer_error:
+                self._log_resize_error("Failed to schedule force table resize after Supabase load", timer_error)
 
         except Exception as e:
             QMessageBox.critical(self, "Load History Error", f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}")
@@ -2332,6 +3009,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             self.totals_table.setItem(idx,2,self._create_centered_item(f"{t['water']:.2f}"))
             self.totals_table.setItem(idx,3,self._create_centered_item(f"{t['gas']:.2f}"))
             self.totals_table.setItem(idx,4,self._create_centered_item(f"{t['unit']:.2f}"))
+        
+        # Force table resize after totals data is populated
+        try:
+            QTimer.singleShot(100, self.force_table_resize)
+        except Exception as timer_error:
+            self._log_resize_error("Failed to schedule force table resize after Supabase totals calculation", timer_error)
 
     def _is_click_inside_history_tables(self, global_pos):
         """Return True if the widget at the given global position is within any of the history tables."""
@@ -2484,6 +3167,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 self.totals_table.setItem(idx,3,QTableWidgetItem(f"{t['gas']:.2f}"))
                 self.totals_table.setItem(idx,4,QTableWidgetItem(f"{t['unit']:.2f}"))
             
+            # Force table resize after totals data is populated
+            try:
+                QTimer.singleShot(100, self.force_table_resize)
+            except Exception as timer_error:
+                self._log_resize_error("Failed to schedule force table resize after totals calculation", timer_error)
+            
         except Exception as e:
             # If there's an error calculating totals, just clear the table
             self.totals_table.setRowCount(0)
@@ -2532,6 +3221,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     self.totals_table.setItem(row_idx, 2, self._create_centered_item("0.00"))
                     self.totals_table.setItem(row_idx, 3, self._create_centered_item("0.00"))
                     self.totals_table.setItem(row_idx, 4, self._create_centered_item("0.00"))
+            
+            # Force table resize after totals data is populated
+            try:
+                QTimer.singleShot(100, self.force_table_resize)
+            except Exception as timer_error:
+                self._log_resize_error("Failed to schedule force table resize after main rows totals calculation", timer_error)
             
         except Exception as e:
             # If there's an error calculating totals, just clear the table
