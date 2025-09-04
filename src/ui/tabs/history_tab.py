@@ -420,6 +420,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         'regular_columns': 500,
         'headers': 700
     }
+    
+    # Scroll behavior configuration
+    SCROLL_STEP_DIVISOR = 15  # Adjust for scroll sensitivity (lower = faster scroll)
 
     def __init__(self, main_window_ref):
         super().__init__()
@@ -437,6 +440,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         # load_history_source_combo is accessed via self.main_window
 
         self.init_ui()
+
+    def clear_table_cache(self):
+        """Clear the cached table references to allow repopulation with new instances"""
+        self._cached_tables = None
 
     def eventFilter(self, obj, event):
         """Event filter to forward scroll events from tables to parent scroll area"""
@@ -485,7 +492,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 parent_scrollbar = self.scroll_area.verticalScrollBar()
                 if parent_scrollbar:
                     # Optimized scroll calculation and application
-                    scroll_step = -delta // 15
+                    scroll_step = -delta // self.SCROLL_STEP_DIVISOR
                     new_value = max(parent_scrollbar.minimum(), 
                                   min(parent_scrollbar.maximum(), 
                                       parent_scrollbar.value() + scroll_step))
@@ -1702,6 +1709,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         divider1.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
         main_calc_layout.addWidget(divider1)
         self.main_history_table = SmoothTableWidget()
+        # Clear table cache since main_history_table was recreated
+        self.clear_table_cache()
         
         # Initialize main table headers immediately
         main_headers = [
@@ -1747,6 +1756,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         divider2.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
         room_calc_layout.addWidget(divider2)
         self.room_history_table = SmoothTableWidget()
+        # Clear table cache since room_history_table was recreated
+        self.clear_table_cache()
         # (moved block above to add connections) -- placeholder to satisfy exact replacement
         room_headers = [
             "Month", "Room Number", "Present Unit", "Previous Unit", "Real Unit", 
@@ -1791,6 +1802,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         divider3.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
         totals_layout.addWidget(divider3)
         self.totals_table = SmoothTableWidget()
+        # Clear table cache since totals_table was recreated
+        self.clear_table_cache()
         totals_headers = [
             "Month", "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"
         ]
