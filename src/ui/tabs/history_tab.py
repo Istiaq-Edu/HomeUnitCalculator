@@ -6,7 +6,7 @@ import csv
 import traceback
 from datetime import datetime
 
-from PyQt5.QtCore import Qt, QRegExp, QSize, QTimer
+from PyQt5.QtCore import Qt, QRegExp, QSize, QTimer, QEvent
 from PyQt5.QtGui import QRegExpValidator, QIcon, QFont, QPainter, QColor, QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -432,9 +432,70 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.room_history_table = None
         self.edit_selected_record_button = None
         self.delete_selected_record_button = None
+        self.scroll_area = None  # Store reference to scroll area
+        self._cached_tables = None  # Cache for performance optimization
         # load_history_source_combo is accessed via self.main_window
 
         self.init_ui()
+
+    def eventFilter(self, obj, event):
+        """Event filter to forward scroll events from tables to parent scroll area"""
+        try:
+            # Early exit for non-wheel events to minimize overhead
+            if event.type() != QEvent.Wheel:
+                return super().eventFilter(obj, event)
+            
+            # Ensure tables exist before processing
+            if not self.main_history_table:
+                return super().eventFilter(obj, event)
+            
+            # Use cached table references for performance
+            if self._cached_tables is None:
+                self._cached_tables = [self.main_history_table, 
+                                     getattr(self, 'room_history_table', None), 
+                                     getattr(self, 'totals_table', None)]
+                # Filter out None values
+                self._cached_tables = [t for t in self._cached_tables if t is not None]
+            
+            # Quick object membership check
+            if obj not in self._cached_tables:
+                # Check if it's a viewport of one of our tables
+                if not (hasattr(obj, 'parent') and obj.parent() in self._cached_tables):
+                    return super().eventFilter(obj, event)
+            
+            # Get the actual table object
+            table = obj if hasattr(obj, 'verticalScrollBar') else obj.parent()
+            if not hasattr(table, 'verticalScrollBar'):
+                return super().eventFilter(obj, event)
+            
+            # Get scrollbar and delta once
+            v_scrollbar = table.verticalScrollBar()
+            if not v_scrollbar:
+                return super().eventFilter(obj, event)
+                
+            delta = event.angleDelta().y()
+            
+            # Quick bounds check for scroll capability
+            current_value = v_scrollbar.value()
+            can_scroll_vertically = ((delta > 0 and current_value > v_scrollbar.minimum()) or 
+                                   (delta < 0 and current_value < v_scrollbar.maximum()))
+            
+            # Forward to parent scroll area if table can't scroll
+            if not can_scroll_vertically and self.scroll_area:
+                parent_scrollbar = self.scroll_area.verticalScrollBar()
+                if parent_scrollbar:
+                    # Optimized scroll calculation and application
+                    scroll_step = -delta // 15
+                    new_value = max(parent_scrollbar.minimum(), 
+                                  min(parent_scrollbar.maximum(), 
+                                      parent_scrollbar.value() + scroll_step))
+                    parent_scrollbar.setValue(new_value)
+                    return True
+            
+            return super().eventFilter(obj, event)
+        except Exception:
+            # Fail gracefully - don't break app startup
+            return super().eventFilter(obj, event)
 
     def sync_source_button_display(self):
         """Sync the button display with the actual combo box value"""
@@ -1432,6 +1493,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         
+        # Store reference to scroll area for event forwarding
+        self.scroll_area = scroll_area
+        
         # Create content widget with QVBoxLayout (spacing: 20, margins: 20,20,20,20)
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
@@ -1753,6 +1817,20 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
         self.setLayout(main_layout)
+        
+        # Install event filters on tables to forward scroll events to parent scroll area
+        if self.main_history_table:
+            self.main_history_table.installEventFilter(self)
+            # Also install on viewport to catch scroll events
+            self.main_history_table.viewport().installEventFilter(self)
+        
+        if self.room_history_table:
+            self.room_history_table.installEventFilter(self)
+            self.room_history_table.viewport().installEventFilter(self)
+        
+        if hasattr(self, 'totals_table') and self.totals_table:
+            self.totals_table.installEventFilter(self)
+            self.totals_table.viewport().installEventFilter(self)
         
         # Ensure tables are properly sized after initialization
         QTimer.singleShot(100, self._initial_table_resize)
