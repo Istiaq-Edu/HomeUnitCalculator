@@ -12,14 +12,14 @@ from qfluentwidgets import FluentIcon, TableWidget, isDarkTheme
 
 class EnhancedTableMixin:
     """Mixin class providing enhanced table functionality with font hierarchy and icons"""
-    
+
     # Font size configuration for different column types
     FONT_SIZES = {
         'priority_columns': 12,
         'regular_columns': 10,
         'headers': 13
     }
-    
+
     FONT_WEIGHTS = {
         'priority_columns': 600,
         'regular_columns': 500,
@@ -94,10 +94,109 @@ class EnhancedTableMixin:
     
     def _calculate_intelligent_column_widths(self, table: TableWidget):
         """
-        DISABLED - Let the main table handle its own column widths
+        Calculate intelligent column widths based on content and font hierarchy.
+        Optimized implementation with efficient QFontMetrics usage and caching.
         """
-        # Do nothing - let the main table's _set_intelligent_column_widths handle everything
-        return
+        try:
+            from PyQt5.QtGui import QFontMetrics
+
+            # Initialize caching variables if not already done (lazy initialization)
+            if not hasattr(self, '_font_metrics_cache'):
+                self._font_metrics_cache = {}
+            if not hasattr(self, '_content_width_cache'):
+                self._content_width_cache = {}
+
+            # Get font configuration from HistoryTab
+            font_sizes = getattr(self, 'FONT_SIZES', {'priority_columns': 12, 'regular_columns': 10, 'headers': 13})
+            font_weights = getattr(self, 'FONT_WEIGHTS', {'priority_columns': 600, 'regular_columns': 500, 'headers': 700})
+            priority_columns = getattr(self, 'PRIORITY_COLUMNS', {})
+
+            # Determine table type for priority column lookup
+            table_type = self._get_table_type(table)
+            table_id = id(table)  # Unique identifier for this table instance
+
+            # Calculate maximum width for each column
+            max_widths = {}
+
+            for col in range(table.columnCount()):
+                max_width = 0
+
+                # Get header text and calculate header width
+                header_text = ""
+                if table.horizontalHeaderItem(col):
+                    header_text = table.horizontalHeaderItem(col).text() if table.horizontalHeaderItem(col) else ""
+
+                # Determine if this is a priority column
+                is_priority = self._is_priority_column(table_type, header_text)
+
+                # Get appropriate font configuration
+                font_size = font_sizes['priority_columns'] if is_priority else font_sizes['regular_columns']
+                font_weight = font_weights['priority_columns'] if is_priority else font_weights['regular_columns']
+                font_key = f"{font_size}_{font_weight}"
+
+                # Use cached font metrics or create new one
+                if font_key not in self._font_metrics_cache:
+                    font = QFont()
+                    font.setPointSize(font_size)
+                    font.setWeight(font_weight)
+                    self._font_metrics_cache[font_key] = QFontMetrics(font)
+
+                font_metrics = self._font_metrics_cache[font_key]
+
+                # Calculate header width with caching for content width
+                content_key = f"header_{table_id}_{col}"
+                if content_key not in self._content_width_cache:
+                    if header_text:
+                        self._content_width_cache[content_key] = font_metrics.width(header_text)
+                    else:
+                        self._content_width_cache[content_key] = 0
+
+                header_width = self._content_width_cache[content_key] + 40  # Extra padding for icon
+                max_width = max(max_width, header_width)
+
+                # Calculate content widths for first few rows (performance optimization)
+                max_rows_to_check = min(100, table.rowCount())  # Check up to 100 rows for performance
+                for row in range(max_rows_to_check):
+                    item = table.item(row, col)
+                    if item:
+                        text = item.text()
+                        if text:
+                            # Use caching for content width calculation
+                            content_cache_key = f"content_{table_id}_{col}_{row}"
+                            if content_cache_key not in self._content_width_cache:
+                                self._content_width_cache[content_cache_key] = font_metrics.width(text)
+
+                            width = self._content_width_cache[content_cache_key] + 20  # Padding for content
+                            max_width = max(max_width, width)
+
+                max_widths[col] = max_width
+
+            # Apply calculated widths to columns
+            for col, width in max_widths.items():
+                table.setColumnWidth(col, width)
+
+            return True
+
+        except Exception as e:
+            # Log error but don't break functionality
+            print(f"Error in _calculate_intelligent_column_widths: {e}")
+            return False
+
+    def _get_table_type(self, table):
+        """
+        Determine table type based on object name or other criteria.
+        Override in subclasses for more specific detection.
+        """
+        table_name = getattr(table, 'objectName', '').lower()
+
+        if 'main' in table_name:
+            return 'main_table'
+        elif 'room' in table_name:
+            return 'room_table'
+        elif 'totals' in table_name:
+            return 'totals_table'
+        else:
+            return 'unknown_table'
     
     def _create_centered_item(self, text: str, column_name: str = "", is_priority: bool = False) -> QTableWidgetItem:
         """Create a table widget item with center alignment, number formatting, and priority-aware styling"""
