@@ -418,10 +418,14 @@ class RoomsTab(QWidget):
 
         return room_data_list
 
-    def load_room_data_from_supabase_rows(self, room_records):
+    def load_room_data_from_supabase_rows(self, room_records, auto_calculate=True):
         """
         Loads room data from Supabase records (list of dictionaries) into the UI.
         Each record is expected to have 'room_data' (JSONB) and potentially 'id' for updates.
+        
+        Args:
+            room_records: List of room calculation records from Supabase
+            auto_calculate: Whether to automatically calculate room bills after loading (default: True)
         """
         if not room_records:
             self.num_rooms_spinbox.setValue(1)
@@ -455,21 +459,42 @@ class RoomsTab(QWidget):
                 if title_label:
                     title_label.setText(new_title)
 
-            def _to_int_str_safe(val):
-                """Return a string representation of an integer, accepting float strings like '123.0'."""
+            def _to_number_str_safe(val):
+                """Return a clean string representation of a number (int if whole, float otherwise)."""
+                if val == '' or val is None:
+                    return ''
                 try:
-                    num = float(val)
-                    if num.is_integer():
-                        return str(int(num))
-                    return str(int(num))  # Non-integer floats are rounded down – adjust if needed
+                    if isinstance(val, int):
+                        return str(val)
+                    elif isinstance(val, float):
+                        # Show as integer if it's a whole number
+                        if val.is_integer():
+                            return str(int(val))
+                        else:
+                            # Remove trailing zeros for cleaner display
+                            return f"{val:g}"
+                    elif isinstance(val, str):
+                        if val.isdigit():
+                            return val
+                        num = float(val)
+                        if num.is_integer():
+                            return str(int(num))
+                        else:
+                            return f"{num:g}"
+                    else:
+                        num = float(val)
+                        if num.is_integer():
+                            return str(int(num))
+                        else:
+                            return f"{num:g}"
                 except (ValueError, TypeError):
                     return str(val)
 
-            room_ui_entries['present_entry'].setText(_to_int_str_safe(room_data_jsonb.get('present_unit', '')))
-            room_ui_entries['previous_entry'].setText(_to_int_str_safe(room_data_jsonb.get('previous_unit', '')))
-            room_ui_entries['gas_bill_entry'].setText(str(room_data_jsonb.get('gas_bill', '')))
-            room_ui_entries['water_bill_entry'].setText(str(room_data_jsonb.get('water_bill', '')))
-            room_ui_entries['house_rent_entry'].setText(str(room_data_jsonb.get('house_rent', '')))
+            room_ui_entries['present_entry'].setText(_to_number_str_safe(room_data_jsonb.get('present_unit', '')))
+            room_ui_entries['previous_entry'].setText(_to_number_str_safe(room_data_jsonb.get('previous_unit', '')))
+            room_ui_entries['gas_bill_entry'].setText(_to_number_str_safe(room_data_jsonb.get('gas_bill', '')))
+            room_ui_entries['water_bill_entry'].setText(_to_number_str_safe(room_data_jsonb.get('water_bill', '')))
+            room_ui_entries['house_rent_entry'].setText(_to_number_str_safe(room_data_jsonb.get('house_rent', '')))
             
             # Store the Supabase ID with the UI entries for later updates
             room_ui_entries['supabase_id'] = room_id
@@ -477,7 +502,9 @@ class RoomsTab(QWidget):
             # Calculated fields are not set directly, they will be recalculated by calculate_rooms
             # after all data is loaded.
         
-        self.calculate_rooms() # Recalculate all rooms after loading data
+        # Only calculate rooms if auto_calculate is True (default behavior)
+        if auto_calculate:
+            self.calculate_rooms()
 
     def clear_room_inputs(self):
         """Clears all input fields and calculated labels in the rooms tab."""

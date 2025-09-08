@@ -742,7 +742,7 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
                         house_rent_entry = room_data['house_rent_entry']
                         grand_total_label = room_data['grand_total_label']
 
-                        room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition((i+j)//3, (i+j)%3).widget()
+                        room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAt(i + j).widget()
                         room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+j+1}"
                         month_idx = self.main_tab_instance.month_combo.currentIndex()
                         next_month_name = self.main_tab_instance.month_combo.itemText((month_idx + 1) % 12)

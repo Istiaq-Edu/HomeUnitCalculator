@@ -21,6 +21,7 @@ from qfluentwidgets import (
 )
 
 from src.core.utils import resource_path
+from src.core.add_month_manager import AddMonthManager
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
 
 class MainTab(QWidget):
@@ -48,6 +49,9 @@ class MainTab(QWidget):
         self.diff_layout = None  
         self.meter_count_spinbox = None
         self.diff_count_spinbox = None
+        
+        # Initialize AddMonthManager
+        self.add_month_manager = None  # Will be initialized after main window is fully set up
 
         self.init_ui()
 
@@ -592,6 +596,32 @@ class MainTab(QWidget):
         load_info_layout.addWidget(self.load_source_button)
         load_info_layout.addSpacing(20)
         load_info_layout.addWidget(load_button)
+        
+        # Add Next Month button (orange styling) - positioned next to Load button
+        add_next_month_button = PrimaryPushButton("Add Next Month")
+        add_next_month_button.clicked.connect(self.add_month_action)
+        add_next_month_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #FF8C00;
+                border: 1px solid #FF8C00;
+                border-radius: 4px;
+                font-weight: 600;
+                padding: 8px 16px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover {
+                background-color: #FF7F00;
+                border-color: #FF7F00;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #FF6600;
+                border-color: #FF6600;
+            }
+        """)
+        
+        load_info_layout.addSpacing(20)
+        load_info_layout.addWidget(add_next_month_button)
         load_info_layout.addStretch(1)
         return load_info_group
         
@@ -953,6 +983,22 @@ class MainTab(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to load data from Cloud: {e}\n{traceback.format_exc()}")
+
+    def add_month_action(self):
+        """Handle Add Month button click to prepare data for next billing period."""
+        if self.add_month_manager is None:
+            # Initialize AddMonthManager if not already done
+            self.add_month_manager = AddMonthManager(
+                self.main_window.supabase_manager, 
+                self.main_window
+            )
+        
+        # Execute the Add Month workflow
+        success = self.add_month_manager.execute_add_month(parent_widget=self)
+        
+        if success:
+            # Trigger main tab calculation to update results display
+            self.calculate_main()
 
     def setup_navigation_main_tab(self):
         """Configure Enter / Up / Down focus navigation for Main tab fields.
