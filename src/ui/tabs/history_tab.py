@@ -225,7 +225,20 @@ class EditRecordDialog(ResponsiveDialog):
     def populate_data(self, main_data, room_data_list):
         # Extract data from main_data JSONB structure
         meter_values = main_data.get("meter_readings", [])
+        if isinstance(meter_values, dict):
+            try:
+                sorted_items = sorted(meter_values.items(), key=lambda item: int(item[0]))
+                meter_values = [item[1] for item in sorted_items]
+            except (ValueError, TypeError):
+                meter_values = []
+
         diff_values = main_data.get("diff_readings", [])
+        if isinstance(diff_values, dict):
+            try:
+                sorted_items = sorted(diff_values.items(), key=lambda item: int(item[0]))
+                diff_values = [item[1] for item in sorted_items]
+            except (ValueError, TypeError):
+                diff_values = []
 
         for i, pair_widgets in enumerate(self.meter_diff_edit_widgets):
             if i < len(meter_values) and pair_widgets['meter_edit']: pair_widgets['meter_edit'].setText(str(meter_values[i]))

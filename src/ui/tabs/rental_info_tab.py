@@ -2,8 +2,11 @@ import sys
 import traceback
 import os
 import io # Import the io module for in-memory binary streams
+import time
+import hashlib
 from datetime import datetime
 from pathlib import Path # Import Path from pathlib
+from typing import List, Dict, Any
 import shutil # Import shutil for file operations
 import uuid # Import uuid for generating unique filenames
 import urllib.parse
@@ -19,7 +22,7 @@ except ModuleNotFoundError:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer
-from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap, QPainter, QColor # Keep QPixmap for _validate_image_file
+from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap, QPainter, QColor, QFont, QFontMetrics # Keep QPixmap for _validate_image_file
 from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGridLayout, QGroupBox, QFormLayout,
@@ -46,6 +49,12 @@ from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgress
 from src.ui.dialogs import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.components import EnhancedTableMixin
+from src.ui.components.table_optimization import (
+    DebounceResizeManager,
+    TableCacheManager,
+    BatchUpdateManager,
+    ResizeDebugManager
+)
 
 # >>> ADD
 # Fluent-widgets progress bar
@@ -122,6 +131,10 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         super().__init__()
         self.main_window = main_window_ref
         self.db_manager = self.main_window.db_manager
+        
+        # Debug configuration flags for production control
+        self._resize_debug_enabled = False  # Can be enabled via configuration
+        
         # >>> ADD
         # Ensure the image storage directory exists right at start-up so that
         # subsequent save operations don't fail due to a missing folder.
@@ -161,6 +174,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
         # Local cache to persist table data between source switches
         self._local_records_cache = None
+
+        # Initialize optimization components
+        self._setup_optimization_components()
 
         self.init_ui()
         self.load_rental_records() # Initial load will be from default source
@@ -515,6 +531,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Apply History tab's exact table styling
         self._style_table(self.rental_records_table)
         
+        # Configure table properties matching history tab strategy
+        self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.rental_records_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.rental_records_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.rental_records_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.rental_records_table.clicked.connect(self.show_record_details_dialog)
@@ -525,7 +544,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         except Exception:
             pass
 
-        table_layout.addWidget(self.rental_records_table)
+        # Add table with stretch factor like history tab
+        table_layout.addWidget(self.rental_records_table, 1)
 
         records_card_layout.addLayout(table_layout)
         right_column_layout.addWidget(self.records_table_card)
@@ -770,28 +790,109 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         
         setCustomStyleSheet(table, light_qss, dark_qss)
         
-        # Configure header alignment
-        table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        # Configure header alignment and stretching for proper window edge alignment
+        header = table.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignCenter)
+        header.setStretchLastSection(True)  # Fix: Enable stretch last section for proper edge alignment
         
         # Enable sorting
         table.setSortingEnabled(True)
         
         # Set minimum section size
-        table.horizontalHeader().setMinimumSectionSize(80)
+        header.setMinimumSectionSize(80)
         
         # Apply intelligent column widths for responsiveness
         self._set_intelligent_column_widths(table)
 
     def _set_intelligent_column_widths(self, table: TableWidget):
-        """Set responsive column widths based on content and window size (inspired by history tab)"""
+        """Set responsive column widths based on content and window size with advanced caching optimization"""
+        print(f"[RENTAL DEBUG] _set_intelligent_column_widths called for table with {table.columnCount()} columns")
+        
         if table.columnCount() == 0:
+            print(f"[RENTAL DEBUG] No columns, returning early")
             return
         
-        header = table.horizontalHeader()
+        # Check if table is properly initialized
         available_width = table.viewport().width()
+        print(f"[RENTAL DEBUG] Available width: {available_width}px")
+        
+        if available_width <= 50:  # Minimum reasonable width
+            print(f"[RENTAL DEBUG] Available width too small ({available_width}px), retrying...")
+            # Table not ready yet, retry after a short delay
+            QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(table))
+            return
+        
+        # Check if table has reasonable size (remove visibility check for headless testing)
+        table_width = table.width()
+        print(f"[RENTAL DEBUG] Table width: {table_width}px")
+        
+        if table_width <= 50:
+            print(f"[RENTAL DEBUG] Table width too small ({table_width}px), retrying...")
+            # Table not properly sized yet, retry after delay
+            QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(table))
+            return
+        
+        # Start timing for performance monitoring
+        start_time = time.time() * 1000  # Convert to milliseconds
+        
+        try:
+            # DISABLED: Cache can interfere with column distribution
+            # Check for cached widths first using advanced cache manager
+            if False and hasattr(self, '_cache_manager') and self._cache_manager:
+                cache_key = self._cache_manager.generate_table_content_hash(table)
+                cached_data = self._cache_manager.get_cached_content_width(cache_key)
+                
+                if cached_data and len(cached_data['column_widths']) == table.columnCount():
+                    # Use cached widths if available and valid
+                    self._apply_cached_column_widths(table, cached_data['column_widths'])
+                    
+                    if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                        self._debug_manager.log_cache_operation('content_width', 'get_cached_widths', True, 
+                                                              {'cache_key': cache_key[:8], 'column_count': table.columnCount()})
+                    self._log_resize_debug("Cache hit for content widths", {'cache_key': cache_key[:8]})
+                    return
+                
+                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                    self._debug_manager.log_cache_operation('content_width', 'get_cached_widths', False,
+                                                          {'cache_key': cache_key[:8], 'reason': 'cache_miss'})
+                self._log_resize_debug("Cache miss for content widths", {'cache_key': cache_key[:8]})
+        
+        except Exception as e:
+            print(f"Advanced cache lookup failed: {e}")
+        
+        header = table.horizontalHeader()
+        
+        # Ensure Qt isn't stretching the last section implicitly (from history tab)
+        if header:
+            header.setStretchLastSection(False)
+        
+        # Force geometry update first to get accurate measurements (from history tab)
+        table.updateGeometry()
+        
+        # Calculate available width more accurately (from history tab)
+        viewport_width = table.viewport().width()
+        table_width = table.width()
+        
+        # Use the most reliable width measurement (from history tab)
+        if viewport_width > 50:
+            available_width = viewport_width
+        elif table_width > 50:
+            available_width = table_width - 50  # Account for potential scrollbars
+        else:
+            # Last resort - use parent width
+            available_width = table.parent().width() - 50 if table.parent() else 500
+        
         column_count = table.columnCount()
         
-        # Calculate content-based widths for each column with minimal padding
+        # Debug: Print viewport width for troubleshooting
+        self._log_resize_debug("Column width calculation started", {
+            'viewport_width': viewport_width,
+            'table_width': table_width,
+            'available_width': available_width,
+            'column_count': column_count
+        })
+        
+        # Calculate content-based widths for each column with cached font metrics
         content_widths = {}
         total_min_width = 0
         
@@ -800,63 +901,219 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             header_item = table.horizontalHeaderItem(col)
             header_text = header_item.text() if header_item else ""
             
-            # Calculate minimum width needed for header with minimal padding
-            from PyQt5.QtGui import QFontMetrics
-            if header_item:
-                font_metrics = QFontMetrics(header_item.font())
-            else:
-                font_metrics = QFontMetrics(table.font())
+            # Use cached font metrics for performance
+            font_metrics = self._get_cached_font_metrics_for_column(table, col, header_text)
             header_width = font_metrics.boundingRect(header_text).width() + 8  # Minimal padding
             
             # Check content width for sample rows (for performance)
             max_content_width = header_width
-            for row in range(min(table.rowCount(), 5)):  # Sample fewer rows
+            sample_size = min(table.rowCount(), 100)  # Increased sample size but still limited
+            for row in range(sample_size):
                 item = table.item(row, col)
                 if item:
                     content_text = item.text()
                     content_width = font_metrics.boundingRect(content_text).width() + 8  # Minimal padding
                     max_content_width = max(max_content_width, content_width)
             
-            # Set compact minimum widths based on column type (following history tab pattern)
+            # Set minimum widths based on column type (inspired by history tab)
             header_lower = header_text.lower()
             if any(keyword in header_lower for keyword in ["tenant", "name"]):
-                # Tenant name column needs space for names - priority column like month
+                # Tenant name column needs more space for full names (like month column in history)
+                # Use a more generous minimum width to prevent truncation
+                content_widths[col] = max(max_content_width, 200)
+            elif any(keyword in header_lower for keyword in ["room", "number"]):
+                # Room columns moderate space
+                content_widths[col] = max(max_content_width, 100)
+            elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount", "grand"]):
+                # Financial columns need space for numbers
+                content_widths[col] = max(max_content_width, 120)
+            elif any(keyword in header_lower for keyword in ["created", "updated"]):
+                # Date columns need space for timestamps
                 content_widths[col] = max(max_content_width, 140)
             elif "id" in header_lower:
-                # ID columns very compact
-                content_widths[col] = max(max_content_width, 50)
-            elif any(keyword in header_lower for keyword in ["room", "number"]):
-                # Room columns compact
-                content_widths[col] = max(max_content_width, 70)
-            elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount", "grand"]):
-                # Financial columns compact
+                # ID columns can be compact
                 content_widths[col] = max(max_content_width, 80)
-            elif any(keyword in header_lower for keyword in ["created", "updated"]):
-                # Date columns compact
-                content_widths[col] = max(max_content_width, 90)
             else:
-                # Default column width - compact
-                content_widths[col] = max(max_content_width, 65)
+                # Default column width
+                content_widths[col] = max(max_content_width, 100)
             
             total_min_width += content_widths[col]
         
-        # If total width is less than available width, distribute extra space proportionally
-        if total_min_width < available_width and available_width > 0:
-            extra_space = available_width - total_min_width
+        # Cache the calculated widths using advanced cache manager (before proportional distribution)
+        try:
+            if hasattr(self, '_cache_manager') and self._cache_manager:
+                cache_key = self._cache_manager.generate_table_content_hash(table)
+                column_widths_list = [content_widths[col] for col in range(column_count)]
+                
+                self._cache_manager.cache_content_width(
+                    cache_key, 
+                    column_widths_list, 
+                    total_min_width, 
+                    sample_size
+                )
+                
+                # Update table content hash tracking
+                self._cache_manager.update_table_content_hash('rental_table', table)
+                
+        except Exception as e:
+            print(f"Failed to cache column widths: {e}")
+        
+        # HYBRID APPROACH: Stretch when content fits, scroll when it doesn't (like history tab)
+        print(f"[RENTAL DEBUG] Available: {available_width}px")
+        print(f"[RENTAL DEBUG] Content widths: {[content_widths[col] for col in range(column_count)]}")
+        print(f"[RENTAL DEBUG] Total min width: {total_min_width}px")
+        
+        header = table.horizontalHeader()
+        
+        # Determine if content fits in available space
+        content_fits = total_min_width <= (available_width - 30)  # 30px buffer for scrollbars
+        print(f"[RENTAL DEBUG] Content fits: {content_fits} ({total_min_width} <= {available_width - 30})")
+        
+        if content_fits and available_width > 200:
+            # Content fits - use STRETCH mode for equal distribution
             for col in range(column_count):
-                proportion = content_widths[col] / total_min_width if total_min_width > 0 else 1.0 / column_count
-                content_widths[col] += int(extra_space * proportion)
+                header.setSectionResizeMode(col, QHeaderView.Stretch)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            print(f"[RENTAL DEBUG] Applied STRETCH mode - content fits in {available_width}px")
+        else:
+            # Content doesn't fit - use FIXED mode with horizontal scrolling to prevent truncation
+            for col in range(column_count):
+                header.setSectionResizeMode(col, QHeaderView.Fixed)
+                table.setColumnWidth(col, content_widths[col])
+            
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            # Ensure horizontal scrollbar is visible when needed
+            if hasattr(table, 'horizontalScrollBar') and table.horizontalScrollBar():
+                table.horizontalScrollBar().setVisible(True)
+            
+            print(f"[RENTAL DEBUG] Applied FIXED mode with scrolling - total width {total_min_width}px")
         
-        # Apply the calculated widths
+        # Verify mode was applied
         for col in range(column_count):
-            header.setSectionResizeMode(col, QHeaderView.Fixed)
-            table.setColumnWidth(col, content_widths[col])
+            mode = header.sectionResizeMode(col)
+            mode_name = {0: "Interactive", 1: "Fixed", 2: "Stretch", 3: "ResizeToContents"}.get(mode, f"Unknown({mode})")
+            width = table.columnWidth(col) if mode == 1 else "auto"
+            print(f"[RENTAL DEBUG] Column {col} ({table.horizontalHeaderItem(col).text() if table.horizontalHeaderItem(col) else 'N/A'}): {mode_name}, width: {width}")
         
-        # Enable horizontal scrolling when needed
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # Ensure table takes full width of its parent
+        table.setMinimumWidth(0)
+        table.setMaximumWidth(16777215)
+        policy = table.sizePolicy()
+        policy.setHorizontalPolicy(policy.Expanding)
+        policy.setVerticalPolicy(policy.Expanding)
+        table.setSizePolicy(policy)
+        
+        # Configure header settings
+        if header:
+            header.setStretchLastSection(False)  # Disable for consistent behavior
+            header.setMinimumSectionSize(80)  # Minimum column width
+        
+        print(f"[RENTAL DEBUG] Table size policy and header configured")
         
         # Apply special styling to tenant name column
         self._apply_tenant_name_column_styling(table)
+    
+    def _ensure_stretch_mode(self, table):
+        """Ensure all columns are in stretch mode - called with delay to override any conflicting settings"""
+        try:
+            header = table.horizontalHeader()
+            if header and table.columnCount() > 0:
+                print(f"[RENTAL DEBUG] Ensuring stretch mode for {table.columnCount()} columns")
+                
+                # Force all columns to stretch mode
+                for col in range(table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.Stretch)
+                
+                # Ensure stretch last section is enabled
+                header.setStretchLastSection(True)
+                
+                # Disable horizontal scrolling
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                
+                # Debug: Check what modes were actually set
+                for col in range(table.columnCount()):
+                    mode = header.sectionResizeMode(col)
+                    mode_name = {0: "Interactive", 1: "Fixed", 2: "Stretch", 3: "ResizeToContents"}.get(mode, f"Unknown({mode})")
+                    print(f"[RENTAL DEBUG] Column {col} mode after force: {mode_name}")
+                    
+        except Exception as e:
+            print(f"[RENTAL DEBUG] Failed to ensure stretch mode: {e}")
+    
+    def _force_proportional_distribution(self, table):
+        """Force proportional column distribution - called after data is loaded"""
+        try:
+            header = table.horizontalHeader()
+            if not header or table.columnCount() == 0:
+                return
+                
+            available_width = table.viewport().width()
+            if available_width <= 200:
+                return
+                
+            print(f"[RENTAL DEBUG] Forcing proportional distribution with viewport width: {available_width}px")
+            
+            # Define column weights
+            column_weights = {}
+            for col in range(table.columnCount()):
+                header_item = table.horizontalHeaderItem(col)
+                header_text = header_item.text() if header_item else ""
+                header_lower = header_text.lower()
+                
+                if any(keyword in header_lower for keyword in ["tenant", "name"]):
+                    column_weights[col] = 0.30
+                elif any(keyword in header_lower for keyword in ["room", "number"]):
+                    column_weights[col] = 0.15
+                elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount"]):
+                    column_weights[col] = 0.15
+                elif any(keyword in header_lower for keyword in ["created", "updated"]):
+                    column_weights[col] = 0.20
+                else:
+                    column_weights[col] = 0.20
+            
+            # Normalize weights
+            total_weight = sum(column_weights.values())
+            if total_weight > 0:
+                for col in column_weights:
+                    column_weights[col] = column_weights[col] / total_weight
+            
+            # First, ensure all columns are in Interactive mode
+            for col in range(table.columnCount()):
+                header.setSectionResizeMode(col, QHeaderView.Interactive)
+            
+            # Disable stretch last section temporarily to allow manual sizing
+            header.setStretchLastSection(False)
+            
+            # Apply proportional widths with more aggressive approach
+            print(f"[RENTAL DEBUG] Applying proportional widths:")
+            for col in range(table.columnCount()):
+                weight = column_weights.get(col, 1.0 / table.columnCount())
+                proportional_width = int(available_width * weight)
+                min_width = max(60, proportional_width)
+                
+                # Get current width for comparison
+                current_width = table.columnWidth(col)
+                
+                # Try multiple methods to set the width
+                header.resizeSection(col, min_width)
+                table.setColumnWidth(col, min_width)
+                
+                # Verify the width was set
+                new_width = table.columnWidth(col)
+                header_item = table.horizontalHeaderItem(col)
+                header_text = header_item.text() if header_item else f"Col {col}"
+                
+                print(f"[RENTAL DEBUG]   {header_text}: {current_width}px -> {new_width}px (target: {min_width}px, weight: {weight:.2f})")
+            
+            # Re-enable stretch last section for edge alignment
+            header.setStretchLastSection(True)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            
+            print(f"[RENTAL DEBUG] Forced proportional distribution with weights: {column_weights}")
+            
+        except Exception as e:
+            print(f"[RENTAL DEBUG] Failed to force proportional distribution: {e}")
+        
+        # Performance logging removed from this method since it doesn't have start_time
     
     def _apply_tenant_name_column_styling(self, table: TableWidget):
         """Apply special styling to the tenant name column for better visual distinction (matching month column style)"""
@@ -908,17 +1165,884 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
 
     def resizeEvent(self, event):
-        """Handle widget resize events"""
+        """Handle widget resize events - directly recalculate column widths"""
         super().resizeEvent(event)
-        QTimer.singleShot(200, lambda: self._recalculate_all_table_widths())
+        # Since table optimization is disabled, directly call our column width method
+        if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            QTimer.singleShot(200, lambda: self._set_intelligent_column_widths(self.rental_records_table))
+    
+    def showEvent(self, event):
+        """Handle tab becoming visible - directly recalculate column widths"""
+        try:
+            super().showEvent(event)
+            
+            # Since table optimization is disabled, directly call our column width method
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(self.rental_records_table))
+        except Exception as e:
+            print(f"Error in showEvent: {e}")
 
     def _recalculate_all_table_widths(self):
-        """Recalculate column widths for all tables"""
+        """Recalculate column widths for all tables using batched updates and caching"""
         try:
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
-                self._set_intelligent_column_widths(self.rental_records_table)
+            # Use batch update manager for flicker-free recalculation
+            if hasattr(self, '_batch_manager') and self._batch_manager and hasattr(self, 'rental_records_table') and self.rental_records_table:
+                try:
+                    self._batch_manager.begin_batch_update()
+                    self._set_intelligent_column_widths(self.rental_records_table)
+                    return True
+                except Exception as e:
+                    print(f"Batched table width recalculation failed: {e}")
+                    return False
+                finally:
+                    self._batch_manager.end_batch_update()
+            else:
+                # Fallback to direct method if batch manager not available
+                if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                    self._set_intelligent_column_widths(self.rental_records_table)
+                    return True
         except Exception as e:
             print(f"Could not recalculate table widths: {e}")
+            return False
+
+    # ===== OPTIMIZATION METHODS =====
+    
+    def _setup_optimization_components(self):
+        """Initialize optimization components with comprehensive error handling and fallback mechanisms"""
+        try:
+            # Import the new optimization component manager
+            from src.ui.components.table_optimization import OptimizationComponentManager
+            
+            # Initialize the comprehensive optimization manager
+            self._optimization_manager = OptimizationComponentManager(self)
+            
+            # Setup table optimization for rental records table
+            QTimer.singleShot(100, self._setup_table_optimizations)
+            
+            # Store references for backward compatibility
+            self._debounce_manager = self._optimization_manager.debounce_manager
+            self._cache_manager = self._optimization_manager.cache_manager
+            self._debug_manager = self._optimization_manager.debug_manager
+            
+            # Connect debounce signal
+            if self._debounce_manager:
+                self._debounce_manager.resize_requested.connect(self._perform_debounced_resize)
+            
+        except Exception as e:
+            print(f"Warning: Could not initialize optimization components: {e}")
+            # Initialize fallback components
+            self._setup_fallback_optimization()
+
+    def _setup_fallback_optimization(self):
+        """Setup basic fallback optimization when advanced components fail"""
+        try:
+            from src.ui.components.table_optimization import (
+                OptimizationConfig, OptimizationErrorHandler, FallbackResizeManager
+            )
+            
+            # Create basic configuration and error handler
+            self._config = OptimizationConfig()
+            self._config.disable_all_optimizations()  # Use fallback mode
+            self._error_handler = OptimizationErrorHandler(self._config)
+            
+            # Create fallback manager
+            self._fallback_manager = FallbackResizeManager(self)
+            
+            # Set components to None to indicate fallback mode
+            self._optimization_manager = None
+            self._debounce_manager = None
+            self._cache_manager = None
+            self._debug_manager = None
+            
+        except Exception as e:
+            print(f"Critical: Could not initialize fallback optimization: {e}")
+            # Absolute fallback - no optimization components
+            self._optimization_manager = None
+            self._debounce_manager = None
+            self._cache_manager = None
+            self._debug_manager = None
+            self._fallback_manager = None
+
+    def _setup_table_optimizations(self):
+        """Setup optimization for specific tables with error handling"""
+        try:
+            # DISABLED: Table optimization interferes with our column width management
+            # The optimization system forces ResizeToContents mode which overrides our
+            # carefully set STRETCH/FIXED modes for proper column distribution
+            print("Table optimization disabled to prevent column width interference")
+            return
+            
+            if not self._optimization_manager:
+                return
+            
+            # Setup optimization for rental records table
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                self._optimization_manager.setup_table_optimization(
+                    self.rental_records_table, 
+                    'rental_table'
+                )
+            
+            # Setup resize debouncing
+            self._setup_resize_debouncing()
+            
+        except Exception as e:
+            print(f"Warning: Could not setup table optimizations: {e}")
+            # Try fallback setup
+            self._setup_fallback_table_optimization()
+
+    def _setup_resize_debouncing(self):
+        """Initialize debounced resize system and consolidate resize handlers with error handling"""
+        try:
+            if not self._optimization_manager or not self._debounce_manager:
+                # Use fallback resize setup
+                self._setup_fallback_resize_handling()
+                return
+                
+            # Consolidate all resize event sources
+            self._consolidate_resize_handlers()
+            
+            # Batch managers are now handled by the optimization manager
+            # Store reference for backward compatibility
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                batch_managers = self._optimization_manager.batch_managers
+                self._rental_batch_manager = batch_managers.get('rental_table')
+            
+        except Exception as e:
+            print(f"Warning: Could not setup resize debouncing: {e}")
+            # Try fallback resize handling
+            self._setup_fallback_resize_handling()
+
+    def _setup_fallback_resize_handling(self):
+        """Setup basic resize handling when optimization components fail"""
+        try:
+            if hasattr(self, '_fallback_manager') and self._fallback_manager:
+                # Setup basic table properties
+                if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                    self._fallback_manager.perform_basic_table_setup(self.rental_records_table)
+            
+        except Exception as e:
+            print(f"Warning: Fallback resize setup failed: {e}")
+
+    def _setup_fallback_table_optimization(self):
+        """Setup fallback table optimization when main optimization fails"""
+        try:
+            if hasattr(self, '_fallback_manager') and self._fallback_manager:
+                if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                    self._fallback_manager.perform_basic_table_setup(self.rental_records_table)
+                    
+        except Exception as e:
+            print(f"Warning: Fallback table optimization failed: {e}")
+
+    def _perform_debounced_resize(self):
+        """Execute the actual resize operation with comprehensive error handling and fallback mechanisms"""
+        try:
+            start_time = time.time() * 1000 if hasattr(self, '_debug_manager') and self._debug_manager else None
+            
+            # Check if optimization manager is available
+            if self._optimization_manager and not self._optimization_manager.error_handler.is_fallback_active():
+                # Use optimized resize path
+                self._perform_optimized_resize()
+            else:
+                # Use fallback resize path
+                self._perform_fallback_resize()
+                
+            # Log performance if debug enabled
+            if start_time:
+                duration = (time.time() * 1000) - start_time
+                self._log_resize_debug("debounced_resize", {}, duration)
+                
+        except Exception as e:
+            print(f"Error during debounced resize: {e}")
+            # Last resort fallback
+            self._emergency_resize_fallback()
+
+    def _perform_optimized_resize(self):
+        """Perform optimized resize using the optimization manager"""
+        try:
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                self._optimization_manager.safe_resize_table(
+                    self.rental_records_table, 
+                    'rental_table'
+                )
+            
+        except Exception as e:
+            # Let optimization manager handle the error
+            if self._optimization_manager:
+                should_retry = self._optimization_manager.error_handler.handle_error(
+                    'perform_optimized_resize', e, {'table': 'rental_table'}
+                )
+                if not should_retry:
+                    self._perform_fallback_resize()
+            else:
+                raise e
+
+    def _perform_fallback_resize(self):
+        """Perform fallback resize using basic mechanisms"""
+        try:
+            if hasattr(self, '_fallback_manager') and self._fallback_manager:
+                if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                    self._fallback_manager.perform_basic_resize(self.rental_records_table)
+            else:
+                # Direct fallback to original method
+                self._recalculate_all_table_widths()
+                
+        except Exception as e:
+            print(f"Fallback resize failed: {e}")
+            # Try emergency fallback
+            self._emergency_resize_fallback()
+
+    def _final_column_mode_override(self, table):
+        """Final aggressive override of column modes - called after everything else is done"""
+        try:
+            if not table or table.columnCount() == 0:
+                return
+                
+            header = table.horizontalHeader()
+            available_width = table.viewport().width()
+            
+            # Simple approach: just force STRETCH mode for equal distribution
+            if available_width > 200:
+                print(f"[RENTAL FINAL] Forcing STRETCH mode for equal distribution")
+                
+                # Aggressively set STRETCH mode
+                for col in range(table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.Stretch)
+                
+                # Force header settings
+                header.setStretchLastSection(False)
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                
+                # Force table to take full width
+                table.setMinimumWidth(0)
+                table.setMaximumWidth(16777215)
+                policy = table.sizePolicy()
+                policy.setHorizontalPolicy(policy.Expanding)
+                table.setSizePolicy(policy)
+                
+                print(f"[RENTAL FINAL] Applied STRETCH mode to all {table.columnCount()} columns")
+                
+                # Verify the modes were set
+                for col in range(table.columnCount()):
+                    mode = header.sectionResizeMode(col)
+                    mode_name = {0: "Interactive", 1: "Fixed", 2: "Stretch", 3: "ResizeToContents"}.get(mode, f"Unknown({mode})")
+                    print(f"[RENTAL FINAL] Column {col} mode: {mode_name}")
+            
+        except Exception as e:
+            print(f"Failed to apply final column mode override: {e}")
+
+    def _force_column_modes(self, table):
+        """Force column modes to stick - called multiple times to override any interference"""
+        try:
+            if not table or table.columnCount() == 0:
+                return
+                
+            header = table.horizontalHeader()
+            available_width = table.viewport().width()
+            
+            # Calculate if content should fit (same logic as main method)
+            content_widths = {}
+            sample_size = min(5, table.rowCount())
+            
+            for col in range(table.columnCount()):
+                header_item = table.horizontalHeaderItem(col)
+                header_text = header_item.text() if header_item else ""
+                header_width = len(header_text) * 8 + 20
+                
+                max_content_width = header_width
+                for row in range(sample_size):
+                    item = table.item(row, col)
+                    if item:
+                        content_text = item.text()
+                        content_width = len(content_text) * 8 + 20
+                        max_content_width = max(max_content_width, content_width)
+                
+                # Apply same intelligent bounds as main method
+                header_lower = header_text.lower()
+                if any(keyword in header_lower for keyword in ["tenant", "name"]):
+                    content_widths[col] = max(120, min(max_content_width, 180))
+                elif any(keyword in header_lower for keyword in ["room", "number"]):
+                    content_widths[col] = max(80, min(max_content_width, 100))
+                elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount"]):
+                    content_widths[col] = max(100, min(max_content_width, 130))
+                elif any(keyword in header_lower for keyword in ["created", "updated"]):
+                    content_widths[col] = max(110, min(max_content_width, 130))
+                else:
+                    content_widths[col] = max(80, min(max_content_width, 150))
+            
+            # Apply hybrid approach
+            total_width = sum(content_widths.values())
+            content_fits = total_width <= (available_width - 30)
+            
+            if content_fits and available_width > 200:
+                # Force STRETCH mode
+                for col in range(table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.Stretch)
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                print(f"[RENTAL FORCE] Applied STRETCH mode for {table.columnCount()} columns")
+            else:
+                # Force FIXED mode
+                for col in range(table.columnCount()):
+                    header.setSectionResizeMode(col, QHeaderView.Fixed)
+                    table.setColumnWidth(col, content_widths[col])
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+                print(f"[RENTAL FORCE] Applied FIXED mode with widths: {list(content_widths.values())}")
+            
+            # Force header settings
+            header.setStretchLastSection(False)
+            
+        except Exception as e:
+            print(f"Failed to force column modes: {e}")
+
+    def _emergency_resize_fallback(self):
+        """Emergency resize fallback when all other methods fail"""
+        try:
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                # Use stretch mode for consistent behavior even in emergency fallback
+                header = self.rental_records_table.horizontalHeader()
+                for col in range(self.rental_records_table.columnCount()):
+                    try:
+                        header.setSectionResizeMode(col, QHeaderView.Stretch)
+                    except Exception:
+                        pass  # Continue with other columns
+                
+                # Ensure stretch last section is enabled
+                try:
+                    header.setStretchLastSection(True)
+                    self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                except Exception:
+                    pass
+                        
+        except Exception as e:
+            print(f"Emergency resize fallback failed: {e}")
+            # At this point, we've exhausted all options
+
+    # ===== ERROR HANDLING AND CONFIGURATION METHODS =====
+    
+    def get_optimization_status(self) -> Dict[str, Any]:
+        """Get comprehensive status of optimization components for monitoring and debugging"""
+        try:
+            if self._optimization_manager:
+                return self._optimization_manager.get_optimization_status()
+            else:
+                return {
+                    'status': 'fallback_mode',
+                    'optimization_manager': False,
+                    'fallback_manager': hasattr(self, '_fallback_manager') and self._fallback_manager is not None,
+                    'error': 'Optimization manager not initialized'
+                }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
+    
+    def enable_optimization_safe_mode(self):
+        """Enable safe mode with minimal optimizations for troubleshooting"""
+        try:
+            if self._optimization_manager:
+                self._optimization_manager.enable_safe_mode()
+                print("[RENTAL TAB] Optimization safe mode enabled")
+            else:
+                print("[RENTAL TAB] Cannot enable safe mode - optimization manager not available")
+        except Exception as e:
+            print(f"[RENTAL TAB] Failed to enable safe mode: {e}")
+    
+    def disable_all_optimizations(self):
+        """Disable all optimizations and use fallback mode"""
+        try:
+            if self._optimization_manager:
+                self._optimization_manager.disable_all_optimizations()
+                print("[RENTAL TAB] All optimizations disabled")
+            else:
+                print("[RENTAL TAB] Optimizations already disabled")
+        except Exception as e:
+            print(f"[RENTAL TAB] Failed to disable optimizations: {e}")
+    
+    def reset_optimization_state(self):
+        """Reset optimization state and clear errors for recovery"""
+        try:
+            if self._optimization_manager:
+                self._optimization_manager.reset_optimization_state()
+                print("[RENTAL TAB] Optimization state reset")
+            else:
+                # Try to reinitialize optimization components
+                self._setup_optimization_components()
+                print("[RENTAL TAB] Attempted to reinitialize optimization components")
+        except Exception as e:
+            print(f"[RENTAL TAB] Failed to reset optimization state: {e}")
+    
+    def print_optimization_report(self):
+        """Print detailed optimization performance and error report for debugging"""
+        try:
+            status = self.get_optimization_status()
+            
+            print("\n=== RENTAL TAB OPTIMIZATION REPORT ===")
+            print(f"Status: {status.get('status', 'unknown')}")
+            
+            if 'config' in status:
+                config = status['config']
+                print(f"Debounced Resize: {'Enabled' if config.get('enable_debounced_resize') else 'Disabled'}")
+                print(f"Caching: {'Enabled' if config.get('enable_caching') else 'Disabled'}")
+                print(f"Batch Updates: {'Enabled' if config.get('enable_batch_updates') else 'Disabled'}")
+                print(f"Debug Logging: {'Enabled' if config.get('enable_debug_logging') else 'Disabled'}")
+            
+            if 'error_summary' in status:
+                error_summary = status['error_summary']
+                print(f"Total Errors: {error_summary.get('total_errors', 0)}")
+                print(f"Fallback Active: {error_summary.get('fallback_active', False)}")
+                
+                if error_summary.get('recent_errors'):
+                    print("Recent Errors:")
+                    for error in error_summary['recent_errors'][-3:]:  # Last 3 errors
+                        print(f"  - {error.get('operation', 'unknown')}: {error.get('error_message', 'unknown')}")
+            
+            print("=" * 45)
+            
+        except Exception as e:
+            print(f"Failed to print optimization report: {e}")
+    
+    def force_column_width_refresh(self):
+        """Force refresh of column widths to ensure they stick to the window"""
+        try:
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                # Clear any cached widths to force recalculation
+                if hasattr(self, '_cache_manager') and self._cache_manager:
+                    self._cache_manager.invalidate_cache_for_table('rental_table')
+                
+                # Force immediate recalculation with multiple attempts
+                def attempt_resize(attempt=1):
+                    try:
+                        viewport_width = self.rental_records_table.viewport().width()
+                        print(f"[RENTAL FORCE REFRESH] Attempt {attempt}: Viewport width = {viewport_width}px")
+                        
+                        if viewport_width > 50:
+                            self._set_intelligent_column_widths(self.rental_records_table)
+                            print(f"[RENTAL FORCE REFRESH] Success on attempt {attempt}")
+                        elif attempt < 5:
+                            # Retry with increasing delay
+                            QTimer.singleShot(attempt * 100, lambda: attempt_resize(attempt + 1))
+                        else:
+                            print(f"[RENTAL FORCE REFRESH] Failed after {attempt} attempts")
+                    except Exception as e:
+                        print(f"[RENTAL FORCE REFRESH] Error on attempt {attempt}: {e}")
+                
+                attempt_resize()
+                
+        except Exception as e:
+            print(f"Failed to force column width refresh: {e}")
+            # Fallback to original resize behavior
+            try:
+                self._recalculate_all_table_widths()
+            except Exception as fallback_error:
+                print(f"Fallback resize also failed: {fallback_error}")
+
+    def _consolidate_resize_handlers(self):
+        """Unify all resize event sources to route through debounced system"""
+        try:
+            # Override any existing resize handlers to use debounced system
+            # This ensures all resize events (resizeEvent, showEvent, etc.) use the same path
+            
+            # Store original showEvent if it exists
+            if hasattr(self, 'showEvent'):
+                self._original_showEvent = self.showEvent
+            
+            # Replace showEvent to trigger debounced resize
+            def optimized_showEvent(event):
+                if hasattr(self, '_original_showEvent'):
+                    self._original_showEvent(event)
+                else:
+                    super(RentalInfoTab, self).showEvent(event)
+                    
+                # Trigger optimized initial table sizing
+                if hasattr(self, '_debounce_manager') and self._debounce_manager:
+                    QTimer.singleShot(100, self._debounce_manager.trigger_debounced_resize)
+                    
+            self.showEvent = optimized_showEvent
+            
+            # Ensure table resize handlers also use debounced system
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                # Override any existing table resize handlers
+                def optimized_table_resize():
+                    if hasattr(self, '_debounce_manager') and self._debounce_manager:
+                        self._debounce_manager.trigger_debounced_resize()
+                        
+                # Replace any existing table resize connections
+                try:
+                    # Disconnect existing connections if any
+                    self.rental_records_table.horizontalHeader().sectionResized.disconnect()
+                except:
+                    pass
+                    
+                # Connect to debounced system
+                self.rental_records_table.horizontalHeader().sectionResized.connect(
+                    lambda: QTimer.singleShot(50, optimized_table_resize)
+                )
+                
+        except Exception as e:
+            print(f"Warning: Could not consolidate resize handlers: {e}")
+
+    def _generate_table_cache_key(self, table: QTableWidget) -> str:
+        """Generate a cache key based on table content for width caching"""
+        try:
+            # Create a hash based on table structure and sample content
+            content_parts = []
+            
+            # Add column headers
+            for col in range(table.columnCount()):
+                header_item = table.horizontalHeaderItem(col)
+                if header_item:
+                    content_parts.append(header_item.text())
+            
+            # Add sample of table content (first few rows)
+            sample_rows = min(table.rowCount(), 10)
+            for row in range(sample_rows):
+                row_content = []
+                for col in range(table.columnCount()):
+                    item = table.item(row, col)
+                    if item:
+                        row_content.append(item.text()[:50])  # Limit text length for hash
+                content_parts.append('|'.join(row_content))
+            
+            # Add table dimensions
+            content_parts.append(f"{table.rowCount()}x{table.columnCount()}")
+            
+            # Create hash
+            content_string = '||'.join(content_parts)
+            return hashlib.md5(content_string.encode()).hexdigest()
+            
+        except Exception as e:
+            print(f"Failed to generate cache key: {e}")
+            # Fallback to simple key
+            return f"table_{table.columnCount()}_{table.rowCount()}_{time.time()}"
+
+    def _get_cached_font_metrics(self, header_item, table):
+        """Get cached font metrics or calculate and cache new ones"""
+        try:
+            if hasattr(self, '_cache_manager') and self._cache_manager:
+                # Generate font key
+                if header_item:
+                    font = header_item.font()
+                else:
+                    font = table.font()
+                    
+                font_key = f"{font.family()}_{font.pointSize()}_{font.weight()}_{font.bold()}"
+                
+                # Try to get cached metrics
+                cached_metrics = self._cache_manager.get_cached_font_metrics(font_key)
+                if cached_metrics:
+                    if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                        self._debug_manager.log_cache_operation('font_metrics', True)
+                    return cached_metrics['metrics']
+                
+                # Cache miss - calculate and cache
+                from PyQt5.QtGui import QFontMetrics
+                metrics = QFontMetrics(font)
+                self._cache_manager.cache_font_metrics(font_key, font, metrics)
+                
+                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                    self._debug_manager.log_cache_operation('font_metrics', False)
+                    
+                return metrics
+            else:
+                # No cache manager - direct calculation
+                from PyQt5.QtGui import QFontMetrics
+                if header_item:
+                    return QFontMetrics(header_item.font())
+                else:
+                    return QFontMetrics(table.font())
+                    
+        except Exception as e:
+            print(f"Font metrics caching failed: {e}")
+            # Fallback to direct calculation
+            from PyQt5.QtGui import QFontMetrics
+            if header_item:
+                return QFontMetrics(header_item.font())
+            else:
+                return QFontMetrics(table.font())
+
+    def _get_cached_font_metrics_for_column(self, table: TableWidget, col: int, header_text: str):
+        """Get cached font metrics for a specific column with priority-aware font configuration"""
+        try:
+            # Determine if this is a priority column
+            is_priority = self._is_priority_column('rental_table', header_text)
+            
+            # Get font configuration based on priority
+            if is_priority:
+                font_size = self.FONT_SIZES['priority_columns']
+                font_weight = self.FONT_WEIGHTS['priority_columns']
+            else:
+                font_size = self.FONT_SIZES['regular_columns']
+                font_weight = self.FONT_WEIGHTS['regular_columns']
+            
+            # Generate font cache key
+            font_key = f"rental_font_{font_size}_{font_weight}"
+            
+            # Try to get cached font metrics
+            if hasattr(self, '_cache_manager') and self._cache_manager:
+                cached_metrics = self._cache_manager.get_cached_font_metrics(font_key)
+                if cached_metrics:
+                    if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                        self._debug_manager.log_cache_operation('font_metrics', 'get_cached_metrics', True,
+                                                              {'font_key': font_key, 'column': col})
+                    return cached_metrics['metrics']
+            
+            # Cache miss - create new font and metrics
+            font = QFont()
+            font.setPointSize(font_size)
+            font.setWeight(font_weight)
+            metrics = QFontMetrics(font)
+            
+            # Cache the new font metrics
+            if hasattr(self, '_cache_manager') and self._cache_manager:
+                self._cache_manager.cache_font_metrics(font_key, font, metrics)
+                
+                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                    self._debug_manager.log_cache_operation('font_metrics', 'cache_new_metrics', False,
+                                                          {'font_key': font_key, 'column': col})
+            
+            return metrics
+            
+        except Exception as e:
+            print(f"Font metrics caching failed: {e}")
+            # Fallback to basic font metrics
+            header_item = table.horizontalHeaderItem(col)
+            if header_item:
+                return QFontMetrics(header_item.font())
+            else:
+                return QFontMetrics(table.font())
+    
+    def _is_priority_column(self, table_type: str, column_name: str) -> bool:
+        """Check if a column is priority based on table type and column name"""
+        priority_columns = self.PRIORITY_COLUMNS.get(table_type, [])
+        return column_name.upper() in [col.upper() for col in priority_columns]
+    
+    def _invalidate_table_cache_on_data_change(self):
+        """Invalidate table cache when data changes - call this after data updates"""
+        try:
+            if hasattr(self, '_cache_manager') and self._cache_manager and hasattr(self, 'rental_records_table'):
+                self._cache_manager.invalidate_cache_for_table('rental_table')
+                
+                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                    self._debug_manager.log_cache_operation('cache_invalidation', 'data_change', True,
+                                                          {'table': 'rental_table', 'reason': 'data_update'})
+        except Exception as e:
+            print(f"Cache invalidation failed: {e}")
+    
+    def _log_resize_debug(self, operation: str, details: Dict[str, Any] = None, duration: float = None):
+        """
+        Log resize debug information with configurable output.
+        
+        Args:
+            operation: Name/description of the resize operation
+            details: Optional dictionary of operation details
+            duration: Optional operation duration in milliseconds
+        """
+        # Check if debug logging is enabled
+        if not self._resize_debug_enabled:
+            return
+            
+        try:
+            # Log to debug manager if available
+            if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+                if duration is not None:
+                    self._debug_manager.log_resize_operation(operation, duration, details)
+                else:
+                    # Log as general debug info
+                    print(f"[RENTAL DEBUG] {operation}")
+                    if details:
+                        for key, value in details.items():
+                            print(f"  {key}: {value}")
+            
+            # Always log to console if debug enabled (for immediate feedback)
+            elif self._resize_debug_enabled:
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                if duration is not None:
+                    status = "SLOW" if duration > 100 else "OK"
+                    print(f"[{timestamp}] RENTAL RESIZE: {operation} - {duration:.2f}ms [{status}]")
+                else:
+                    print(f"[{timestamp}] RENTAL DEBUG: {operation}")
+                
+                if details:
+                    for key, value in details.items():
+                        print(f"  {key}: {value}")
+                        
+        except Exception as e:
+            # Don't let debug logging break the application
+            print(f"Debug logging error: {e}")
+
+    def _get_cache_performance_statistics(self) -> Dict[str, Any]:
+        """Get cache performance statistics for monitoring"""
+        try:
+            if hasattr(self, '_cache_manager') and self._cache_manager:
+                stats = self._cache_manager.get_cache_statistics()
+                
+                # Add table-specific information
+                stats['table_info'] = {
+                    'table_type': 'rental_table',
+                    'current_row_count': self.rental_records_table.rowCount() if hasattr(self, 'rental_records_table') and self.rental_records_table else 0,
+                    'current_column_count': self.rental_records_table.columnCount() if hasattr(self, 'rental_records_table') and self.rental_records_table else 0
+                }
+                
+                return stats
+            else:
+                return {'error': 'Cache manager not initialized'}
+        except Exception as e:
+            return {'error': f'Failed to get cache statistics: {e}'}
+    
+    def print_cache_performance_report(self):
+        """Print a detailed cache performance report for debugging"""
+        try:
+            stats = self._get_cache_performance_statistics()
+            
+            if 'error' in stats:
+                print(f"Cache Statistics Error: {stats['error']}")
+                return
+            
+            print("\n=== RENTAL TAB CACHE PERFORMANCE REPORT ===")
+            print(f"Table: {stats.get('table_info', {}).get('table_type', 'unknown')}")
+            print(f"Rows: {stats.get('table_info', {}).get('current_row_count', 0)}")
+            print(f"Columns: {stats.get('table_info', {}).get('current_column_count', 0)}")
+            
+            # Font metrics cache stats
+            font_stats = stats.get('font_metrics', {})
+            print(f"\nFont Metrics Cache:")
+            print(f"  Hit Ratio: {font_stats.get('hit_ratio', 0):.2%}")
+            print(f"  Hits: {font_stats.get('hits', 0)}")
+            print(f"  Misses: {font_stats.get('misses', 0)}")
+            
+            # Content width cache stats
+            content_stats = stats.get('content_width', {})
+            print(f"\nContent Width Cache:")
+            print(f"  Hit Ratio: {content_stats.get('hit_ratio', 0):.2%}")
+            print(f"  Hits: {content_stats.get('hits', 0)}")
+            print(f"  Misses: {content_stats.get('misses', 0)}")
+            
+            # Cache sizes
+            cache_sizes = stats.get('cache_sizes', {})
+            print(f"\nCache Sizes:")
+            print(f"  Font Metrics: {cache_sizes.get('font_metrics', 0)} entries")
+            print(f"  Content Width: {cache_sizes.get('content_width', 0)} entries")
+            print(f"  Table Hashes: {cache_sizes.get('table_hashes', 0)} entries")
+            
+            print("=" * 50)
+            
+        except Exception as e:
+            print(f"Failed to print cache performance report: {e}")
+    
+    def debug_column_width_distribution(self):
+        """Debug method to check current column width distribution"""
+        try:
+            if not hasattr(self, 'rental_records_table') or not self.rental_records_table:
+                print("No rental records table available for debugging")
+                return
+            
+            table = self.rental_records_table
+            print("\n=== RENTAL TAB COLUMN WIDTH DEBUG ===")
+            
+            # Get current table info
+            viewport_width = table.viewport().width()
+            column_count = table.columnCount()
+            
+            print(f"Viewport width: {viewport_width}px")
+            print(f"Column count: {column_count}")
+            
+            # Get current column widths
+            current_widths = [table.columnWidth(col) for col in range(column_count)]
+            current_total = sum(current_widths)
+            
+            print(f"Current column widths: {current_widths}")
+            print(f"Current total width: {current_total}px")
+            print(f"Viewport fill ratio: {current_total/viewport_width*100:.1f}%")
+            
+            # Get header resize modes
+            header = table.horizontalHeader()
+            resize_modes = []
+            for col in range(column_count):
+                mode = header.sectionResizeMode(col)
+                mode_name = {
+                    0: "Interactive",
+                    1: "Fixed", 
+                    2: "Stretch",
+                    3: "ResizeToContents"
+                }.get(mode, f"Unknown({mode})")
+                resize_modes.append(mode_name)
+            
+            print(f"Resize modes: {resize_modes}")
+            
+            # Check scrollbar policy
+            h_policy = table.horizontalScrollBarPolicy()
+            policy_name = {
+                0: "AsNeeded",
+                1: "AlwaysOff", 
+                2: "AlwaysOn"
+            }.get(h_policy, f"Unknown({h_policy})")
+            
+            print(f"Horizontal scrollbar policy: {policy_name}")
+            
+            # Recommendations
+            if current_total < viewport_width * 0.95:
+                print("⚠️  Columns don't fill viewport - consider using stretch mode for last column")
+            else:
+                print("✅ Columns properly fill the viewport")
+            
+            print("=" * 50)
+            
+        except Exception as e:
+            print(f"Failed to debug column width distribution: {e}")
+
+    def _apply_cached_column_widths(self, table: QTableWidget, column_widths: List[int]):
+        """Apply cached column widths to table with improved proportional distribution"""
+        try:
+            header = table.horizontalHeader()
+            available_width = table.viewport().width()
+            column_count = len(column_widths)
+            
+            print(f"[RENTAL DEBUG] Applying cached widths with hybrid approach")
+            
+            # Use HYBRID approach consistent with main method
+            total_cached_width = sum(column_widths)
+            content_fits = total_cached_width <= (available_width - 30)  # 30px buffer for safety
+            
+            if content_fits and available_width > 200:
+                # Content fits: Use STRETCH mode for all columns
+                for col in range(column_count):
+                    if col < table.columnCount():
+                        header.setSectionResizeMode(col, QHeaderView.Stretch)
+                
+                # Disable horizontal scrollbar since content fits
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                
+            else:
+                # Content doesn't fit: Use FIXED mode with scrolling
+                for col, width in enumerate(column_widths):
+                    if col < table.columnCount():
+                        header.setSectionResizeMode(col, QHeaderView.Fixed)
+                        table.setColumnWidth(col, width)
+                
+                # Enable horizontal scrolling when needed
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            
+            # Ensure table takes full width of its parent
+            table.setMinimumWidth(0)
+            table.setMaximumWidth(16777215)
+            policy = table.sizePolicy()
+            policy.setHorizontalPolicy(policy.Expanding)
+            policy.setVerticalPolicy(policy.Expanding)
+            table.setSizePolicy(policy)
+            
+            # Configure stretch last section based on mode
+            if content_fits:
+                header.setStretchLastSection(True)   # Enable for stretch mode
+            else:
+                header.setStretchLastSection(False)  # Disable for fixed mode
+            
+            # Apply special styling to tenant name column
+            self._apply_tenant_name_column_styling(table)
+            
+        except Exception as e:
+            print(f"Failed to apply cached column widths: {e}")
+            # Fallback to recalculation
+            self._set_intelligent_column_widths(table)
 
     def _create_centered_item(self, text: str, column_name: str = "", is_priority: bool = False) -> QTableWidgetItem:
         """Create a table widget item with center alignment, number formatting, and priority-aware styling"""
@@ -1387,6 +2511,13 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Clear current table contents first
         self.rental_records_table.clearContents()
         self.rental_records_table.setRowCount(0)
+        
+        # Invalidate cache when table content is cleared
+        try:
+            if hasattr(self, '_cache_manager') and self._cache_manager:
+                self._cache_manager.invalidate_cache_for_table('rental_table')
+        except Exception as e:
+            print(f"Cache invalidation on table clear failed: {e}")
 
         selected_source = self.load_source_combo.currentText()
 
@@ -1527,10 +2658,30 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         if not records:
             return
 
-        # Temporarily disable sorting while inserting rows to avoid jitter
-        prev_sorting = self.rental_records_table.isSortingEnabled()
-        if prev_sorting:
-            self.rental_records_table.setSortingEnabled(False)
+        # Invalidate cache when table content changes
+        try:
+            if hasattr(self, '_cache_manager') and self._cache_manager:
+                self._cache_manager.invalidate_cache_for_table('rental_table')
+        except Exception as e:
+            print(f"Cache invalidation failed: {e}")
+
+        # Use batch update manager for flicker-free table population
+        batch_manager_used = False
+        if hasattr(self, '_batch_manager') and self._batch_manager:
+            try:
+                self._batch_manager.begin_batch_update()
+                batch_manager_used = True
+            except Exception as e:
+                print(f"Failed to start batch update: {e}")
+                # Fallback to manual sorting disable
+                prev_sorting = self.rental_records_table.isSortingEnabled()
+                if prev_sorting:
+                    self.rental_records_table.setSortingEnabled(False)
+        else:
+            # Fallback: Temporarily disable sorting while inserting rows to avoid jitter
+            prev_sorting = self.rental_records_table.isSortingEnabled()
+            if prev_sorting:
+                self.rental_records_table.setSortingEnabled(False)
 
         if append:
             start_row = self.rental_records_table.rowCount()
@@ -1599,12 +2750,27 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             self.rental_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
         
         # Apply intelligent column widths after populating data with delay to ensure table is fully rendered
-        QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(self.rental_records_table))
+        QTimer.singleShot(200, lambda: self._set_intelligent_column_widths(self.rental_records_table))
         
-        # Re-enable sorting and enforce numeric order by Room Number
-        if prev_sorting:
-            self.rental_records_table.setSortingEnabled(True)
-            self.rental_records_table.sortItems(1, Qt.AscendingOrder)
+        # Clean up batch update or re-enable sorting
+        try:
+            if batch_manager_used:
+                self._batch_manager.end_batch_update()
+                # Sort after batch update is complete
+                self.rental_records_table.sortItems(1, Qt.AscendingOrder)
+            else:
+                # Re-enable sorting and enforce numeric order by Room Number
+                if 'prev_sorting' in locals() and prev_sorting:
+                    self.rental_records_table.setSortingEnabled(True)
+                    self.rental_records_table.sortItems(1, Qt.AscendingOrder)
+        except Exception as e:
+            print(f"Failed to complete batch update cleanup: {e}")
+            # Ensure sorting is re-enabled as fallback
+            try:
+                self.rental_records_table.setSortingEnabled(True)
+                self.rental_records_table.sortItems(1, Qt.AscendingOrder)
+            except Exception as fallback_error:
+                print(f"Fallback sorting re-enable failed: {fallback_error}")
     
 
         
@@ -2100,3 +3266,194 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             # If download fails keep original URL so record isn't lost
             print(f"Warning: could not cache remote image {path_str}: {dl_exc}")
             return path_str
+    def get_performance_report(self) -> Dict[str, Any]:
+        """
+        Generate comprehensive performance report for optimization analysis.
+        
+        Returns:
+            Dictionary containing performance metrics, cache statistics, and recommendations
+        """
+        try:
+            report = {
+                'timestamp': datetime.now().isoformat(),
+                'tab_name': 'rental_info_tab',
+                'debug_enabled': self._resize_debug_enabled,
+                'optimization_status': {},
+                'cache_performance': {},
+                'debug_statistics': {},
+                'recommendations': []
+            }
+            
+            # Get optimization manager status
+            if hasattr(self, '_optimization_manager') and self._optimization_manager:
+                report['optimization_status'] = self._optimization_manager.get_optimization_status()
+            
+            # Get cache performance statistics
+            report['cache_performance'] = self._get_cache_performance_statistics()
+            
+            # Get debug manager statistics
+            if hasattr(self, '_debug_manager') and self._debug_manager:
+                report['debug_statistics'] = self._debug_manager.get_performance_report()
+            
+            # Add table-specific metrics
+            if self.rental_records_table:
+                report['table_metrics'] = {
+                    'row_count': self.rental_records_table.rowCount(),
+                    'column_count': self.rental_records_table.columnCount(),
+                    'viewport_width': self.rental_records_table.viewport().width(),
+                    'table_width': self.rental_records_table.width(),
+                    'is_visible': self.rental_records_table.isVisible()
+                }
+            
+            # Generate recommendations based on performance data
+            self._add_performance_recommendations(report)
+            
+            return report
+            
+        except Exception as e:
+            return {
+                'error': f'Failed to generate performance report: {e}',
+                'timestamp': datetime.now().isoformat(),
+                'tab_name': 'rental_info_tab'
+            }
+    
+    def _add_performance_recommendations(self, report: Dict[str, Any]):
+        """
+        Add performance recommendations based on collected metrics.
+        
+        Args:
+            report: Performance report dictionary to add recommendations to
+        """
+        try:
+            recommendations = []
+            
+            # Check cache performance
+            cache_perf = report.get('cache_performance', {})
+            for cache_type, stats in cache_perf.items():
+                if isinstance(stats, dict) and 'hit_ratio' in stats:
+                    if stats['hit_ratio'] < 0.3:
+                        recommendations.append(f"Low {cache_type} cache hit ratio ({stats['hit_ratio']:.1%}). Consider reviewing cache strategy.")
+                    elif stats['hit_ratio'] > 0.9:
+                        recommendations.append(f"Excellent {cache_type} cache performance ({stats['hit_ratio']:.1%}).")
+            
+            # Check debug statistics
+            debug_stats = report.get('debug_statistics', {})
+            timing_analysis = debug_stats.get('timing_analysis', {})
+            if timing_analysis:
+                avg_duration = timing_analysis.get('average_duration_ms', 0)
+                slow_percentage = timing_analysis.get('slow_operations_percentage', 0)
+                
+                if avg_duration > 50:
+                    recommendations.append(f"Average resize duration is high ({avg_duration:.1f}ms). Consider optimization.")
+                
+                if slow_percentage > 25:
+                    recommendations.append(f"High percentage of slow operations ({slow_percentage:.1f}%). Review resize logic.")
+            
+            # Check optimization status
+            opt_status = report.get('optimization_status', {})
+            if opt_status.get('fallback_active', False):
+                recommendations.append("Optimization fallback is active. Check for errors in optimization components.")
+            
+            # Check table metrics
+            table_metrics = report.get('table_metrics', {})
+            if table_metrics:
+                row_count = table_metrics.get('row_count', 0)
+                if row_count > 1000:
+                    recommendations.append(f"Large table ({row_count} rows). Consider pagination or virtualization.")
+                
+                viewport_width = table_metrics.get('viewport_width', 0)
+                if viewport_width < 300:
+                    recommendations.append("Very narrow viewport. Table may not display optimally.")
+            
+            report['recommendations'] = recommendations
+            
+        except Exception as e:
+            report['recommendations'] = [f"Error generating recommendations: {e}"]
+    
+    def enable_debug_logging(self, enabled: bool = True):
+        """
+        Enable or disable debug logging for this tab.
+        
+        Args:
+            enabled: Whether to enable debug logging
+        """
+        self._resize_debug_enabled = enabled
+        
+        # Also enable debug manager if available
+        if hasattr(self, '_debug_manager') and self._debug_manager:
+            self._debug_manager.set_enabled(enabled)
+        
+        self._log_resize_debug("Debug logging state changed", {'enabled': enabled})
+    
+    def is_debug_enabled(self) -> bool:
+        """Check if debug logging is currently enabled."""
+        return self._resize_debug_enabled
+    
+    def print_performance_report(self):
+        """Print a comprehensive performance report for debugging and analysis."""
+        try:
+            report = self.get_performance_report()
+            
+            print("\n" + "="*60)
+            print("RENTAL TAB PERFORMANCE REPORT")
+            print("="*60)
+            print(f"Generated: {report.get('timestamp', 'Unknown')}")
+            print(f"Debug Enabled: {report.get('debug_enabled', False)}")
+            
+            # Optimization Status
+            opt_status = report.get('optimization_status', {})
+            if opt_status:
+                print(f"\nOptimization Status:")
+                print(f"  Fallback Active: {opt_status.get('fallback_active', 'Unknown')}")
+                components = opt_status.get('components_initialized', {})
+                if components:
+                    print(f"  Components Initialized:")
+                    for comp, status in components.items():
+                        print(f"    {comp}: {status}")
+            
+            # Cache Performance
+            cache_perf = report.get('cache_performance', {})
+            if cache_perf and 'error' not in cache_perf:
+                print(f"\nCache Performance:")
+                for cache_type, stats in cache_perf.items():
+                    if isinstance(stats, dict) and 'hit_ratio' in stats:
+                        print(f"  {cache_type}:")
+                        print(f"    Hit Ratio: {stats['hit_ratio']:.1%}")
+                        print(f"    Hits: {stats.get('hits', 0)}")
+                        print(f"    Misses: {stats.get('misses', 0)}")
+            
+            # Debug Statistics
+            debug_stats = report.get('debug_statistics', {})
+            if debug_stats:
+                print(f"\nDebug Statistics:")
+                summary = debug_stats.get('summary', {})
+                if summary:
+                    print(f"  Total Resize Operations: {summary.get('total_resize_operations', 0)}")
+                    print(f"  Cache Hit Ratio: {summary.get('cache_hit_ratio', 0):.1%}")
+                
+                timing = debug_stats.get('timing_analysis', {})
+                if timing:
+                    print(f"  Timing Analysis:")
+                    print(f"    Average Duration: {timing.get('average_duration_ms', 0):.1f}ms")
+                    print(f"    Slow Operations: {timing.get('slow_operations_percentage', 0):.1f}%")
+            
+            # Table Metrics
+            table_metrics = report.get('table_metrics', {})
+            if table_metrics:
+                print(f"\nTable Metrics:")
+                print(f"  Rows: {table_metrics.get('row_count', 0)}")
+                print(f"  Columns: {table_metrics.get('column_count', 0)}")
+                print(f"  Viewport Width: {table_metrics.get('viewport_width', 0)}px")
+                print(f"  Table Width: {table_metrics.get('table_width', 0)}px")
+            
+            # Recommendations
+            recommendations = report.get('recommendations', [])
+            if recommendations:
+                print(f"\nRecommendations:")
+                for i, rec in enumerate(recommendations, 1):
+                    print(f"  {i}. {rec}")
+            
+            print("="*60)
+            
+        except Exception as e:
+            print(f"Failed to print performance report: {e}")
