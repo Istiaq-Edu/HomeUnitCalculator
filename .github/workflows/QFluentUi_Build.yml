@@ -22,9 +22,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          # Fix supabase/realtime compatibility - use specific compatible versions
-          pip install "supabase==2.3.4" "realtime-py==0.3.2"
+          # Install requirements except supabase first
+          pip install PyQt5 reportlab python-dotenv postgrest cryptography keyring "PyQt-Fluent-Widgets[full]>=1.7.0" "websockets==10.4" "requests>=2.31.0" "urllib3>=1.26.0"
+          # Install older stable supabase version that works with PyInstaller
+          pip install "supabase==1.0.4"
           # Build-only tools
           pip install pyinstaller pillow
 

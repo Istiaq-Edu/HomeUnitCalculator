@@ -1,7 +1,8 @@
-# Patch for Supabase/realtime import issues in PyInstaller
+# Comprehensive patch for Supabase/realtime import issues in PyInstaller
 import sys
+import types
 
-# Create mock classes for missing realtime imports
+# Create mock classes for all missing realtime imports
 class AuthorizationError(Exception):
     """Mock AuthorizationError for realtime compatibility"""
     pass
@@ -10,19 +11,42 @@ class NotConnectedError(Exception):
     """Mock NotConnectedError for realtime compatibility"""
     pass
 
-# Patch the realtime module if it exists but is missing these classes
-try:
-    import realtime
-    if not hasattr(realtime, 'AuthorizationError'):
-        realtime.AuthorizationError = AuthorizationError
-    if not hasattr(realtime, 'NotConnectedError'):
-        realtime.NotConnectedError = NotConnectedError
-except ImportError:
-    # Create a mock realtime module if it doesn't exist
-    import types
-    realtime_mock = types.ModuleType('realtime')
-    realtime_mock.AuthorizationError = AuthorizationError
-    realtime_mock.NotConnectedError = NotConnectedError
-    sys.modules['realtime'] = realtime_mock
+class AsyncRealtimeChannel:
+    """Mock AsyncRealtimeChannel for realtime compatibility"""
+    def __init__(self, *args, **kwargs):
+        pass
 
-print("Supabase/realtime compatibility patch applied")
+class AsyncRealtimeClient:
+    """Mock AsyncRealtimeClient for realtime compatibility"""
+    def __init__(self, *args, **kwargs):
+        pass
+
+class RealtimeChannelOptions:
+    """Mock RealtimeChannelOptions for realtime compatibility"""
+    def __init__(self, *args, **kwargs):
+        pass
+
+class RealtimeChannel:
+    """Mock RealtimeChannel for realtime compatibility"""
+    def __init__(self, *args, **kwargs):
+        pass
+
+class RealtimeClient:
+    """Mock RealtimeClient for realtime compatibility"""
+    def __init__(self, *args, **kwargs):
+        pass
+
+# Create a comprehensive mock realtime module
+realtime_mock = types.ModuleType('realtime')
+realtime_mock.AuthorizationError = AuthorizationError
+realtime_mock.NotConnectedError = NotConnectedError
+realtime_mock.AsyncRealtimeChannel = AsyncRealtimeChannel
+realtime_mock.AsyncRealtimeClient = AsyncRealtimeClient
+realtime_mock.RealtimeChannelOptions = RealtimeChannelOptions
+realtime_mock.RealtimeChannel = RealtimeChannel
+realtime_mock.RealtimeClient = RealtimeClient
+
+# Always replace the realtime module to ensure consistency
+sys.modules['realtime'] = realtime_mock
+
+print("Comprehensive Supabase/realtime compatibility patch applied")
