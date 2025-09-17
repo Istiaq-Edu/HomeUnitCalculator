@@ -1,4 +1,4 @@
-name: QFluentUi_Build
+name: Build QFluentUi
 
 on:
   # Manual trigger only
