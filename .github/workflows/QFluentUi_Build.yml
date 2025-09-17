@@ -23,11 +23,13 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+          # Fix supabase/realtime compatibility
+          pip install "supabase>=2.0.0" "realtime>=1.0.0"
           # Build-only tools
           pip install pyinstaller pillow
 
       - name: Build one-file executable
-        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" --hidden-import=qfluentwidgets --collect-all qfluentwidgets --hidden-import=supabase --hidden-import=realtime --collect-all supabase --collect-all realtime --hidden-import=postgrest --collect-all postgrest src/core/HomeUnitCalculator.py
+        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" --hidden-import=qfluentwidgets --collect-all qfluentwidgets --hidden-import=supabase --collect-all supabase --hidden-import=realtime --collect-all realtime --hidden-import=postgrest --collect-all postgrest --hidden-import=websockets --hidden-import=cryptography --hidden-import=keyring --collect-submodules supabase --collect-submodules realtime src/core/HomeUnitCalculator.py
 
       - name: Upload artifact (single EXE)
         uses: actions/upload-artifact@v4
