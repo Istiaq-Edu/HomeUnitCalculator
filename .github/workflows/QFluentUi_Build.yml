@@ -1,191 +1,33 @@
 name: QFluentUi_Build
 
 on:
-  # Trigger on pushes to dev and QFluentUi branches and pull requests
-  push:
-    branches: [ dev, QFluentUi ]
-  pull_request:
-    branches: [ dev, QFluentUi ]
-  # Manual trigger
+  # Manual trigger only
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
-    
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11']
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
+          python-version: '3.10'  # Keep in sync with project requirement
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          # Build dependencies for QFluentUi
-          pip install pyinstaller pillow imageio
+          # Build-only tools
+          pip install pyinstaller pillow
 
-      - name: Lint with flake8 (optional)
-        run: |
-          pip install flake8
-          # Stop the build if there are Python syntax errors or undefined names
-          flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Exit-zero treats all errors as warnings
-          flake8 src --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-        continue-on-error: true
+      - name: Build one-file executable
+        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" --hidden-import=qfluentwidgets --collect-all qfluentwidgets src/core/HomeUnitCalculator.py
 
-      - name: Test QFluentUi imports
-        run: |
-          python -c "
-          try:
-              from qfluentwidgets import *
-              print('[OK] QFluentWidgets imported successfully')
-          except ImportError as e:
-              print(f'[ERROR] QFluentWidgets import failed: {e}')
-              exit(1)
-          
-          try:
-              from PyQt5.QtWidgets import QApplication
-              print('[OK] PyQt5 imported successfully')
-          except ImportError as e:
-              print(f'[ERROR] PyQt5 import failed: {e}')
-              exit(1)
-          "
-
-      - name: Build QFluentUi executable with PyInstaller
-        run: |
-          pyinstaller --noconsole --onefile ^
-            --icon=icons/icon.png ^
-            --add-data "icons;icons" ^
-            --hidden-import=qfluentwidgets ^
-            --hidden-import=PyQt5.sip ^
-            --collect-all qfluentwidgets ^
-            --name=HomeUnitCalculator-QFluentUi ^
-            src/core/HomeUnitCalculator.py
-
-      - name: Verify executable
-        run: |
-          if (Test-Path "dist/HomeUnitCalculator-QFluentUi.exe") {
-            Write-Host "[OK] Executable built successfully"
-            $size = (Get-Item "dist/HomeUnitCalculator-QFluentUi.exe").Length
-            Write-Host "File size: $([math]::Round($size/1MB, 2)) MB"
-          } else {
-            Write-Host "[ERROR] Executable not found"
-            exit 1
-          }
-        shell: pwsh
-
-      - name: Upload QFluentUi artifact
+      - name: Upload artifact (single EXE)
         uses: actions/upload-artifact@v4
         with:
-          name: HomeUnitCalculator-QFluentUi-Python${{ matrix.python-version }}-${{ runner.os }}
-          path: dist/HomeUnitCalculator-QFluentUi.exe
-          retention-days: 30
-
-  build-nuitka:
-    runs-on: windows-latest
-    needs: build
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/QFluentUi'
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install imageio pillow
-
-      - name: Build QFluentUi executable with Nuitka
-        uses: Nuitka/Nuitka-Action@main
-        with:
-          nuitka-version: main
-          script-name: src/core/HomeUnitCalculator.py
-          mode: onefile
-          enable-plugins: pyqt5
-          include-data-dir: |
-            icons=icons
-          disable-console: true
-          output-dir: build-nuitka
-          windows-icon-from-ico: icons/icon.png
-          output-filename: HomeUnitCalculator-QFluentUi-Nuitka.exe
-
-      - name: Clean up Nuitka build artifacts
-        run: |
-          if (Test-Path "build-nuitka\HomeUnitCalculator.dist") {
-            Remove-Item -Recurse -Force "build-nuitka\HomeUnitCalculator.dist"
-          }
-        shell: pwsh
-
-      - name: Upload Nuitka QFluentUi artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: HomeUnitCalculator-QFluentUi-Nuitka-${{ runner.os }}
-          path: build-nuitka/HomeUnitCalculator-QFluentUi-Nuitka.exe
-          retention-days: 30
-
-  release:
-    runs-on: windows-latest
-    needs: [build, build-nuitka]
-    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/QFluentUi')
-    
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create release assets
-        run: |
-          New-Item -ItemType Directory -Force -Path release
-          Get-ChildItem -Path artifacts -Recurse -Name "*.exe" | ForEach-Object {
-            $source = Join-Path "artifacts" $_
-            $dest = Join-Path "release" (Split-Path $_ -Leaf)
-            Copy-Item $source $dest
-            Write-Host "Copied: $dest"
-          }
-        shell: pwsh
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: qfluentui-build-${{ github.run_number }}
-          name: QFluentUi Build ${{ github.run_number }}
-          body: |
-            ## QFluentUi Build Release
-            
-            This release contains executables built with QFluentWidgets UI framework.
-            
-            ### Included builds:
-            - PyInstaller builds (Python 3.10 & 3.11)
-            - Nuitka optimized build
-            
-            ### Features:
-            - Modern Fluent Design UI
-            - Single-file executables
-            - Windows optimized
-            
-            Built from commit: ${{ github.sha }}
-          files: release/*
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: HomeUnitCalculator-QFluentUi-${{ runner.os }}
+          path: dist/HomeUnitCalculator.exe
