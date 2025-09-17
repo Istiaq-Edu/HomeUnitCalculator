@@ -27,7 +27,7 @@ jobs:
           pip install pyinstaller pillow
 
       - name: Build one-file executable
-        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" --hidden-import=qfluentwidgets --collect-all qfluentwidgets src/core/HomeUnitCalculator.py
+        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" --hidden-import=qfluentwidgets --collect-all qfluentwidgets --hidden-import=supabase --hidden-import=realtime --collect-all supabase --collect-all realtime --hidden-import=postgrest --collect-all postgrest src/core/HomeUnitCalculator.py
 
       - name: Upload artifact (single EXE)
         uses: actions/upload-artifact@v4
