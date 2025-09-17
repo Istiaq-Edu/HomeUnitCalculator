@@ -1,5 +1,10 @@
 import os
 import json
+# Apply compatibility patch before importing supabase
+try:
+    from src.core.supabase_patch import *
+except ImportError:
+    pass
 from supabase import create_client, Client
 from postgrest.exceptions import APIError
 from gotrue.errors import AuthApiError
