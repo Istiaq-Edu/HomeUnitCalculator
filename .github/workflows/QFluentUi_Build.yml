@@ -1,7 +1,10 @@
 name: Build QFluentUi
 
 on:
-  # Manual trigger only
+  # Trigger on pushes to dev and QFluentUi branches
+  push:
+    branches: [ dev, QFluentUi ]
+  # Manual trigger also available
   workflow_dispatch:
 
 jobs:
