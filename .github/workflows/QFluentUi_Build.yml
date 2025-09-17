@@ -49,16 +49,16 @@ jobs:
           python -c "
           try:
               from qfluentwidgets import *
-              print('✓ QFluentWidgets imported successfully')
+              print('[OK] QFluentWidgets imported successfully')
           except ImportError as e:
-              print(f'✗ QFluentWidgets import failed: {e}')
+              print(f'[ERROR] QFluentWidgets import failed: {e}')
               exit(1)
           
           try:
               from PyQt5.QtWidgets import QApplication
-              print('✓ PyQt5 imported successfully')
+              print('[OK] PyQt5 imported successfully')
           except ImportError as e:
-              print(f'✗ PyQt5 import failed: {e}')
+              print(f'[ERROR] PyQt5 import failed: {e}')
               exit(1)
           "
 
@@ -76,11 +76,11 @@ jobs:
       - name: Verify executable
         run: |
           if (Test-Path "dist/HomeUnitCalculator-QFluentUi.exe") {
-            Write-Host "✓ Executable built successfully"
+            Write-Host "[OK] Executable built successfully"
             $size = (Get-Item "dist/HomeUnitCalculator-QFluentUi.exe").Length
             Write-Host "File size: $([math]::Round($size/1MB, 2)) MB"
           } else {
-            Write-Host "✗ Executable not found"
+            Write-Host "[ERROR] Executable not found"
             exit 1
           }
         shell: pwsh
