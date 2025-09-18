@@ -3,6 +3,15 @@ name: Build QFluentUi
 on:
   # Manual trigger only
   workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to build'
+        required: true
+        type: choice
+        options:
+          - dev
+          - QFluentUi
+        default: dev
 
 jobs:
   build:
@@ -10,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
