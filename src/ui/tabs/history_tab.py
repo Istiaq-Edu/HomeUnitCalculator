@@ -224,25 +224,53 @@ class EditRecordDialog(ResponsiveDialog):
 
     def populate_data(self, main_data, room_data_list):
         # Extract data from main_data JSONB structure
-        meter_values = main_data.get("meter_readings", [])
-        if isinstance(meter_values, dict):
-            try:
-                sorted_items = sorted(meter_values.items(), key=lambda item: int(item[0]))
-                meter_values = [item[1] for item in sorted_items]
-            except (ValueError, TypeError):
-                meter_values = []
+        # The data is stored as individual meter_1, meter_2, diff_1, diff_2 keys
+        meter_values = []
+        diff_values = []
+        
+        # Extract meter and diff values from individual keys
+        for i in range(1, 11):  # Check up to 10 meters/diffs
+            meter_key = f"meter_{i}"
+            diff_key = f"diff_{i}"
+            
+            # Get meter value
+            meter_val = main_data.get(meter_key)
+            if meter_val is not None and str(meter_val).strip():
+                meter_values.append(meter_val)
+            else:
+                # If we find an empty meter, still add it but don't continue beyond this point
+                # unless there are more non-empty meters later
+                meter_values.append(0)
+            
+            # Get diff value
+            diff_val = main_data.get(diff_key)
+            if diff_val is not None and str(diff_val).strip():
+                diff_values.append(diff_val)
+            else:
+                # If we find an empty diff, still add it but don't continue beyond this point
+                # unless there are more non-empty diffs later
+                diff_values.append(0)
+        
+        # Remove trailing zeros to avoid showing unnecessary empty fields
+        while meter_values and meter_values[-1] == 0:
+            meter_values.pop()
+        while diff_values and diff_values[-1] == 0:
+            diff_values.pop()
+        
+        # Ensure we have at least 3 values for the basic UI
+        while len(meter_values) < 3:
+            meter_values.append(0)
+        while len(diff_values) < 3:
+            diff_values.append(0)
 
-        diff_values = main_data.get("diff_readings", [])
-        if isinstance(diff_values, dict):
-            try:
-                sorted_items = sorted(diff_values.items(), key=lambda item: int(item[0]))
-                diff_values = [item[1] for item in sorted_items]
-            except (ValueError, TypeError):
-                diff_values = []
-
+        # Populate the meter and diff edit widgets
         for i, pair_widgets in enumerate(self.meter_diff_edit_widgets):
-            if i < len(meter_values) and pair_widgets['meter_edit']: pair_widgets['meter_edit'].setText(str(meter_values[i]))
-            if i < len(diff_values) and pair_widgets['diff_edit']: pair_widgets['diff_edit'].setText(str(diff_values[i]))
+            if i < len(meter_values) and pair_widgets['meter_edit']: 
+                value = meter_values[i] if meter_values[i] != 0 else ""
+                pair_widgets['meter_edit'].setText(str(value))
+            if i < len(diff_values) and pair_widgets['diff_edit']: 
+                value = diff_values[i] if diff_values[i] != 0 else ""
+                pair_widgets['diff_edit'].setText(str(value))
                 
         # Support both new and legacy key names
         aa_val = main_data.get("added_amount") if "added_amount" in main_data else main_data.get("additional_amount", "")
@@ -253,11 +281,13 @@ class EditRecordDialog(ResponsiveDialog):
                 room_record = room_data_list[i]
                 # Extract data from room_data JSONB structure
                 room_data_jsonb = room_record.get("room_data", {})
+                
                 room_widget_set["present_edit"].setText(str(room_data_jsonb.get("present_unit", "") or ""))
                 room_widget_set["previous_edit"].setText(str(room_data_jsonb.get("previous_unit", "") or ""))
                 room_widget_set["gas_edit"].setText(str(room_data_jsonb.get("gas_bill", "") or ""))
                 room_widget_set["water_edit"].setText(str(room_data_jsonb.get("water_bill", "") or ""))
                 room_widget_set["rent_edit"].setText(str(room_data_jsonb.get("house_rent", "") or ""))
+                
                 # Store entire original room_data for later preservation
                 room_widget_set["original_room_data"] = room_data_jsonb
                 # Store image paths for later use in save_changes

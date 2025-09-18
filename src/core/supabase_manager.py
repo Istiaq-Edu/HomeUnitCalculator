@@ -300,11 +300,12 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot retrieve room calculations.")
             return []
         try:
-            response = self.supabase.table("room_calculations").select("room_data, photo_url, nid_front_url, nid_back_url, police_form_url").eq("main_calculation_id", main_calculation_id).execute()
+            response = self.supabase.table("room_calculations").select("id, room_data, photo_url, nid_front_url, nid_back_url, police_form_url").eq("main_calculation_id", main_calculation_id).execute()
             if response.data:
                 # Keep room_data nested so that UI code can access it consistently
                 return [
                     {
+                        "id": record.get("id"),
                         "room_data": record.get("room_data", {}),
                         "photo_url": record.get("photo_url"),
                         "nid_front_url": record.get("nid_front_url"),
