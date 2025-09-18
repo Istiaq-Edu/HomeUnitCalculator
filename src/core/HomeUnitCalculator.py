@@ -251,12 +251,15 @@ class MeterCalculationApp(FluentWindow):
             return
             
         try:
-            # Try multiple possible icon paths
-            possible_icon_paths = [
-                "icons/icon.png",
-                os.path.join(os.path.dirname(__file__), "..", "..", "icons", "icon.png"),
-                os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "icons", "icon.png")
-            ]
+            # Try multiple possible icon paths. Prefer resource_path so PyInstaller/Nuitka bundles work.
+            try:
+                possible_icon_paths = [resource_path("icons/icon.png")]
+            except Exception:
+                possible_icon_paths = [
+                    "icons/icon.png",
+                    os.path.join(os.path.dirname(__file__), "..", "..", "icons", "icon.png"),
+                    os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "icons", "icon.png")
+                ]
             
             icon_to_use = None
             icon_path_used = None
@@ -384,18 +387,31 @@ class MeterCalculationApp(FluentWindow):
     def _set_window_icon_early(self):
         """Set window icon early in initialization process."""
         try:
-            # Load the custom icon
-            icon_path = "icons/icon.png"
-            if os.path.exists(icon_path):
+            # Load the custom icon, prioritising packaged resources
+            icon_path = None
+            try:
+                icon_path = resource_path("icons/icon.png")
+            except Exception:
+                # Fall back to relative/absolute search
+                for p in (
+                    "icons/icon.png",
+                    os.path.join(os.path.dirname(__file__), "..", "..", "icons", "icon.png"),
+                    os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "icons", "icon.png"),
+                ):
+                    if os.path.exists(p):
+                        icon_path = p
+                        break
+
+            if icon_path and os.path.exists(icon_path):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
                     icon = QIcon()
                     icon.addPixmap(pixmap.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
                     self.setWindowIcon(icon)
                     return
-            
+
             # Fallback
-            fluent_icon = FluentIcon.HOME.icon()
+            fluent_icon = FluentIcon.CALCULATOR.icon()
             self.setWindowIcon(fluent_icon)
         except Exception as e:
             pass
@@ -642,6 +658,10 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
         # If switching to history tab, ensure tables are properly sized
         if hasattr(current_widget, 'force_table_resize'):
             QTimer.singleShot(150, current_widget.force_table_resize)
+
+        # QFluentWidgets sometimes resets the TitleBar icon to the current page's FluentIcon
+        # (e.g., HOME). Re-apply our app icon right after the page switch.
+        QTimer.singleShot(0, self._set_title_bar_icon)
 
 
     def save_to_pdf(self):
