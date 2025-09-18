@@ -1,0 +1,47 @@
+name: Build QFluentUi
+
+on:
+  # Manual trigger only
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to build'
+        required: true
+        type: choice
+        options:
+          - dev
+          - QFluentUi
+        default: dev
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # Keep in sync with project requirement
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # Install requirements except supabase first
+          pip install PyQt5 reportlab python-dotenv postgrest cryptography keyring "PyQt-Fluent-Widgets[full]>=1.7.0" "websockets==10.4" "requests>=2.31.0" "urllib3>=1.26.0"
+          # Install older stable supabase version that works with PyInstaller
+          pip install "supabase==1.0.4"
+          # Build-only tools
+          pip install pyinstaller pillow
+
+      - name: Build one-file executable
+        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" --additional-hooks-dir=pyinstaller_hooks --hidden-import=src.core.supabase_patch --hidden-import=qfluentwidgets --collect-all qfluentwidgets --hidden-import=supabase --hidden-import=realtime --hidden-import=realtime.transformers --hidden-import=gotrue --hidden-import=gotrue.errors --hidden-import=postgrest --hidden-import=postgrest.exceptions --hidden-import=storage3 --hidden-import=websockets --hidden-import=cryptography --hidden-import=keyring --collect-all supabase --collect-all realtime --collect-all gotrue --collect-all postgrest --collect-all storage3 src/core/HomeUnitCalculator.py
+
+      - name: Upload artifact (single EXE)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeUnitCalculator-QFluentUi-${{ runner.os }}
+          path: dist/HomeUnitCalculator.exe
