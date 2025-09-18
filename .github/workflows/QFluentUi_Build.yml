@@ -1,15 +1,14 @@
 name: Build QFluentUi
 
 on:
-  # Trigger on pushes to dev and QFluentUi branches
-  push:
-    branches: [ dev, QFluentUi ]
-  # Manual trigger also available
+  # Manual trigger only
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+    # Only allow manual runs from dev or QFluentUi branches
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/QFluentUi'
 
     steps:
       - uses: actions/checkout@v4
