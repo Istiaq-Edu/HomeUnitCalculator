@@ -1,6 +1,6 @@
 PyQt5
 reportlab
-supabase
+supabase==1.0.4
 python-dotenv
 postgrest
 cryptography
