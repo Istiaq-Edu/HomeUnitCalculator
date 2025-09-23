@@ -127,8 +127,8 @@ class MeterCalculationApp(FluentWindow):
             
         # Use resize instead of setGeometry to allow flexible positioning
         self.resize(1300, 860)
-        # Set minimum size to ensure usability
-        self.setMinimumSize(800, 600)
+        # Set minimum size to ensure usability and prevent layout collapse
+        self.setMinimumSize(1000, 700)  # Increased minimum size for two-column layout
 
         # Set dark theme and accent color
         setTheme(Theme.DARK)
@@ -456,22 +456,71 @@ class MeterCalculationApp(FluentWindow):
         from PyQt5.QtWidgets import QApplication
 
         dark_css = """
-        /* Card-like panels */
+        /* Card-like panels with enhanced styling */
         CardWidget {
             background-color: #2b2b2b;
             border: 1px solid #3d3d3d;
-            border-radius: 8px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Explicitly keep the outer unified container static on hover */
+        #billing_meter_container {
+            background-color: #2b2b2b;
+        }
+        #billing_meter_container:hover {
+            background-color: #2b2b2b;
+            border: 1px solid #3d3d3d;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* Disable interaction for the three section boxes - they should not be clickable */
+        #billing_period_box, #reading_pairs_box, #additional_amount_box {
+            background: transparent !important;
+            border: none !important;
+        }
+        #billing_period_box:hover, #billing_period_box:pressed,
+        #reading_pairs_box:hover, #reading_pairs_box:pressed,
+        #additional_amount_box:hover, #additional_amount_box:pressed {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Ensure inner frosted panels do not change colour on hover/press/focus */
+        #billing_period_inner, 
+        #billing_period_inner:hover, 
+        #billing_period_inner:focus, 
+        #billing_period_inner:pressed {
+            background-color: rgba(255, 255, 255, 0.14) !important;
+            border: 1px solid rgba(255, 255, 255, 0.28) !important;
+        }
+        #reading_pairs_inner, 
+        #reading_pairs_inner:hover, 
+        #reading_pairs_inner:focus, 
+        #reading_pairs_inner:pressed {
+            background-color: rgba(255, 255, 255, 0.14) !important;
+            border: 1px solid rgba(255, 255, 255, 0.28) !important;
+        }
+        #additional_amount_inner, 
+        #additional_amount_inner:hover, 
+        #additional_amount_inner:focus, 
+        #additional_amount_inner:pressed {
+            background-color: rgba(255, 255, 255, 0.14) !important;
+            border: 1px solid rgba(255, 255, 255, 0.28) !important;
         }
 
         /* Scroll areas should be transparent so underlying card shows */
         ScrollArea {
             background: transparent;
+            border: none;
         }
 
         /* Dialogs / file dialogs */
         QDialog, QFileDialog {
             background-color: #2b2b2b;
             color: #ffffff;
+            border-radius: 8px;
         }
 
         /* Ensure text in dialogs is visible */
@@ -503,29 +552,75 @@ class MeterCalculationApp(FluentWindow):
             color: white !important;
         }
 
-        /* Tooltips */
+        /* Enhanced tooltips */
         QToolTip {
             background-color: #3d3d3d;
             color: #ffffff;
             border: 1px solid #5a5a5a;
-}
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+        }
 
-/* Modern input controls */
-QLineEdit::placeholder {
-    color: transparent; /* hide placeholders */
-}
+        /* Modern input controls with consistent theming */
+        QLineEdit::placeholder {
+            color: #888888;
+        }
 
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    background-color: #2f2f2f;
-    border: 1px solid #555555;
-    border-radius: 6px;
-    padding: 4px;
-    color: #ffffff;
-}
+        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+            background-color: #2f2f2f;
+            border: 1px solid #555555;
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #ffffff;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
 
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
-    border: 1px solid #0078D4;
-}
+        QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {
+            border: 1px solid #666666;
+            background-color: #353535;
+        }
+
+        QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+            border: 2px solid #0078D4;
+            background-color: #353535;
+            outline: none;
+        }
+
+        /* Enhanced button styling */
+        QPushButton {
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        QPushButton:hover {
+            transform: translateY(-1px);
+        }
+
+        QPushButton:pressed {
+            transform: translateY(0px);
+        }
+
+        /* Consistent spacing for layouts */
+        QVBoxLayout {
+            spacing: 12px;
+        }
+
+        QHBoxLayout {
+            spacing: 8px;
+        }
+
+        /* Frame styling for separators */
+        QFrame[frameShape="4"] { /* HLine */
+            color: #4a4a4a;
+            background-color: #4a4a4a;
+            border: none;
+            height: 1px;
+            margin: 8px 0px;
+        }
 """
 
         app = QApplication.instance()
@@ -570,16 +665,16 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     #                       CARDWIDGET COLOUR PATCHING
     # ----------------------------------------------------------------------
     def _patch_cardwidget_dark_style(self):
-        """Globally monkey-patch CardWidget colours for dark theme.
+        """Globally monkey-patch CardWidget colours for dark theme with enhanced styling.
 
         The default CardWidget background is a semi-transparent white overlay which appears
         too bright against the dark window background. We override the internal colour
         helpers so that every CardWidget (existing and future) uses solid dark greys that
-        match the rest of the UI. This avoids the need to call setStyleSheet or iterate
-        through all card instances manually.
+        match the rest of the UI with improved hover effects and animations.
         """
         try:
             from PyQt5.QtGui import QColor
+            from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, pyqtProperty
             from qfluentwidgets.components.widgets.card_widget import CardWidget, SimpleCardWidget, ElevatedCardWidget
 
             # Avoid double-patching in case the window is reinstantiated
@@ -587,18 +682,106 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
                 return
 
             def _normal(self):
-                return QColor(43, 43, 43)  # main card fill
+                # Give specific boxes a frosted look with semi-transparent white overlay
+                try:
+                    if hasattr(self, 'objectName') and self.objectName() in {
+                        'billing_period_box', 'reading_pairs_box', 'additional_amount_box'
+                    }:
+                        return QColor(255, 255, 255, 72)  # stronger frosted lightening
+                except Exception:
+                    pass
+                return QColor(43, 43, 43)  # main card fill for others
 
             def _hover(self):
-                return QColor(54, 54, 54)  # slightly lighter on hover
+                # Keep hover static for specific containers (no visual change)
+                try:
+                    if hasattr(self, 'objectName'):
+                        if self.objectName() in {
+                            'billing_meter_container',
+                            'billing_period_box',
+                            'reading_pairs_box',
+                            'additional_amount_box',
+                        }:
+                            # Match normal for these containers (frosted or static)
+                            if self.objectName() in {'billing_period_box', 'reading_pairs_box', 'additional_amount_box'}:
+                                return QColor(255, 255, 255, 72)
+                            return QColor(43, 43, 43)
+                except Exception:
+                    pass
+                return QColor(54, 54, 54)  # slightly lighter on hover for others
 
             def _pressed(self):
-                return QColor(37, 37, 37)  # slightly darker on press
+                # Keep pressed identical to normal for frosted boxes (no visual change)
+                try:
+                    if hasattr(self, 'objectName') and self.objectName() in {
+                        'billing_period_box', 'reading_pairs_box', 'additional_amount_box'
+                    }:
+                        return QColor(255, 255, 255, 72)
+                except Exception:
+                    pass
+                return QColor(37, 37, 37)  # slightly darker on press for others
+
+            # Enhanced card styling with animations
+            def _enhanced_enter_event(self, event):
+                """Enhanced enter event with subtle animation."""
+                # Skip hover behavior for containers that should not react on hover
+                try:
+                    if hasattr(self, 'objectName') and self.objectName() in {
+                        'billing_meter_container',
+                        'billing_period_box',
+                        'reading_pairs_box',
+                        'additional_amount_box',
+                    }:
+                        event.accept(); return
+                except Exception:
+                    pass
+
+                # Call original enter event if it exists
+                if hasattr(self.__class__, '_original_enterEvent'):
+                    self._original_enterEvent(event)
+                
+                # Add subtle scale animation on hover
+                if not hasattr(self, '_hover_animation'):
+                    self._hover_animation = QPropertyAnimation(self, b"geometry")
+                    self._hover_animation.setDuration(150)
+                    self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
+                
+                # Subtle elevation effect disabled at global level; individual cards/boxes handle their own hover styling
+
+            def _enhanced_leave_event(self, event):
+                """Enhanced leave event to reset styling."""
+                # Skip hover behavior for containers that should not react on hover
+                try:
+                    if hasattr(self, 'objectName') and self.objectName() in {
+                        'billing_meter_container',
+                        'billing_period_box',
+                        'reading_pairs_box',
+                        'additional_amount_box',
+                    }:
+                        event.accept()
+                        return
+                except Exception:
+                    pass
+
+                # Call original leave event if it exists
+                if hasattr(self.__class__, '_original_leaveEvent'):
+                    self._original_leaveEvent(event)
 
             for _cls in (CardWidget, SimpleCardWidget, ElevatedCardWidget):
                 _cls._normalBackgroundColor = _normal  # type: ignore[assignment]
                 _cls._hoverBackgroundColor = _hover    # type: ignore[assignment]
                 _cls._pressedBackgroundColor = _pressed  # type: ignore[assignment]
+                
+                # Store original event handlers if they exist
+                if hasattr(_cls, 'enterEvent'):
+                    _cls._original_enterEvent = _cls.enterEvent
+                if hasattr(_cls, 'leaveEvent'):
+                    _cls._original_leaveEvent = _cls.leaveEvent
+                
+                # Apply enhanced event handlers
+                _cls.enterEvent = _enhanced_enter_event
+                _cls.leaveEvent = _enhanced_leave_event
+                
                 _cls.__hmc_dark_patched__ = True
         except Exception as e:
             # Silently continue if patching fails; better to show default than crash
@@ -638,6 +821,13 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
         self.archived_info_tab_instance.setObjectName("ArchivedId")
         self.supabase_config_tab_instance.setObjectName("SupabaseId")
 
+        # Set minimum and maximum width for navigation panel to prevent collapse and enable responsive behavior
+        self.navigationInterface.setMinimumWidth(200)
+        self.navigationInterface.setMaximumWidth(300)
+        
+        # Enable scroll policy for navigation interface content
+        self.navigationInterface.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
         self.addSubInterface(self.main_tab_instance, FluentIcon.HOME, 'Home')
         self.addSubInterface(self.rooms_tab_instance, FluentIcon.APPLICATION, 'Room Calculations')
         self.addSubInterface(self.history_tab_instance, FluentIcon.HISTORY, 'Calculation History')
@@ -645,9 +835,50 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
         self.addSubInterface(self.archived_info_tab_instance, FluentIcon.DOCUMENT, 'Archived Info')
         self.addSubInterface(self.supabase_config_tab_instance, FluentIcon.SETTING, 'Supabase Config', position=NavigationItemPosition.BOTTOM)
         
+        # Enable scroll area for navigation items if needed
+        self._setup_navigation_scroll_area()
+        
         self.stackedWidget.currentChanged.connect(self.on_current_interface_changed)
         self.navigationInterface.setCurrentItem(self.main_tab_instance.objectName())
 
+    def _setup_navigation_scroll_area(self):
+        """Set up scroll area for navigation interface when tabs exceed available space."""
+        try:
+            # Find the navigation panel widget and enable scroll area
+            from PyQt5.QtWidgets import QScrollArea
+            from PyQt5.QtCore import Qt
+            
+            # Apply scroll area styling to navigation interface
+            self.navigationInterface.setStyleSheet(self.navigationInterface.styleSheet() + """
+                NavigationInterface {
+                    background-color: #2b2b2b;
+                }
+                NavigationInterface QScrollArea {
+                    background: transparent;
+                    border: none;
+                }
+                NavigationInterface QScrollBar:vertical {
+                    background-color: #3d3d3d;
+                    width: 8px;
+                    border-radius: 4px;
+                    margin: 0px;
+                }
+                NavigationInterface QScrollBar::handle:vertical {
+                    background-color: #5a5a5a;
+                    border-radius: 4px;
+                    min-height: 20px;
+                }
+                NavigationInterface QScrollBar::handle:vertical:hover {
+                    background-color: #6a6a6a;
+                }
+                NavigationInterface QScrollBar::add-line:vertical,
+                NavigationInterface QScrollBar::sub-line:vertical {
+                    height: 0px;
+                }
+            """)
+        except Exception as e:
+            # Silently continue if scroll area setup fails
+            pass
 
     def on_current_interface_changed(self, index):
         """Handle tab change: set focus appropriately."""

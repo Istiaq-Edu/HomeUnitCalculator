@@ -5,24 +5,633 @@ import csv
 import traceback
 from datetime import datetime
 
-from PyQt5.QtCore import QRegExp, Qt
-from PyQt5.QtGui import QRegExpValidator, QIcon, QPixmap, QColor, QPainter
+from PyQt5.QtCore import QRegExp, Qt, QTimer, QEvent, QSize
+from PyQt5.QtGui import QRegExpValidator, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QBrush, QPen
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFormLayout, QMessageBox, QSizePolicy,
-    QGridLayout, QBoxLayout, QFrame, QMenu, QAction, QSpinBox, QComboBox
+    QGridLayout, QBoxLayout, QFrame, QMenu, QAction, QSpinBox, QComboBox,
+    QGraphicsDropShadowEffect, QScrollArea, QSpacerItem
 
 )
 from postgrest.exceptions import APIError
 from qfluentwidgets import (
     ComboBox, SpinBox, PrimaryPushButton,
     CardWidget, TitleLabel, BodyLabel, CaptionLabel,
-    FluentIcon, PushButton, DropDownPushButton, RoundMenu, Action
+    FluentIcon, PushButton, DropDownPushButton, RoundMenu, Action,
+    FluentIconBase
 )
 
 from src.core.utils import resource_path
 from src.core.add_month_manager import AddMonthManager
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
+
+class ReadingPairWidget(QWidget):
+    """Widget that combines meter and difference inputs in a single row with remove button."""
+    
+    def __init__(self, pair_index, on_remove_callback):
+        super().__init__()
+        self.pair_index = pair_index
+        self.on_remove_callback = on_remove_callback
+        
+        # Set responsive size policy and constraints
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(58)  # More compact row height
+        self.setMaximumHeight(58)  # Fixed compact height
+        
+        # Create the input widgets with responsive behavior
+        self.meter_input = CustomLineEdit()
+        self.meter_input.setObjectName(f"meter_edit_{pair_index}")
+        numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
+        self.meter_input.setValidator(numeric_validator)
+        # Remove placeholder text as per requirement
+        self.meter_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.meter_input.setMinimumWidth(100)  # Minimum width to prevent collapse
+        
+        self.diff_input = CustomLineEdit()
+        self.diff_input.setObjectName(f"diff_edit_{pair_index}")
+        self.diff_input.setValidator(numeric_validator)
+        # Remove placeholder text as per requirement
+        self.diff_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.diff_input.setMinimumWidth(100)  # Minimum width to prevent collapse
+        
+        # Connect focus events to ensure visibility in scroll area
+        self.meter_input.focusInEvent = self._create_focus_handler(self.meter_input)
+        self.diff_input.focusInEvent = self._create_focus_handler(self.diff_input)
+        
+        # Create remove button with square glass-like background and curved corners
+        self.remove_button = PushButton()
+        # White close icon
+        self.remove_button.setIcon(FluentIcon.CLOSE.icon(color=QColor(255, 255, 255)))
+        self.remove_button.setIconSize(QSize(14, 14))
+        self.remove_button.setFixedSize(22, 22)  # Square size; height will sync after layout
+        self.remove_button.clicked.connect(self._on_remove_clicked)
+        self.remove_button.setToolTip("Remove this reading pair")
+        # Square glass-like background with curved corners - no red circle
+        self.remove_button.setStyleSheet("""
+            PushButton {
+                background-color: rgba(255, 255, 255, 0.1);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 6px;
+                color: white;
+                font-weight: bold;
+                padding: 0px; /* center the icon within square button */
+            }
+            PushButton:hover {
+                background-color: rgba(255, 255, 255, 0.2);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+            PushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.15);
+                border-color: rgba(255, 255, 255, 0.25);
+            }
+        """)
+        
+        # Grid layout for perfect alignment (labels row 0, inputs row 1, button at row 1)
+        layout = QGridLayout(self)
+        layout.setContentsMargins(12, 2, 12, 2)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(1)
+
+        # Labels
+        meter_label = BodyLabel(f"Meter {pair_index + 1} Reading:")
+        meter_label.setObjectName("meter_label")
+        meter_label.setStyleSheet("""
+            font-weight: bold; 
+            color: #ffffff;
+            font-size: 12px;
+            margin: 0px;
+        """)
+        diff_label = BodyLabel(f"Difference {pair_index + 1} Reading:")
+        diff_label.setObjectName("diff_label")
+        diff_label.setStyleSheet("""
+            font-weight: bold; 
+            color: #ffffff;
+            font-size: 12px;
+            margin: 0px;
+        """)
+
+        # Slimmer inputs
+        try:
+            self.meter_input.setStyleSheet(self.meter_input.styleSheet() + "\nQLineEdit{padding-left:8px; padding-right:8px; padding-top:0px; padding-bottom:0px; min-height:14px;}")
+        except Exception:
+            pass
+        try:
+            self.diff_input.setStyleSheet(self.diff_input.styleSheet() + "\nQLineEdit{padding-left:8px; padding-right:8px; padding-top:0px; padding-bottom:0px; min-height:14px;}")
+        except Exception:
+            pass
+
+        # Place items
+        layout.addWidget(meter_label, 0, 0)
+        layout.addWidget(diff_label, 0, 1)
+        # Wrap inputs with an inner layout to add horizontal padding without shrinking columns
+        meter_wrap = QWidget()
+        meter_wrap_l = QHBoxLayout(meter_wrap)
+        meter_wrap_l.setContentsMargins(8, 0, 8, 0)  # left/right breathing space (even)
+        meter_wrap_l.setSpacing(0)
+        meter_wrap_l.addWidget(self.meter_input)
+        diff_wrap = QWidget()
+        diff_wrap_l = QHBoxLayout(diff_wrap)
+        diff_wrap_l.setContentsMargins(8, 0, 8, 0)  # even with meter side
+        diff_wrap_l.setSpacing(0)
+        diff_wrap_l.addWidget(self.diff_input)
+        layout.addWidget(meter_wrap, 1, 0)
+        layout.addWidget(diff_wrap, 1, 1)
+        # Spacer between input and remove button: align with grid spacing for consistency
+        layout.setColumnMinimumWidth(2, 12)
+        spacer = QSpacerItem(12, 1, QSizePolicy.Fixed, QSizePolicy.Minimum)
+        layout.addItem(spacer, 0, 2, 2, 1)
+
+        # Remove button aligned with input row center
+        try:
+            self.remove_button.setFixedHeight(self.meter_input.sizeHint().height())
+        except Exception:
+            pass
+        layout.addWidget(self.remove_button, 1, 3, alignment=Qt.AlignVCenter | Qt.AlignLeft)
+        # Ensure columns stretch evenly and button column remains minimal
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 0)
+        layout.setColumnStretch(3, 0)
+        layout.setRowStretch(0, 0)
+        layout.setRowStretch(1, 1)
+
+        # After layout, sync button height with input actual height to guarantee alignment
+        QTimer.singleShot(0, self._align_controls)
+        
+        # Apply enhanced styling to the pair widget itself
+        self.setStyleSheet("""
+            ReadingPairWidget {
+                background-color: #323232;
+                border: 1px solid #4a4a4a;
+                border-radius: 8px;
+                margin: 1px 0px;
+            }
+            ReadingPairWidget:hover {
+                background-color: #3a3a3a;
+                border: 1px solid #5a5a5a;
+            }
+        """)
+    
+    def _align_controls(self):
+        """Ensure the remove button vertically matches the input height."""
+        try:
+            input_h = max(self.meter_input.height(), self.meter_input.sizeHint().height())
+            # Keep the remove button perfectly square and centered
+            self.remove_button.setFixedHeight(input_h)
+            self.remove_button.setFixedWidth(input_h)
+        except Exception:
+            pass
+        
+    def _on_remove_clicked(self):
+        """Handle remove button click."""
+        if self.on_remove_callback:
+            self.on_remove_callback(self)
+    
+    def get_meter_value(self):
+        """Get the meter input value."""
+        return self.meter_input.text()
+    
+    def set_meter_value(self, value):
+        """Set the meter input value."""
+        self.meter_input.setText(str(value))
+    
+    def get_diff_value(self):
+        """Get the difference input value."""
+        return self.diff_input.text()
+    
+    def set_diff_value(self, value):
+        """Set the difference input value."""
+        self.diff_input.setText(str(value))
+    
+    def _create_focus_handler(self, widget):
+        """Create a focus handler that ensures the widget is visible in the scroll area."""
+        original_focus_in = widget.focusInEvent
+        
+        def focus_handler(event):
+            # Call the original focus handler
+            original_focus_in(event)
+            # Find the main tab and ensure this widget is visible
+            parent = self.parent()
+            while parent and not hasattr(parent, 'ensure_widget_visible'):
+                parent = parent.parent()
+            if parent and hasattr(parent, 'ensure_widget_visible'):
+                parent.ensure_widget_visible(self)
+        
+        return focus_handler
+
+
+class AddPairButton(QWidget):
+    """Composite button with a left white icon and bold white text (no overlap)."""
+    def __init__(self, text: str, on_click):
+        super().__init__()
+        self.on_click = on_click
+        self.setObjectName("add_pair_btn")
+        # Ensure QSS background is painted on QWidget
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setFixedHeight(44)
+        self.setCursor(Qt.PointingHandCursor)
+        self._hover = False
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignCenter)  # center contents horizontally
+
+        # Left icon (white)
+        icon_label = QLabel()
+        try:
+            icon = FluentIcon.ADD.icon(color=QColor(255, 255, 255))
+            icon_label.setPixmap(icon.pixmap(20, 20))
+        except Exception:
+            icon_label.setText("+")
+            icon_label.setStyleSheet("color: white; font-weight: bold;")
+        icon_label.setFixedSize(20, 20)
+        icon_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        icon_label.setAlignment(Qt.AlignCenter)
+
+        # Text (bold white)
+        text_label = BodyLabel(text)
+        text_label.setStyleSheet("font-weight: bold; color: white; font-size: 14px;")
+        text_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        layout.addStretch(1)
+        layout.addWidget(icon_label, 0, Qt.AlignVCenter)
+        layout.addSpacing(8)
+        layout.addWidget(text_label, 0, Qt.AlignVCenter)
+        layout.addStretch(1)
+
+        # Keep text labels white regardless of theme
+        self.setStyleSheet("#add_pair_btn { color: white; }")
+
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+        return super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover = False
+        self.update()
+        return super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        # Custom paint to ensure full-width blue button with rounded corners
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        r = self.rect().adjusted(1, 1, -1, -1)
+        radius = 8
+
+        grad = QLinearGradient(r.topLeft(), r.bottomLeft())
+        if self._hover:
+            grad.setColorAt(0, QColor("#1084d8"))
+            grad.setColorAt(1, QColor("#106ebe"))
+            border = QColor("#1084d8")
+        else:
+            grad.setColorAt(0, QColor("#0078D4"))
+            grad.setColorAt(1, QColor("#005a9e"))
+            border = QColor("#0078D4")
+
+        painter.setBrush(QBrush(grad))
+        painter.setPen(QPen(border, 2))
+        painter.drawRoundedRect(r, radius, radius)
+        # Do not call base class paintEvent afterwards to avoid overwriting our background
+        # super().paintEvent(event)
+        return
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.on_click:
+            self.on_click()
+        return super().mouseReleaseEvent(event)
+
+
+class ResultCard(CardWidget):
+    """Individual result card with icon, title, and value display with enhanced styling."""
+    
+    def __init__(self, title, icon, theme_color, value_label=None):
+        super().__init__()
+        self.title = title
+        self.theme_color = theme_color
+        self.value_label = value_label  # Reference to existing label
+        
+        # Set responsive size policy and constraints
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(90)  # Minimum height to prevent collapse
+        self.setMaximumHeight(130)  # Maximum height for consistency
+        self.setFixedHeight(110)  # Default height for better proportions
+        
+        # Main layout with improved spacing
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)  # Increased padding
+        layout.setSpacing(16)  # Increased spacing
+        
+        # Icon section with enhanced styling
+        icon_label = QLabel()
+        if isinstance(icon, FluentIconBase):
+            pixmap = icon.icon().pixmap(36, 36)  # Slightly larger icon
+        else:
+            pixmap = icon.pixmap(36, 36) if hasattr(icon, 'pixmap') else QPixmap()
+        
+        # Apply theme color to icon with better rendering
+        if not pixmap.isNull():
+            colored_pixmap = QPixmap(pixmap.size())
+            colored_pixmap.fill(Qt.transparent)
+            painter = QPainter(colored_pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            painter.drawPixmap(0, 0, pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            painter.fillRect(colored_pixmap.rect(), QColor(theme_color))
+            painter.end()
+            icon_label.setPixmap(colored_pixmap)
+        
+        icon_label.setFixedSize(48, 48)  # Larger icon container
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {theme_color}25;
+                border-radius: 24px;
+                padding: 6px;
+                border: 2px solid {theme_color}40;
+            }}
+        """)
+        
+        # Content section with improved layout
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(4)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Title with enhanced styling
+        title_label = CaptionLabel(title)
+        title_label.setStyleSheet(f"""
+            color: {theme_color}; 
+            font-weight: bold; 
+            font-size: 13px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        """)
+        
+        # Value with improved typography
+        if value_label:
+            self.display_label = value_label
+            self.display_label.setStyleSheet(f"""
+                color: {theme_color}; 
+                font-size: 26px; 
+                font-weight: 700;
+                line-height: 1.2;
+            """)
+        else:
+            self.display_label = BodyLabel("0")
+            self.display_label.setStyleSheet(f"""
+                color: {theme_color}; 
+                font-size: 26px; 
+                font-weight: 700;
+                line-height: 1.2;
+            """)
+        
+        content_layout.addWidget(title_label)
+        content_layout.addWidget(self.display_label)
+        content_layout.addStretch()
+        
+        # Add to main layout
+        layout.addWidget(icon_label)
+        layout.addLayout(content_layout, 1)
+        
+        # Apply enhanced card styling with animations
+        self.setStyleSheet(f"""
+            ResultCard {{
+                background-color: #2b2b2b;
+                border: 2px solid {theme_color}30;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            }}
+            ResultCard:hover {{
+                background-color: #323232;
+                border: 2px solid {theme_color}60;
+                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+                transform: translateY(-2px);
+            }}
+        """)
+        
+        # Add subtle entrance animation
+        self._setup_animations()
+    
+    def _setup_animations(self):
+        """Setup subtle animations for the card."""
+        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
+        
+        # Opacity animation for smooth appearance
+        self._opacity_animation = QPropertyAnimation(self, b"windowOpacity")
+        self._opacity_animation.setDuration(300)
+        self._opacity_animation.setStartValue(0.0)
+        self._opacity_animation.setEndValue(1.0)
+        self._opacity_animation.setEasingCurve(QEasingCurve.OutCubic)
+    
+    def showEvent(self, event):
+        """Override show event to trigger entrance animation."""
+        super().showEvent(event)
+        if hasattr(self, '_opacity_animation'):
+            self._opacity_animation.start()
+    
+    def update_value(self, value):
+        """Update the displayed value with smooth transition."""
+        if self.value_label:
+            self.value_label.setText(str(value))
+        else:
+            self.display_label.setText(str(value))
+        
+        # Add subtle pulse effect when value updates
+        self._pulse_effect()
+    
+    def _pulse_effect(self):
+        """Add a subtle pulse effect when value updates."""
+        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
+        
+        if not hasattr(self, '_pulse_animation'):
+            self._pulse_animation = QSequentialAnimationGroup()
+            
+            # Scale up
+            scale_up = QPropertyAnimation(self, b"geometry")
+            scale_up.setDuration(100)
+            scale_up.setEasingCurve(QEasingCurve.OutCubic)
+            
+            # Scale down
+            scale_down = QPropertyAnimation(self, b"geometry")
+            scale_down.setDuration(100)
+            scale_down.setEasingCurve(QEasingCurve.InCubic)
+            
+            self._pulse_animation.addAnimation(scale_up)
+            self._pulse_animation.addAnimation(scale_down)
+        
+        if not self._pulse_animation.state():
+            self._pulse_animation.start()
+
+
+class FinalAmountCard(CardWidget):
+    """Special Final Amount card with prominent styling, animations, and enhanced visual appeal."""
+    
+    def __init__(self, value_label):
+        super().__init__()
+        self.value_label = value_label
+        
+        # Set responsive size policy and constraints
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(140)  # Minimum height to prevent collapse
+        self.setMaximumHeight(180)  # Maximum height for consistency
+        self.setFixedHeight(160)  # Default height for prominence
+        
+        # Main layout with generous padding
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)  # More generous padding
+        layout.setSpacing(20)  # Increased spacing
+        
+        # Icon section with enhanced money/total icon
+        icon_label = QLabel()
+        money_icon = FluentIcon.SHOPPING_CART  # Use shopping cart icon for final amount
+        pixmap = money_icon.icon().pixmap(48, 48)  # Even larger icon
+        
+        # Apply accent color to icon with better rendering
+        if not pixmap.isNull():
+            colored_pixmap = QPixmap(pixmap.size())
+            colored_pixmap.fill(Qt.transparent)
+            painter = QPainter(colored_pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            painter.drawPixmap(0, 0, pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            painter.fillRect(colored_pixmap.rect(), QColor("#0078D4"))  # Accent color
+            painter.end()
+            icon_label.setPixmap(colored_pixmap)
+        
+        icon_label.setFixedSize(64, 64)  # Much larger icon container
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("""
+            QLabel {
+                background-color: #0078D430;
+                border-radius: 32px;
+                padding: 8px;
+                border: 3px solid #0078D460;
+            }
+        """)
+        
+        # Content section with improved spacing
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(6)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Title with enhanced typography
+        title_label = CaptionLabel("Final Amount")
+        title_label.setStyleSheet("""
+            color: #0078D4; 
+            font-weight: bold; 
+            font-size: 16px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        """)
+        
+        # Subtitle with better styling
+        subtitle_label = CaptionLabel("Total utility cost")
+        subtitle_label.setStyleSheet("""
+            color: #aaaaaa; 
+            font-size: 12px;
+            font-style: italic;
+            margin-bottom: 4px;
+        """)
+        
+        # Value with premium typography
+        self.value_label.setStyleSheet("""
+            color: #0078D4; 
+            font-size: 32px; 
+            font-weight: 800;
+            line-height: 1.1;
+            text-shadow: 0 2px 4px rgba(0, 120, 212, 0.3);
+        """)
+        
+        content_layout.addWidget(title_label)
+        content_layout.addWidget(subtitle_label)
+        content_layout.addWidget(self.value_label)
+        content_layout.addStretch()
+        
+        # Add to main layout
+        layout.addWidget(icon_label)
+        layout.addLayout(content_layout, 1)
+        
+        # Apply premium styling with enhanced effects
+        self.setStyleSheet("""
+            FinalAmountCard {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+                    stop:0 #2b2b2b, stop:1 #323232);
+                border: 3px solid #0078D4;
+                border-radius: 16px;
+                box-shadow: 0 8px 24px rgba(0, 120, 212, 0.2);
+            }
+            FinalAmountCard:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+                    stop:0 #323232, stop:1 #3a3a3a);
+                border: 3px solid #1084d8;
+                box-shadow: 0 12px 32px rgba(0, 120, 212, 0.4);
+                transform: translateY(-3px);
+            }
+        """)
+        
+        # Setup premium animations
+        self._setup_premium_animations()
+    
+    def _setup_premium_animations(self):
+        """Setup premium animations for the final amount card."""
+        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
+        
+        # Entrance animation with bounce effect
+        self._entrance_animation = QSequentialAnimationGroup()
+        
+        # Scale animation
+        self._scale_animation = QPropertyAnimation(self, b"geometry")
+        self._scale_animation.setDuration(400)
+        self._scale_animation.setEasingCurve(QEasingCurve.OutBounce)
+        
+        # Opacity animation
+        self._opacity_animation = QPropertyAnimation(self, b"windowOpacity")
+        self._opacity_animation.setDuration(300)
+        self._opacity_animation.setStartValue(0.0)
+        self._opacity_animation.setEndValue(1.0)
+        self._opacity_animation.setEasingCurve(QEasingCurve.OutCubic)
+        
+        self._entrance_animation.addAnimation(self._opacity_animation)
+        self._entrance_animation.addAnimation(self._scale_animation)
+    
+    def showEvent(self, event):
+        """Override show event to trigger premium entrance animation."""
+        super().showEvent(event)
+        if hasattr(self, '_entrance_animation'):
+            self._entrance_animation.start()
+    
+    def update_value(self, value):
+        """Update the displayed value with premium animation effects."""
+        self.value_label.setText(str(value))
+        self._premium_update_effect()
+    
+    def _premium_update_effect(self):
+        """Add premium visual effects when value updates."""
+        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
+        
+        if not hasattr(self, '_update_animation'):
+            self._update_animation = QSequentialAnimationGroup()
+            
+            # Glow effect simulation through border color changes
+            glow_in = QPropertyAnimation(self, b"styleSheet")
+            glow_in.setDuration(200)
+            glow_in.setEasingCurve(QEasingCurve.OutCubic)
+            
+            glow_out = QPropertyAnimation(self, b"styleSheet")
+            glow_out.setDuration(200)
+            glow_out.setEasingCurve(QEasingCurve.InCubic)
+            
+            self._update_animation.addAnimation(glow_in)
+            self._update_animation.addAnimation(glow_out)
+        
+        if not self._update_animation.state():
+            self._update_animation.start()
+
 
 class MainTab(QWidget):
     def __init__(self, main_window_ref):
@@ -33,6 +642,7 @@ class MainTab(QWidget):
         self.year_spinbox = None
         self.meter_entries = []
         self.diff_entries = []
+        self.reading_pairs = []  # List of ReadingPairWidget instances
         self.additional_amount_input = None
         self.total_unit_value_label = None
         self.total_diff_value_label = None
@@ -45,296 +655,413 @@ class MainTab(QWidget):
         self.load_month_combo = None
         self.load_year_spinbox = None
         
-        self.meter_layout = None 
-        self.diff_layout = None  
-        self.meter_count_spinbox = None
-        self.diff_count_spinbox = None
-        
         # Initialize AddMonthManager
         self.add_month_manager = None  # Will be initialized after main window is fully set up
 
+        # Store references to layout components for responsive behavior
+        self.left_column_widget = None
+        self.right_column_widget = None
+        self.content_layout = None
+        self.main_scroll_area = None
+        self.pairs_scroll = None
+
         self.init_ui()
 
+    def resizeEvent(self, event):
+        """Handle window resize events to adjust layout responsively."""
+        super().resizeEvent(event)
+        self.adjust_responsive_layout()
+        
+    def test_layout_at_different_sizes(self):
+        """Test method to verify layout behavior at different window sizes."""
+        if not self.main_window:
+            return
+            
+        # Test at minimum supported size
+        self.main_window.resize(1000, 700)
+        QTimer.singleShot(100, lambda: self.adjust_responsive_layout())
+        
+        # Test at normal size
+        QTimer.singleShot(500, lambda: self.main_window.resize(1300, 860))
+        QTimer.singleShot(600, lambda: self.adjust_responsive_layout())
+        
+        # Test at large size
+        QTimer.singleShot(1000, lambda: self.main_window.resize(1800, 1000))
+        QTimer.singleShot(1100, lambda: self.adjust_responsive_layout())
+
+    def adjust_responsive_layout(self):
+        """Adjust layout based on current window size for responsive behavior."""
+        if not (self.left_column_widget and self.right_column_widget and self.content_layout):
+            return
+            
+        # Get current window width (account for scroll area if present)
+        window_width = self.main_scroll_area.width() if self.main_scroll_area else self.width()
+        
+        # Adjust column proportions based on window width
+        if window_width < 1200:  # Narrow window
+            # Give more space to left column for input controls
+            self.content_layout.setStretchFactor(self.left_column_widget, 4)  # 67% of space
+            self.content_layout.setStretchFactor(self.right_column_widget, 2)  # 33% of space
+            
+            # Reduce minimum widths for narrow windows
+            self.left_column_widget.setMinimumWidth(400)
+            self.right_column_widget.setMinimumWidth(350)
+            
+            # Adjust card heights for narrow windows
+            self._adjust_card_sizes_for_narrow_window()
+            
+        elif window_width > 1600:  # Wide window
+            # More balanced distribution for wide windows
+            self.content_layout.setStretchFactor(self.left_column_widget, 5)  # 56% of space
+            self.content_layout.setStretchFactor(self.right_column_widget, 4)  # 44% of space
+            
+            # Increase minimum widths for wide windows
+            self.left_column_widget.setMinimumWidth(500)
+            self.right_column_widget.setMinimumWidth(450)
+            
+            # Adjust card heights for wide windows
+            self._adjust_card_sizes_for_wide_window()
+            
+        else:  # Normal window size
+            # Default proportions
+            self.content_layout.setStretchFactor(self.left_column_widget, 3)  # 60% of space
+            self.content_layout.setStretchFactor(self.right_column_widget, 2)  # 40% of space
+            
+            # Standard minimum widths
+            self.left_column_widget.setMinimumWidth(450)
+            self.right_column_widget.setMinimumWidth(400)
+            
+            # Reset card heights to default
+            self._adjust_card_sizes_for_normal_window()
+    
+    def _adjust_card_sizes_for_narrow_window(self):
+        """Adjust card sizes for narrow windows to maintain usability."""
+        # Reduce result card heights for narrow windows
+        for child in self.right_column_widget.findChildren(ResultCard):
+            child.setFixedHeight(90)  # Smaller height for narrow windows
+            
+        # Reduce final amount card height
+        if hasattr(self, 'final_amount_card'):
+            self.final_amount_card.setFixedHeight(140)
+    
+    def _adjust_card_sizes_for_wide_window(self):
+        """Adjust card sizes for wide windows to utilize extra space."""
+        # Increase result card heights for wide windows
+        for child in self.right_column_widget.findChildren(ResultCard):
+            child.setFixedHeight(130)  # Larger height for wide windows
+            
+        # Increase final amount card height
+        if hasattr(self, 'final_amount_card'):
+            self.final_amount_card.setFixedHeight(180)
+    
+    def _adjust_card_sizes_for_normal_window(self):
+        """Reset card sizes to default for normal window size."""
+        # Default result card heights
+        for child in self.right_column_widget.findChildren(ResultCard):
+            child.setFixedHeight(110)  # Default height
+            
+        # Default final amount card height
+        if hasattr(self, 'final_amount_card'):
+            self.final_amount_card.setFixedHeight(160)
+    
+    def ensure_widget_visible(self, widget):
+        """Ensure a widget is visible in the most appropriate scroll area."""
+        if not widget:
+            return
+        # Prefer the inner Reading Pairs scroll area if the widget is inside it
+        if self.pairs_scroll and self.pairs_scroll.widget():
+            parent = widget.parent()
+            while parent is not None:
+                if parent == self.pairs_scroll.widget() or parent == self.pairs_scroll:
+                    self.pairs_scroll.ensureWidgetVisible(widget)
+                    return
+                parent = parent.parent()
+        # Fallback to main page scroll area
+        if self.main_scroll_area:
+            self.main_scroll_area.ensureWidgetVisible(widget)
+
     def init_ui(self):
-        # Root layout – use tighter default spacing / margins for a less "airy" look
-        main_layout = QVBoxLayout(self)
+        # Root layout for the main tab
+        root_layout = QVBoxLayout(self)
+        root_layout.setSpacing(0)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Create scroll area for the entire main tab content (use native QScrollArea to avoid overlay scrollbar)
+        self.main_scroll_area = QScrollArea()
+        self.main_scroll_area.setWidgetResizable(True)
+        self.main_scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Allow vertical scrolling (prevents stacking); scrollbar remains invisible via QSS
+        self.main_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.main_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.main_scroll_area.setStyleSheet(
+            """
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical { width: 0px; background: transparent; }
+            QScrollBar:horizontal { height: 0px; background: transparent; }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: transparent; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { height: 0px; width: 0px; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+            """
+        )
+        
+        # Create scrollable content widget
+        scroll_content_widget = QWidget()
+        scroll_content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        
+        # Main layout for scrollable content – use tighter default spacing / margins for a less "airy" look
+        main_layout = QVBoxLayout(scroll_content_widget)
         main_layout.setSpacing(8)
         main_layout.setContentsMargins(12, 12, 12, 12)
 
-        new_top_row_layout = QHBoxLayout()
-        new_top_row_layout.setSpacing(8)
+        # Create two-column content layout with responsive behavior
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(12)
 
-        date_selection_group = CardWidget()
-        date_selection_layout = QVBoxLayout(date_selection_group)
-        date_selection_layout.setContentsMargins(8, 8, 8, 8)
-        date_selection_layout.setSpacing(4)
+        # Left column layout with minimum width constraints
+        left_column_layout = QVBoxLayout()
+        left_column_layout.setSpacing(8)
+        
+        # Create left column container with minimum width
+        self.left_column_widget = QWidget()
+        self.left_column_widget.setLayout(left_column_layout)
+        self.left_column_widget.setMinimumWidth(450)  # Prevent collapse of input controls
+        self.left_column_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        period_title = TitleLabel("Billing Period")
-        period_title.setAlignment(Qt.AlignCenter)
-        period_title.setStyleSheet("font-size:24px;font-weight:bold;")
-        date_selection_layout.addWidget(period_title)
+        # Create unified "Billing Period And Meter Reading" card
+        billing_and_reading_group = self.create_billing_and_reading_container()
+        left_column_layout.addWidget(billing_and_reading_group)
 
-        period_line = QFrame()
-        period_line.setFrameShape(QFrame.HLine)
-        period_line.setFrameShadow(QFrame.Plain)
-        period_line.setStyleSheet("color:#aaaaaa;")
-        date_selection_layout.addWidget(period_line)
+        # Right column layout with minimum width constraints
+        right_column_layout = QVBoxLayout()
+        right_column_layout.setSpacing(8)
+        
+        # Create right column container with minimum width
+        self.right_column_widget = QWidget()
+        self.right_column_widget.setLayout(right_column_layout)
+        self.right_column_widget.setMinimumWidth(400)  # Prevent collapse of result cards
+        self.right_column_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
-        controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(8)
-        controls_layout.addStretch(1)
+        # Store reference to content layout for responsive behavior
+        self.content_layout = content_layout
 
-        month_label = BodyLabel("Month:")
-        self.month_combo = ComboBox()
-        self.month_combo.addItems([
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ])
+        # Add columns to content layout with proper stretch factors
+        # Left column gets slightly more space for input controls
+        content_layout.addWidget(self.left_column_widget, 3)  # 60% of space
+        content_layout.addWidget(self.right_column_widget, 2)  # 40% of space
+        
+        # Add content layout to main layout
+        main_layout.addLayout(content_layout)
 
-        year_label = BodyLabel("Year:")
-        self.year_spinbox = SpinBox()
-        self.year_spinbox.setRange(2000, 2100)
-        self.year_spinbox.setValue(datetime.now().year)
+        # Reading pairs and additional amount are now part of the unified card above
 
-        controls_layout.addWidget(month_label)
-        controls_layout.addWidget(self.month_combo)
-        controls_layout.addSpacing(20)
-        controls_layout.addWidget(year_label)
-        controls_layout.addWidget(self.year_spinbox)
-        controls_layout.addStretch(1)
-        controls_card = CardWidget()
-        controls_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        controls_layout.setContentsMargins(8, 6, 8, 6)
-        controls_card.setLayout(controls_layout)
-        date_selection_layout.addWidget(controls_card)
-        new_top_row_layout.addWidget(date_selection_group, 1)
-
-        moved_load_options_group = CardWidget()
-        moved_load_options_internal_layout = QVBoxLayout(moved_load_options_group)
-        moved_load_options_internal_layout.setContentsMargins(8,8,8,8)
-        moved_load_options_internal_layout.setSpacing(4)
+        # Add load data section to bottom of left column
+        load_data_group = CardWidget()
+        load_data_layout = QVBoxLayout(load_data_group)
+        load_data_layout.setContentsMargins(8, 8, 8, 8)
+        load_data_layout.setSpacing(4)
 
         load_title = TitleLabel("Load Data")
         load_title.setAlignment(Qt.AlignCenter)
-        load_title.setStyleSheet("font-size:24px;font-weight:bold;")
-        moved_load_options_internal_layout.addWidget(load_title)
+        load_title.setStyleSheet("""
+            font-size: 26px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
+        load_data_layout.addWidget(load_title)
 
         load_line = QFrame()
         load_line.setFrameShape(QFrame.HLine)
         load_line.setFrameShadow(QFrame.Plain)
-        load_line.setStyleSheet("color:#aaaaaa;")
-        moved_load_options_internal_layout.addWidget(load_line)
+        load_line.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
+        load_data_layout.addWidget(load_line)
 
         load_info_group = self.create_load_info_group()
-        moved_load_options_internal_layout.addWidget(load_info_group)
+        load_data_layout.addWidget(load_info_group)
 
+        left_column_layout.addWidget(load_data_group)
 
-        new_top_row_layout.addWidget(moved_load_options_group, 1)
-        main_layout.addLayout(new_top_row_layout)
-
-        middle_row_layout = QHBoxLayout()
-        middle_row_layout.setSpacing(8)
-        meter_group = CardWidget()
-        meter_group.setLayout(QVBoxLayout())
-        meter_group.layout().setContentsMargins(8, 8, 8, 8)
-        meter_group.layout().setSpacing(4)
-        meter_title = TitleLabel("Meter Readings")
-        meter_title.setAlignment(Qt.AlignCenter)
-        meter_title.setStyleSheet("font-size:32px;font-weight:bold;")
-        meter_group.layout().addWidget(meter_title)
-        meter_line = QFrame()
-        meter_line.setFrameShape(QFrame.HLine)
-        meter_line.setFrameShadow(QFrame.Plain)
-        meter_line.setStyleSheet("color:#aaaaaa;")
-        meter_group.layout().addWidget(meter_line)
-        meter_scroll = AutoScrollArea()
-        meter_scroll.setWidgetResizable(True)
-        meter_container = QWidget()
-        self.meter_layout = QVBoxLayout(meter_container)
-        self.meter_layout.setSpacing(12)
-        meter_scroll.setWidget(meter_container)
-        meter_group.layout().addWidget(meter_scroll)
-        # Give Meter Readings group more horizontal space
-        middle_row_layout.addWidget(meter_group, 3)
-        
-        diff_group = CardWidget()
-        diff_group.setLayout(QVBoxLayout())
-        diff_group.layout().setContentsMargins(8, 8, 8, 8)
-        diff_group.layout().setSpacing(4)
-        diff_title = TitleLabel("Difference Readings")
-        diff_title.setAlignment(Qt.AlignCenter)
-        diff_title.setStyleSheet("font-size:32px;font-weight:bold;")
-        diff_group.layout().addWidget(diff_title)
-        diff_line = QFrame()
-        diff_line.setFrameShape(QFrame.HLine)
-        diff_line.setFrameShadow(QFrame.Plain)
-        diff_line.setStyleSheet("color:#aaaaaa;")
-        diff_group.layout().addWidget(diff_line)
-        diff_scroll = AutoScrollArea()
-        diff_scroll.setWidgetResizable(True)
-        diff_container = QWidget()
-        self.diff_layout = QVBoxLayout(diff_container)
-        self.diff_layout.setSpacing(12)
-        diff_scroll.setWidget(diff_container)
-        diff_group.layout().addWidget(diff_scroll)
-        # Give Difference Readings group more horizontal space
-        middle_row_layout.addWidget(diff_group, 3)
-        
-        # Wrap right column in a container so we can limit its width
-        right_column_container = QWidget()
-        right_column_layout = QVBoxLayout(right_column_container)
-        # right_column_container.setMaximumWidth(320) # Removed for responsiveness
-        spinboxes_layout = QHBoxLayout()
-        
-        meter_count_group = CardWidget()
-        meter_count_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        # meter_count_group.setFixedHeight(90) # Removed for responsiveness
-        meter_count_layout = QVBoxLayout(meter_count_group)
-        meter_count_layout.setContentsMargins(5, 4, 5, 4)
-        meter_count_layout.setSpacing(2)
-        meter_count_label = BodyLabel("Number of Meters:")
-        meter_count_label.setStyleSheet("font-weight: bold;")
-        meter_count_label.setAlignment(Qt.AlignCenter)
-        meter_count_layout.addWidget(meter_count_label)
-        self.meter_count_spinbox = SpinBox()
-        self.meter_count_spinbox.setRange(1, 10)
-        self.meter_count_spinbox.setValue(3)
-        self.meter_count_spinbox.valueChanged.connect(self.update_meter_inputs)
-        meter_count_layout.addWidget(self.meter_count_spinbox)
-        spinboxes_layout.addWidget(meter_count_group)
-        
-        diff_count_group = CardWidget()
-        diff_count_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        # diff_count_group.setFixedHeight(90) # Removed for responsiveness
-        diff_count_layout = QVBoxLayout(diff_count_group)
-        diff_count_layout.setContentsMargins(5, 4, 5, 4)
-        diff_count_layout.setSpacing(2)
-        diff_count_label = BodyLabel("Number of Diffs:")
-        diff_count_label.setStyleSheet("font-weight: bold;")
-        diff_count_label.setAlignment(Qt.AlignCenter)
-        diff_count_layout.addWidget(diff_count_label)
-        self.diff_count_spinbox = SpinBox()
-        self.diff_count_spinbox.setRange(1, 10)
-        self.diff_count_spinbox.setValue(3)
-        self.diff_count_spinbox.valueChanged.connect(self.update_diff_inputs)
-        diff_count_layout.addWidget(self.diff_count_spinbox)
-        spinboxes_layout.addWidget(diff_count_group)
-        
-        spinboxes_layout.setSpacing(5)
-        right_column_layout.addLayout(spinboxes_layout)
-        
-        amount_group = self.create_additional_amount_group()
-        right_column_layout.addWidget(amount_group)
-        middle_row_layout.addWidget(right_column_container, 1)
-        main_layout.addLayout(middle_row_layout)
-
+        # Move results to right column
         results_group = self.create_results_group()
-        main_layout.addWidget(results_group)
+        right_column_layout.addWidget(results_group)
+        
+        # Create Final Amount card with special styling (positioned at bottom)
+        self.in_total_value_label = BodyLabel("0.00")
+        self.final_amount_card = FinalAmountCard(self.in_total_value_label)
+        right_column_layout.addWidget(self.final_amount_card)
 
-        button_layout = QHBoxLayout()
+        # Calculate button with full-width primary styling
         self.main_calculate_button = PrimaryPushButton("Calculate")
+        self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM)
         self.main_calculate_button.clicked.connect(self.calculate_main)
-        self.main_calculate_button.setFixedHeight(40)
-        # Apply clean styling with white text and no icons
+        self.main_calculate_button.setFixedHeight(50)  # Increased height for prominence
+        self.main_calculate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        
+        # Apply premium primary styling with enhanced effects
         self.main_calculate_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 4px;
-                font-weight: 600;
-                padding: 8px 16px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #0078D4, stop:1 #005a9e);
+                border: 2px solid #0078D4;
+                border-radius: 12px;
+                font-weight: 700;
+                font-size: 18px;
+                padding: 16px 32px;
                 text-align: center;
+                margin: 12px 0px;
+                box-shadow: 0 6px 16px rgba(0, 120, 212, 0.3);
+                transition: all 0.3s ease;
             }
             PrimaryPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #1084d8, stop:1 #106ebe);
+                border-color: #1084d8;
+                transform: translateY(-2px);
+                box-shadow: 0 8px 20px rgba(0, 120, 212, 0.4);
             }
             PrimaryPushButton:pressed {
-                background-color: #005a9e;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #005a9e, stop:1 #004578);
                 border-color: #005a9e;
+                transform: translateY(0px);
+                box-shadow: 0 4px 12px rgba(0, 120, 212, 0.2);
             }
         """)
-        button_layout.addWidget(self.main_calculate_button)
-        main_layout.addLayout(button_layout)
         
-        # ── Save buttons row ─────────────────────────────────────────────
+        # Adjust vertical stretch for content layout
+        main_layout.setStretch(0, 1)  # Content layout gets all available space
+        
+        # Set up the scroll area with the content widget
+        self.main_scroll_area.setWidget(scroll_content_widget)
+        root_layout.addWidget(self.main_scroll_area)
+        
+        # ── Calculate button (sticks at bottom) ─────────────────────────────
+        self.main_calculate_button.setParent(self)  # Move to root widget
+        root_layout.addWidget(self.main_calculate_button)
+        
+        # ── Save buttons row (sticks at bottom) ─────────────────────────────
         save_buttons_row = QHBoxLayout()
         save_buttons_row.setSpacing(8)
-        save_buttons_row.setContentsMargins(0, 8, 0, 0)
+        save_buttons_row.setContentsMargins(12, 8, 12, 12)
 
+        # PDF button with red theme and document icon
         pdf_button = PrimaryPushButton("Save PDF")
+        pdf_button.setIcon(FluentIcon.DOCUMENT)
         pdf_button.setFixedHeight(40)
         pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         pdf_button.clicked.connect(self.main_window.save_to_pdf)
-        # Apply clean styling with white text and no icons
+        # Apply enhanced red theme styling
         pdf_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 4px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #d32f2f, stop:1 #b71c1c);
+                border: 2px solid #d32f2f;
+                border-radius: 8px;
                 font-weight: 600;
-                padding: 8px 16px;
+                font-size: 14px;
+                padding: 12px 20px;
                 text-align: center;
+                box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
+                transition: all 0.2s ease;
             }
             PrimaryPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #f44336, stop:1 #d32f2f);
+                border-color: #f44336;
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(244, 67, 54, 0.4);
             }
             PrimaryPushButton:pressed {
-                background-color: #005a9e;
-                border-color: #005a9e;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #b71c1c, stop:1 #8f1414);
+                border-color: #b71c1c;
+                transform: translateY(0px);
+                box-shadow: 0 2px 8px rgba(183, 28, 28, 0.2);
             }
         """)
 
+        # CSV button with green theme and save icon
         csv_button = PrimaryPushButton("Save CSV")
+        csv_button.setIcon(FluentIcon.SAVE)
         csv_button.setFixedHeight(40)
         csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
-        # Apply clean styling with white text and no icons
+        # Apply enhanced green theme styling
         csv_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 4px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #388e3c, stop:1 #2e7d32);
+                border: 2px solid #388e3c;
+                border-radius: 8px;
                 font-weight: 600;
-                padding: 8px 16px;
+                font-size: 14px;
+                padding: 12px 20px;
                 text-align: center;
+                box-shadow: 0 4px 12px rgba(56, 142, 60, 0.3);
+                transition: all 0.2s ease;
             }
             PrimaryPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #4caf50, stop:1 #388e3c);
+                border-color: #4caf50;
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
             }
             PrimaryPushButton:pressed {
-                background-color: #005a9e;
-                border-color: #005a9e;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #2e7d32, stop:1 #1b5e20);
+                border-color: #2e7d32;
+                transform: translateY(0px);
+                box-shadow: 0 2px 8px rgba(46, 125, 50, 0.2);
             }
         """)
 
+        # Cloud button with purple theme and cloud icon
         cloud_button = PrimaryPushButton("Save Cloud")
+        cloud_button.setIcon(FluentIcon.CLOUD)
         cloud_button.setFixedHeight(40)
         cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
-        # Apply clean styling with white text and no icons
+        # Apply enhanced purple theme styling
         cloud_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 4px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #7b1fa2, stop:1 #6a1b9a);
+                border: 2px solid #7b1fa2;
+                border-radius: 8px;
                 font-weight: 600;
-                padding: 8px 16px;
+                font-size: 14px;
+                padding: 12px 20px;
                 text-align: center;
+                box-shadow: 0 4px 12px rgba(123, 31, 162, 0.3);
+                transition: all 0.2s ease;
             }
             PrimaryPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #9c27b0, stop:1 #7b1fa2);
+                border-color: #9c27b0;
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(156, 39, 176, 0.4);
             }
             PrimaryPushButton:pressed {
-                background-color: #005a9e;
-                border-color: #005a9e;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #6a1b9a, stop:1 #4a148c);
+                border-color: #6a1b9a;
+                transform: translateY(0px);
+                box-shadow: 0 2px 8px rgba(106, 27, 154, 0.2);
             }
         """)
 
@@ -345,16 +1072,14 @@ class MainTab(QWidget):
         # Theme button will be injected by main window after it is created
         self._save_buttons_row = save_buttons_row  # store for later insertion
 
-        main_layout.addLayout(save_buttons_row)
-
-        # Adjust vertical stretch to give the results group more height and reduce empty space above
-        main_layout.setStretch(1, 3)  # Middle row (meter/diff/additional)
-        main_layout.setStretch(2, 1)  # Results group
-        main_layout.setStretch(3, 0)  # Calculate button row stays minimal
-        main_layout.setStretch(4, 0)  # Save buttons row stays minimal
+        root_layout.addLayout(save_buttons_row)
         
-        self.update_meter_inputs(3)
-        self.update_diff_inputs(3)
+        # Initialize with 3 reading pairs
+        for _ in range(3):
+            self.add_reading_pair()
+        
+        # Initial height calculation after adding default pairs
+        QTimer.singleShot(50, self.update_pairs_scroll_height)
         
         # ------------------------------------------------------------------
         # Final pass: recursively harmonise spacing / margins across all
@@ -376,35 +1101,578 @@ class MainTab(QWidget):
         _harmonise_layout(main_layout)
 
         self.setLayout(main_layout)
+        
+        # Apply consistent theming and ensure proper theme support
+        self._apply_consistent_theming()
+
+    def create_billing_and_reading_container(self):
+        """Create the unified 'Billing Period And Meter Reading' card containing all three sections."""
+        unified_group = CardWidget()
+        unified_group.setObjectName("billing_meter_container")
+        # Force static appearance on hover for the outer container only
+        unified_group.setStyleSheet(
+            """
+            #billing_meter_container {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-radius: 12px;
+            }
+            #billing_meter_container:hover, #billing_meter_container:pressed {
+                background-color: #2b2b2b; /* same as normal */
+                border: 1px solid #3d3d3d;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            }
+            """
+        )
+        unified_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # Remove fixed minimum height to allow dynamic sizing based on content
+        
+        # Remove border from main container since individual sections will have thick borders
+        
+        unified_layout = QVBoxLayout(unified_group)
+        unified_layout.setContentsMargins(20, 20, 20, 20)
+        unified_layout.setSpacing(16)
+        
+        # Main title for the unified card
+        main_title = TitleLabel("Billing Period & Meter Reading")
+        main_title.setAlignment(Qt.AlignCenter)
+        main_title.setStyleSheet("""
+            font-size: 28px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
+        unified_layout.addWidget(main_title)
+        
+        main_line = QFrame()
+        main_line.setFrameShape(QFrame.HLine)
+        main_line.setFrameShadow(QFrame.Plain)
+        main_line.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
+        unified_layout.addWidget(main_line)
+        
+        # Section 1: Billing Period (frosted, no hover)
+        # Use a plain QWidget (not CardWidget) so no interactive state/overlay is drawn
+        period_box = QWidget()
+        period_box.setObjectName("billing_period_box")
+        period_box.setStyleSheet("""
+            #billing_period_box { 
+                background: transparent; 
+                border: none; 
+                margin: 8px 0px; 
+                padding: 0px; 
+            }
+            #billing_period_box:hover, #billing_period_box:pressed { 
+                background: transparent; 
+                border: none; 
+            }
+        """)
+        # Inner frosted panel
+        period_outer_layout = QVBoxLayout(period_box)
+        period_outer_layout.setContentsMargins(0, 0, 0, 0)
+        period_outer_layout.setSpacing(0)
+        period_inner = QWidget()
+        period_inner.setObjectName("billing_period_inner")
+        # Ensure style background with alpha is rendered
+        period_inner.setAttribute(Qt.WA_StyledBackground, True)
+        # Prevent hover/focus visual changes on the container itself
+        period_inner.setFocusPolicy(Qt.NoFocus)
+        period_inner.setAttribute(Qt.WA_Hover, False)
+        period_inner.setMouseTracking(False)
+        period_inner.setStyleSheet("""
+            #billing_period_inner {
+                background-color: rgba(255, 255, 255, 0.14); /* subtle frost */
+                border: 1px solid rgba(255, 255, 255, 0.28);
+                border-radius: 12px;
+            }
+            #billing_period_inner:hover, #billing_period_inner:pressed { 
+                background-color: rgba(255, 255, 255, 0.14); 
+                border: 1px solid rgba(255, 255, 255, 0.28); 
+            }
+        """)
+        period_outer_layout.addWidget(period_inner)
+        # Apply subtle drop shadow for frosted effect
+        _shadow1 = QGraphicsDropShadowEffect(self)
+        _shadow1.setBlurRadius(18)
+        _shadow1.setOffset(0, 2)
+        _shadow1.setColor(QColor(0, 0, 0, 120))
+        period_inner.setGraphicsEffect(_shadow1)
+        period_layout = QVBoxLayout(period_inner)
+        period_layout.setContentsMargins(16, 12, 16, 12)
+        period_layout.setSpacing(8)
+        
+        period_title = BodyLabel("Billing Period")
+        period_title.setStyleSheet("""
+            font-size: 18px;
+            font-weight: bold;
+            color: #0078D4;
+            margin: 4px 0px;
+        """)
+        period_layout.addWidget(period_title)
+        # Thin separator line under Billing Period heading
+        period_sep = QFrame()
+        period_sep.setFrameShape(QFrame.HLine)
+        period_sep.setFrameShadow(QFrame.Plain)
+        period_sep.setStyleSheet("""
+            color: #1084d8;
+            background-color: #1084d8;
+            border: none;
+            height: 3px;
+            margin: 2px 0px 6px 0px;
+        """)
+        period_layout.addWidget(period_sep)
+        
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(12)
+        controls_layout.addStretch(1)
+
+        month_label = BodyLabel("Month:")
+        month_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        self.month_combo = ComboBox()
+        self.month_combo.addItems([
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ])
+
+        year_label = BodyLabel("Year:")
+        year_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        self.year_spinbox = SpinBox()
+        self.year_spinbox.setRange(2000, 2100)
+        self.year_spinbox.setValue(datetime.now().year)
+
+        controls_layout.addWidget(month_label)
+        controls_layout.addWidget(self.month_combo)
+        controls_layout.addSpacing(20)
+        controls_layout.addWidget(year_label)
+        controls_layout.addWidget(self.year_spinbox)
+        controls_layout.addStretch(1)
+        
+        period_layout.addLayout(controls_layout)
+        unified_layout.addWidget(period_box)
+        
+        # Section 2: Reading Pairs (frosted, no hover)
+        # Use a plain QWidget (not CardWidget) so no interactive state/overlay is drawn
+        pairs_box = QWidget()
+        pairs_box.setObjectName("reading_pairs_box")
+        pairs_box.setStyleSheet("""
+            #reading_pairs_box { 
+                background: transparent; 
+                border: none; 
+                margin: 8px 0px; 
+                padding: 0px; 
+            }
+            #reading_pairs_box:hover, #reading_pairs_box:pressed { 
+                background: transparent; 
+                border: none; 
+            }
+        """)
+        pairs_outer_layout = QVBoxLayout(pairs_box)
+        pairs_outer_layout.setContentsMargins(0, 0, 0, 0)
+        pairs_outer_layout.setSpacing(0)
+        pairs_inner = QWidget()
+        pairs_inner.setObjectName("reading_pairs_inner")
+        pairs_inner.setAttribute(Qt.WA_StyledBackground, True)
+        # Prevent hover/focus visual changes on the container itself
+        pairs_inner.setFocusPolicy(Qt.NoFocus)
+        pairs_inner.setAttribute(Qt.WA_Hover, False)
+        pairs_inner.setMouseTracking(False)
+        pairs_inner.setStyleSheet("""
+            #reading_pairs_inner {
+                background-color: rgba(255, 255, 255, 0.14); /* subtle frost */
+                border: 1px solid rgba(255, 255, 255, 0.28);
+                border-radius: 12px;
+            }
+            #reading_pairs_inner:hover, #reading_pairs_inner:pressed { 
+                background-color: rgba(255, 255, 255, 0.14); 
+                border: 1px solid rgba(255, 255, 255, 0.28); 
+            }
+        """)
+        pairs_outer_layout.addWidget(pairs_inner)
+        _shadow2 = QGraphicsDropShadowEffect(self)
+        _shadow2.setBlurRadius(18)
+        _shadow2.setOffset(0, 2)
+        _shadow2.setColor(QColor(0, 0, 0, 120))
+        pairs_inner.setGraphicsEffect(_shadow2)
+        pairs_layout = QVBoxLayout(pairs_inner)
+        pairs_layout.setContentsMargins(16, 8, 16, 10)  # add bottom padding so button sits inside nicely
+        pairs_layout.setSpacing(4)
+        
+        pairs_title = BodyLabel("Reading Pairs")
+        pairs_title.setStyleSheet("""
+            font-size: 18px;
+            font-weight: bold;
+            color: #0078D4;
+            margin: 4px 0px;
+        """)
+        pairs_layout.addWidget(pairs_title)
+        # Thin separator line under Reading Pairs heading
+        pairs_sep = QFrame()
+        pairs_sep.setFrameShape(QFrame.HLine)
+        pairs_sep.setFrameShadow(QFrame.Plain)
+        pairs_sep.setStyleSheet("""
+            color: #1084d8;
+            background-color: #1084d8;
+            border: none;
+            height: 3px;
+            margin: 2px 0px 6px 0px;
+        """)
+        pairs_layout.addWidget(pairs_sep)
+        
+        # Container for pairs (no scrolling - expands to fit content)
+        pairs_scroll = QScrollArea()
+        pairs_scroll.setObjectName("reading_pairs_scroll")
+        pairs_scroll.setWidgetResizable(True)
+        pairs_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Fixed height to prevent expanding
+        # Dynamic height calculation: base height + (number of pairs * pair height)
+        pairs_scroll.setMinimumHeight(110)  # Base height for at least one pair
+        # Remove maximum height constraint to allow proper expansion
+        pairs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # No vertical scroll bar
+        pairs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # No horizontal scroll bar
+        pairs_scroll.setStyleSheet(
+            """
+            QScrollArea#reading_pairs_scroll { border: none; background: transparent; }
+            QScrollBar:vertical { width: 0px; background: transparent; }
+            QScrollBar:horizontal { height: 0px; background: transparent; }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: transparent; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { height: 0px; width: 0px; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
+            """
+        )
+        pairs_container = QWidget()
+        pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.pairs_layout = QVBoxLayout(pairs_container)
+        self.pairs_layout.setSpacing(2)
+        self.pairs_layout.setContentsMargins(4, 2, 4, 0)  # Smaller margins to cut bottom gap
+        # No stretch: content should hug the bottom of the scroll area to reduce gap to the button
+        pairs_scroll.setWidget(pairs_container)
+        pairs_layout.addWidget(pairs_scroll, 1)
+        self.pairs_scroll = pairs_scroll
+        
+        # Add Reading Pair composite button (icon on the left of text, no overlap)
+        add_pair_button = AddPairButton("Add Reading Pair", lambda: self.add_reading_pair())
+        pairs_layout.addWidget(add_pair_button)
+        
+        unified_layout.addWidget(pairs_box)
+        
+        # Section 3: Additional Amount (frosted, no hover)
+        # Use a plain QWidget (not CardWidget) so no interactive state/overlay is drawn
+        amount_box = QWidget()
+        amount_box.setObjectName("additional_amount_box")
+        amount_box.setStyleSheet("""
+            #additional_amount_box { 
+                background: transparent; 
+                border: none; 
+                margin: 8px 0px; 
+                padding: 0px; 
+            }
+            #additional_amount_box:hover, #additional_amount_box:pressed { 
+                background: transparent; 
+                border: none; 
+            }
+        """)
+        amount_outer_layout = QVBoxLayout(amount_box)
+        amount_outer_layout.setContentsMargins(0, 0, 0, 0)
+        amount_outer_layout.setSpacing(0)
+        amount_inner = QWidget()
+        amount_inner.setObjectName("additional_amount_inner")
+        amount_inner.setAttribute(Qt.WA_StyledBackground, True)
+        # Prevent hover/focus visual changes on the container itself
+        amount_inner.setFocusPolicy(Qt.NoFocus)
+        amount_inner.setAttribute(Qt.WA_Hover, False)
+        amount_inner.setMouseTracking(False)
+        amount_inner.setStyleSheet("""
+            #additional_amount_inner {
+                background-color: rgba(255, 255, 255, 0.14); /* subtle frost */
+                border: 1px solid rgba(255, 255, 255, 0.28);
+                border-radius: 12px;
+            }
+            #additional_amount_inner:hover, #additional_amount_inner:pressed { 
+                background-color: rgba(255, 255, 255, 0.14); 
+                border: 1px solid rgba(255, 255, 255, 0.28); 
+            }
+        """)
+        amount_outer_layout.addWidget(amount_inner)
+        _shadow3 = QGraphicsDropShadowEffect(self)
+        _shadow3.setBlurRadius(18)
+        _shadow3.setOffset(0, 2)
+        _shadow3.setColor(QColor(0, 0, 0, 120))
+        amount_inner.setGraphicsEffect(_shadow3)
+        amount_layout = QVBoxLayout(amount_inner)
+        amount_layout.setContentsMargins(16, 12, 16, 12)
+        amount_layout.setSpacing(8)
+
+        amount_title = BodyLabel("Additional Amount:")
+        amount_title.setStyleSheet("""
+            font-size: 18px;
+            font-weight: bold;
+            color: #0078D4;
+            margin: 4px 0px;
+        """)
+        amount_layout.addWidget(amount_title)
+        # Thin separator line under Additional Amount heading
+        amount_sep = QFrame()
+        amount_sep.setFrameShape(QFrame.HLine)
+        amount_sep.setFrameShadow(QFrame.Plain)
+        amount_sep.setStyleSheet("""
+            color: #1084d8;
+            background-color: #1084d8;
+            border: none;
+            height: 3px;
+            margin: 2px 0px 6px 0px;
+        """)
+        amount_layout.addWidget(amount_sep)
+        
+        self.additional_amount_input = CustomLineEdit()
+        self.additional_amount_input.setObjectName("main_additional_amount_input")
+        self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
+        
+        currency_label = CaptionLabel("TK")
+        currency_label.setStyleSheet("""
+            font-weight: bold;
+            color: #ffffff;
+            font-size: 12px;
+            padding: 8px 4px;
+        """)
+
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(self.additional_amount_input, 1)
+        input_layout.addWidget(currency_label)
+        input_layout.setSpacing(8)
+
+        amount_layout.addLayout(input_layout)
+        unified_layout.addWidget(amount_box)
+        
+        unified_group.setToolTip("Enter billing period, meter readings, and any additional amount")
+        return unified_group
 
     def create_additional_amount_group(self):
         amount_group = CardWidget()
         amount_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         # amount_group.setFixedHeight(110) # Removed for responsiveness
         amount_layout = QVBoxLayout(amount_group)
-        amount_layout.setContentsMargins(8,6,8,6)
-        amount_layout.setSpacing(4)
+        amount_layout.setContentsMargins(16, 12, 16, 12)  # Increased margins
+        amount_layout.setSpacing(8)  # Increased spacing
         amount_layout.setDirection(QBoxLayout.TopToBottom)
 
         amount_label = BodyLabel("Additional Amount:")
+        amount_label.setStyleSheet("""
+            font-weight: bold;
+            font-size: 14px;
+            color: #0078D4;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        """)
+        amount_layout.addWidget(amount_label)
+        
         self.additional_amount_input = CustomLineEdit()
         self.additional_amount_input.setObjectName("main_additional_amount_input")
-        
         self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
         
         currency_label = CaptionLabel("TK")
+        currency_label.setStyleSheet("""
+            font-weight: bold;
+            color: #ffffff;
+            font-size: 12px;
+            padding: 8px 4px;
+        """)
 
         input_layout = QHBoxLayout()
         input_layout.addWidget(self.additional_amount_input, 1)
         input_layout.addWidget(currency_label)
-        input_layout.setSpacing(5)
+        input_layout.setSpacing(8)
 
-        amount_label.setStyleSheet("font-weight: bold;")
-        amount_label.setAlignment(Qt.AlignCenter)
-        amount_layout.addWidget(amount_label)
         amount_layout.addLayout(input_layout)
         amount_group.setToolTip("Enter any additional amount to be added to the total bill")
         return amount_group
+
+    def create_reading_pairs_container(self):
+        """Create the reading pairs container with dynamic pair management and responsive behavior."""
+        pairs_group = CardWidget()
+        # Set responsive size policy and constraints
+        pairs_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        pairs_group.setMinimumHeight(200)  # Minimum height to prevent collapse
+        pairs_group.setMaximumHeight(400)  # Maximum height to prevent excessive growth
+        pairs_layout = QVBoxLayout(pairs_group)
+        pairs_layout.setContentsMargins(8, 8, 8, 8)
+        pairs_layout.setSpacing(4)
+        
+        # Title and separator
+        pairs_title = TitleLabel("Reading Pairs")
+        pairs_title.setAlignment(Qt.AlignCenter)
+        pairs_title.setStyleSheet("""
+            font-size: 26px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
+        pairs_layout.addWidget(pairs_title)
+        
+        pairs_line = QFrame()
+        pairs_line.setFrameShape(QFrame.HLine)
+        pairs_line.setFrameShadow(QFrame.Plain)
+        pairs_line.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
+        pairs_layout.addWidget(pairs_line)
+        
+        # Scroll area for pairs with responsive behavior
+        pairs_scroll = AutoScrollArea()
+        pairs_scroll.setWidgetResizable(True)
+        pairs_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        pairs_scroll.setMinimumHeight(120)  # Minimum height for at least one pair
+        pairs_container = QWidget()
+        pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.pairs_layout = QVBoxLayout(pairs_container)
+        self.pairs_layout.setSpacing(8)
+        pairs_scroll.setWidget(pairs_container)
+        pairs_layout.addWidget(pairs_scroll, 1)  # Give scroll area stretch factor
+        
+        # Add Reading Pair button with white icon and bold text
+        add_pair_button = PrimaryPushButton("Add Reading Pair")
+        add_pair_button.setIcon(FluentIcon.ADD)
+        add_pair_button.clicked.connect(self.add_reading_pair)
+        add_pair_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #0078D4, stop:1 #005a9e);
+                border: 2px solid #0078D4;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 12px 20px;
+                text-align: center;
+                box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
+                transition: all 0.2s ease;
+            }
+            PrimaryPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #1084d8, stop:1 #106ebe);
+                border-color: #1084d8;
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(16, 132, 216, 0.4);
+            }
+            PrimaryPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #005a9e, stop:1 #004578);
+                border-color: #005a9e;
+                transform: translateY(0px);
+                box-shadow: 0 2px 8px rgba(0, 90, 158, 0.2);
+            }
+        """)
+        pairs_layout.addWidget(add_pair_button)
+        
+        return pairs_group
+
+    def add_reading_pair(self):
+        """Add a new reading pair."""
+        pair_index = len(self.reading_pairs)
+        pair_widget = ReadingPairWidget(pair_index, self.remove_reading_pair)
+        
+        # Append to the end (we no longer use a bottom stretch spacer)
+        self.pairs_layout.addWidget(pair_widget)
+        self.reading_pairs.append(pair_widget)
+        
+        # Add to existing meter_entries and diff_entries arrays for compatibility
+        self.meter_entries.append(pair_widget.meter_input)
+        self.diff_entries.append(pair_widget.diff_input)
+        
+        # Update scroll area height after adding pair
+        self.update_pairs_scroll_height()
+        
+        # Re-configure navigation whenever widgets change
+        if hasattr(self, 'setup_navigation_main_tab'):
+            self.setup_navigation_main_tab()
+    
+    def remove_reading_pair(self, pair_widget):
+        """Remove a reading pair."""
+        if pair_widget in self.reading_pairs:
+            # Remove from tracking lists
+            pair_index = self.reading_pairs.index(pair_widget)
+            self.reading_pairs.remove(pair_widget)
+            
+            # Remove from meter_entries and diff_entries arrays
+            if pair_widget.meter_input in self.meter_entries:
+                self.meter_entries.remove(pair_widget.meter_input)
+            if pair_widget.diff_input in self.diff_entries:
+                self.diff_entries.remove(pair_widget.diff_input)
+            
+            # Remove from layout and delete widget
+            self.pairs_layout.removeWidget(pair_widget)
+            pair_widget.setParent(None)
+            pair_widget.deleteLater()
+            
+            # Update indices for remaining pairs
+            self.update_pair_indices()
+            
+            # Update scroll area height after removing pair
+            self.update_pairs_scroll_height()
+            
+            # Re-configure navigation whenever widgets change
+            if hasattr(self, 'setup_navigation_main_tab'):
+                self.setup_navigation_main_tab()
+    
+    def update_pair_indices(self):
+        """Update the indices and labels of all reading pairs after removal."""
+        for i, pair_widget in enumerate(self.reading_pairs):
+            pair_widget.pair_index = i
+            # Update object names
+            pair_widget.meter_input.setObjectName(f"meter_edit_{i}")
+            pair_widget.diff_input.setObjectName(f"diff_edit_{i}")
+            
+            # Update labels using object names (robust against layout structure changes)
+            meter_label = pair_widget.findChild(BodyLabel, "meter_label")
+            if meter_label:
+                meter_label.setText(f"Meter {i + 1} Reading:")
+            diff_label = pair_widget.findChild(BodyLabel, "diff_label")
+            if diff_label:
+                diff_label.setText(f"Difference {i + 1} Reading:")
+    
+    def update_pairs_scroll_height(self):
+        """Update the scroll area height based on the number of reading pairs."""
+        if not hasattr(self, 'pairs_scroll') or not self.pairs_scroll:
+            return
+            
+        num_pairs = len(self.reading_pairs)
+        if num_pairs == 0:
+            return
+            
+        # Calculate optimal height for compact rows
+        pair_height = 58  # Fixed height from ReadingPairWidget
+        spacing = 2  # Spacing between pairs from layout
+        padding = 4  # Top and bottom padding
+        title_space = 40  # Title + separator space
+        
+        # Calculate total height needed
+        total_content_height = title_space + (num_pairs * pair_height) + ((num_pairs - 1) * spacing) + padding
+        
+        # Set reasonable limits
+        min_height = 110  # Minimum for one pair
+        
+        # Calculate ideal height (no maximum limit since we don't want scroll bars)
+        ideal_height = max(min_height, total_content_height)
+        
+        # Apply the calculated height - both min and max to exact size
+        self.pairs_scroll.setMinimumHeight(ideal_height)
+        self.pairs_scroll.setMaximumHeight(ideal_height)  # Set exact height to prevent scrolling
+        
+        # Force layout update
+        self.pairs_scroll.updateGeometry()
+        if self.pairs_scroll.parent():
+            self.pairs_scroll.parent().updateGeometry()
 
     def get_additional_amount(self):
         try:
@@ -414,112 +1682,100 @@ class MainTab(QWidget):
             return 0.0
 
     def create_results_group(self):
-        results_group = CardWidget()
-        results_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        results_layout = QHBoxLayout(results_group)
-        results_layout.setSpacing(20)
-        results_layout.setContentsMargins(10, 15, 10, 10)
-
-        total_unit_layout = QVBoxLayout()
-        total_unit_layout.setAlignment(Qt.AlignHCenter)
-        total_unit_layout.setSpacing(2)
-        total_unit_title_label = TitleLabel("Total Units")
-        total_unit_title_label.setStyleSheet("color:#4FC3F7;font-weight:bold;")
-        total_unit_title_label.setAlignment(Qt.AlignHCenter)
+        # Create a container widget for all result cards
+        results_container = QWidget()
+        results_layout = QVBoxLayout(results_container)
+        results_layout.setSpacing(12)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create individual result labels first (to maintain existing variable names)
         self.total_unit_value_label = BodyLabel("0")
-        self.total_unit_value_label.setStyleSheet("color:#4FC3F7;font-size:36px;font-weight:bold;")
-        self.total_unit_value_label.setAlignment(Qt.AlignCenter)
-        total_unit_layout.addWidget(total_unit_title_label)
-        total_unit_layout.addWidget(self.total_unit_value_label, alignment=Qt.AlignHCenter)
-        
-        results_layout.addLayout(total_unit_layout, 1)
-
-        total_diff_layout = QVBoxLayout()
-        total_diff_layout.setAlignment(Qt.AlignHCenter)
-        total_diff_layout.setSpacing(2)
-        total_diff_title_label = TitleLabel("Total Difference")
-        total_diff_title_label.setStyleSheet("color:#FFB74D;font-weight:bold;")
-        total_diff_title_label.setAlignment(Qt.AlignHCenter)
         self.total_diff_value_label = BodyLabel("0")
-        self.total_diff_value_label.setStyleSheet("color:#FFB74D;font-size:36px;font-weight:bold;")
-        self.total_diff_value_label.setAlignment(Qt.AlignCenter)
-        total_diff_layout.addWidget(total_diff_title_label)
-        total_diff_layout.addWidget(self.total_diff_value_label, alignment=Qt.AlignHCenter)
-        
-        results_layout.addLayout(total_diff_layout, 1)
-
-        per_unit_cost_layout = QVBoxLayout()
-        per_unit_cost_layout.setAlignment(Qt.AlignHCenter)
-        per_unit_cost_layout.setSpacing(2)
-        per_unit_cost_title_label = TitleLabel("Per Unit Cost")
-        per_unit_cost_title_label.setStyleSheet("color:#81C784;font-weight:bold;")
-        per_unit_cost_title_label.setAlignment(Qt.AlignHCenter)
         self.per_unit_cost_value_label = BodyLabel("0.00")
-        self.per_unit_cost_value_label.setStyleSheet("color:#81C784;font-size:36px;font-weight:bold;")
-        self.per_unit_cost_value_label.setAlignment(Qt.AlignCenter)
-        per_unit_cost_layout.addWidget(per_unit_cost_title_label)
-        per_unit_cost_layout.addWidget(self.per_unit_cost_value_label, alignment=Qt.AlignHCenter)
-        
-        results_layout.addLayout(per_unit_cost_layout, 1)
-
-        added_amount_layout = QVBoxLayout()
-        added_amount_layout.setAlignment(Qt.AlignHCenter)
-        added_amount_layout.setSpacing(2)
-        added_amount_title_label = TitleLabel("Added Amount")
-        added_amount_title_label.setStyleSheet("color:#BA68C8;font-weight:bold;")
-        added_amount_title_label.setAlignment(Qt.AlignHCenter)
         self.additional_amount_value_label = BodyLabel("0")
-        self.additional_amount_value_label.setStyleSheet("color:#BA68C8;font-size:36px;font-weight:bold;")
-        self.additional_amount_value_label.setAlignment(Qt.AlignCenter)
-        added_amount_layout.addWidget(added_amount_title_label)
-        added_amount_layout.addWidget(self.additional_amount_value_label, alignment=Qt.AlignHCenter)
         
-        results_layout.addLayout(added_amount_layout, 1)
-
-        in_total_layout = QVBoxLayout()
-        in_total_layout.setAlignment(Qt.AlignHCenter)
-        in_total_layout.setSpacing(2)
-        in_total_title_label = TitleLabel("In Total")
-        in_total_title_label.setStyleSheet("color:#E57373;font-weight:bold;")
-        in_total_title_label.setAlignment(Qt.AlignHCenter)
-        self.in_total_value_label = BodyLabel("0.00")
-        self.in_total_value_label.setStyleSheet("color:#E57373;font-size:36px;font-weight:bold;")
-        self.in_total_value_label.setAlignment(Qt.AlignCenter)
-        in_total_layout.addWidget(in_total_title_label)
-        in_total_layout.addWidget(self.in_total_value_label, alignment=Qt.AlignHCenter)
+        # Create individual result cards with themed colors
+        # Total Units Card (Blue)
+        total_units_card = ResultCard(
+            "Total Units", 
+            FluentIcon.TILES, 
+            "#4FC3F7",
+            self.total_unit_value_label
+        )
+        results_layout.addWidget(total_units_card)
         
-        results_layout.addLayout(in_total_layout, 1)
-
-        results_group.setMinimumHeight(80)
-        return results_group
+        # Total Difference Card (Orange)
+        total_diff_card = ResultCard(
+            "Total Difference", 
+            FluentIcon.REMOVE, 
+            "#FFB74D",
+            self.total_diff_value_label
+        )
+        results_layout.addWidget(total_diff_card)
+        
+        # Per Unit Cost Card (Green)
+        per_unit_cost_card = ResultCard(
+            "Per Unit Cost", 
+            FluentIcon.SHOPPING_CART, 
+            "#81C784",
+            self.per_unit_cost_value_label
+        )
+        results_layout.addWidget(per_unit_cost_card)
+        
+        # Added Amount Card (Purple)
+        added_amount_card = ResultCard(
+            "Added Amount", 
+            FluentIcon.ADD, 
+            "#BA68C8",
+            self.additional_amount_value_label
+        )
+        results_layout.addWidget(added_amount_card)
+        
+        # Total Cost Card (Teal) - calculated value, no existing label
+        self.total_cost_card = ResultCard(
+            "Total Cost", 
+            FluentIcon.UP, 
+            "#26A69A"
+        )
+        results_layout.addWidget(self.total_cost_card)
+        
+        # Add stretch to push cards to top
+        results_layout.addStretch()
+        
+        return results_container
 
     def create_load_info_group(self):
         load_info_group = CardWidget()
         load_info_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         load_info_layout = QHBoxLayout(load_info_group)
-        load_info_layout.setContentsMargins(8, 6, 8, 6)
+        load_info_layout.setContentsMargins(8, 8, 8, 8)
+        load_info_layout.setSpacing(12)
 
         load_month_label = BodyLabel("Month:")
+        load_month_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.load_month_combo = ComboBox()
         self.load_month_combo.addItems([
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ])
+        self.load_month_combo.setCurrentIndex(datetime.now().month - 1)  # Set current month
 
         load_year_label = BodyLabel("Year:")
+        load_year_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.load_year_spinbox = SpinBox()
         self.load_year_spinbox.setRange(2000, 2100)
         self.load_year_spinbox.setValue(datetime.now().year)
 
         load_button = PrimaryPushButton("Load")
+        load_button.setIcon(FluentIcon.DOWNLOAD)
         load_button.clicked.connect(self.load_info_to_inputs)
-        # Apply clean styling with white text and no icons
+        load_button.setFixedHeight(36)
         load_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
                 background-color: #0078D4;
                 border: 1px solid #0078D4;
-                border-radius: 4px;
+                border-radius: 6px;
                 font-weight: 600;
                 padding: 8px 16px;
                 text-align: center;
@@ -536,51 +1792,33 @@ class MainTab(QWidget):
 
         load_info_layout.addWidget(load_month_label)
         load_info_layout.addWidget(self.load_month_combo)
-        load_info_layout.addSpacing(20)
+        load_info_layout.addSpacing(16)
         load_info_layout.addWidget(load_year_label)
         load_info_layout.addWidget(self.load_year_spinbox)
+        
         # Replace ComboBox with native Fluent DropDownPushButton for source selection
         self.main_window.load_info_source_combo.setVisible(False)
         self.load_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
-        # self.load_source_button.setFixedWidth(190) # Removed for responsiveness
-        # Set button text color to white with proper icon positioning and white icon color
+        self.load_source_button.setFixedHeight(36)
         self.load_source_button.setStyleSheet("""
             DropDownPushButton {
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 4px;
+                background-color: #6C5CE7;
+                border: 1px solid #6C5CE7;
+                border-radius: 6px;
                 font-weight: 600;
-                padding: 8px 24px 8px 48px;
+                padding: 8px 16px;
                 text-align: center;
-                qproperty-iconSize: 16px 16px;
             }
             DropDownPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
+                background-color: #5A4FCF;
+                border-color: #5A4FCF;
             }
             DropDownPushButton:pressed {
-                background-color: #005a9e;
-                border-color: #005a9e;
-            }
-            DropDownPushButton::icon {
-                color: white;
+                background-color: #4834D4;
+                border-color: #4834D4;
             }
         """)
-        # Create a white version of the document icon
-        original_doc_icon = FluentIcon.DOCUMENT.icon()
-        white_doc_pixmap = original_doc_icon.pixmap(16, 16)
-        # Create a white version by applying a color overlay
-        white_doc_icon_pixmap = QPixmap(16, 16)
-        white_doc_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
-        painter = QPainter(white_doc_icon_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        painter.drawPixmap(0, 0, white_doc_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        painter.fillRect(white_doc_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
-        painter.end()
-        white_document_icon = QIcon(white_doc_icon_pixmap)
-        self.load_source_button.setIcon(white_document_icon)
 
         # Build Fluent-style round menu
         menu = RoundMenu(parent=self.load_source_button)
@@ -592,20 +1830,22 @@ class MainTab(QWidget):
         menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD.icon(), "Load from Cloud")))
         self.load_source_button.setMenu(menu)
 
-        load_info_layout.addSpacing(20)
+        load_info_layout.addSpacing(16)
         load_info_layout.addWidget(self.load_source_button)
-        load_info_layout.addSpacing(20)
+        load_info_layout.addSpacing(16)
         load_info_layout.addWidget(load_button)
         
-        # Add Next Month button (orange styling) - positioned next to Load button
+        # Add Next Month button with improved styling
         add_next_month_button = PrimaryPushButton("Add Next Month")
+        add_next_month_button.setIcon(FluentIcon.ADD)
         add_next_month_button.clicked.connect(self.add_month_action)
+        add_next_month_button.setFixedHeight(36)
         add_next_month_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
                 background-color: #FF8C00;
                 border: 1px solid #FF8C00;
-                border-radius: 4px;
+                border-radius: 6px;
                 font-weight: 600;
                 padding: 8px 16px;
                 text-align: center;
@@ -620,58 +1860,12 @@ class MainTab(QWidget):
             }
         """)
         
-        load_info_layout.addSpacing(20)
+        load_info_layout.addSpacing(16)
         load_info_layout.addWidget(add_next_month_button)
         load_info_layout.addStretch(1)
         return load_info_group
         
-    def update_meter_inputs(self, value=None):
-        num_meters = value if value is not None else self.meter_count_spinbox.value()
-        current_values = {i: meter_edit.text() for i, meter_edit in enumerate(self.meter_entries)}
-        
-        self._clear_layout(self.meter_layout)
-        self.meter_entries = []
-        
-        for i in range(num_meters):
-            meter_edit = CustomLineEdit()
-            meter_edit.setObjectName(f"meter_edit_{i}")
-            
-            numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
-            meter_edit.setValidator(numeric_validator)
-            label = BodyLabel(f"Meter {i+1} Reading:")
-            label.setStyleSheet("font-weight:bold;")
-            self.meter_layout.addWidget(label)
-            self.meter_layout.addWidget(meter_edit)
-            if i in current_values:
-                meter_edit.setText(current_values[i])
-            self.meter_entries.append(meter_edit)
-        
-        # Re-configure navigation whenever widgets change
-        self.setup_navigation_main_tab()
 
-    def update_diff_inputs(self, value=None):
-        num_diffs = value if value is not None else self.diff_count_spinbox.value()
-        current_values = {i: diff_edit.text() for i, diff_edit in enumerate(self.diff_entries)}
- 
-        self._clear_layout(self.diff_layout)
-        self.diff_entries = []
-        
-        for i in range(num_diffs):
-            diff_edit = CustomLineEdit()
-            diff_edit.setObjectName(f"diff_edit_{i}")
-            
-            numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
-            diff_edit.setValidator(numeric_validator)
-            label = BodyLabel(f"Difference {i+1} Reading:")
-            label.setStyleSheet("font-weight:bold;")
-            self.diff_layout.addWidget(label)
-            self.diff_layout.addWidget(diff_edit)
-            if i in current_values:
-                diff_edit.setText(current_values[i])
-            self.diff_entries.append(diff_edit)
-        
-        # Re-configure navigation whenever widgets change
-        self.setup_navigation_main_tab()
         
     def _clear_layout(self, layout):
         if layout is not None:
@@ -708,12 +1902,14 @@ class MainTab(QWidget):
             total_unit = sum(meter_readings)
             total_diff = sum(diff_readings)
             per_unit_cost = (total_unit / total_diff) if total_diff != 0 else 0.0 # Ensure float division
+            total_cost = total_unit  # Total cost before additional amount
             in_total = total_unit + additional_amount
 
             self.total_unit_value_label.setText(f"{int(total_unit)}")
             self.total_diff_value_label.setText(f"{int(total_diff)}")
             self.per_unit_cost_value_label.setText(f"{per_unit_cost:.2f} TK")
             self.additional_amount_value_label.setText(f"{int(additional_amount)} TK")
+            self.total_cost_card.update_value(f"{int(total_cost)} TK")
             self.in_total_value_label.setText(f"{int(in_total)} TK")
         except ValueError:
             QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values for all readings.")
@@ -806,17 +2002,21 @@ class MainTab(QWidget):
                     num_diffs -=1
                 num_diffs = max(1, num_diffs)
 
-                max_meters = self.meter_count_spinbox.maximum()
-                max_diffs  = self.diff_count_spinbox.maximum()
-                if num_meters > max_meters or num_diffs > max_diffs:
-                    QMessageBox.warning(self, "Data Truncated",
-                                        "Incoming data contains more readings than the UI "
-                                        "can display. Extra values will be ignored.")
-                self.meter_count_spinbox.setValue(min(num_meters, max_meters))
-                self.diff_count_spinbox.setValue(min(num_diffs,  max_diffs))
+                # Determine how many pairs we need
+                num_pairs_needed = max(num_meters, num_diffs)
+                
+                # Ensure we have enough reading pairs
+                while len(self.reading_pairs) < num_pairs_needed:
+                    self.add_reading_pair()
+                
+                # Remove excess pairs if we have too many
+                while len(self.reading_pairs) > num_pairs_needed:
+                    if self.reading_pairs:
+                        self.remove_reading_pair(self.reading_pairs[-1])
 
+                # Load meter values into the pairs
                 for i, val_str in enumerate(meter_values_csv[:num_meters]):
-                    if i < len(self.meter_entries):
+                    if i < len(self.reading_pairs):
                         # Normalize numeric values so that "123.0" → "123" while preserving
                         # any truly non-integer strings (unlikely given validators).
                         display_val = str(val_str)
@@ -828,9 +2028,11 @@ class MainTab(QWidget):
                         except (ValueError, TypeError):
                             # Leave display_val as-is if it is not a plain number
                             pass
-                        self.meter_entries[i].setText(display_val)
+                        self.reading_pairs[i].set_meter_value(display_val)
+                
+                # Load diff values into the pairs
                 for i, val_str in enumerate(diff_values_csv[:num_diffs]):
-                    if i < len(self.diff_entries):
+                    if i < len(self.reading_pairs):
                         display_val = str(val_str)
                         try:
                             num_val = float(val_str)
@@ -838,7 +2040,7 @@ class MainTab(QWidget):
                                 display_val = str(int(num_val))
                         except (ValueError, TypeError):
                             pass
-                        self.diff_entries[i].setText(display_val)
+                        self.reading_pairs[i].set_diff_value(display_val)
                     
                 self.additional_amount_input.setText(self._get_csv_value(main_data_row, "Added Amount", "0"))
 
@@ -908,11 +2110,21 @@ class MainTab(QWidget):
             num_meters = len(meter_values)
             num_diffs = len(diff_values)
             
-            self.meter_count_spinbox.setValue(num_meters)
-            self.diff_count_spinbox.setValue(num_diffs)
+            # Determine how many pairs we need
+            num_pairs_needed = max(num_meters, num_diffs)
             
+            # Ensure we have enough reading pairs
+            while len(self.reading_pairs) < num_pairs_needed:
+                self.add_reading_pair()
+            
+            # Remove excess pairs if we have too many
+            while len(self.reading_pairs) > num_pairs_needed:
+                if self.reading_pairs:
+                    self.remove_reading_pair(self.reading_pairs[-1])
+            
+            # Load meter values into the pairs
             for i, val in enumerate(meter_values):
-                if i < len(self.meter_entries):
+                if i < len(self.reading_pairs):
                     # Normalize numeric values so that "123.0" → "123" while preserving
                     # any truly non-integer strings (unlikely given validators).
                     display_val = str(val)
@@ -924,9 +2136,11 @@ class MainTab(QWidget):
                     except (ValueError, TypeError):
                         # Leave display_val as-is if it is not a plain number
                         pass
-                    self.meter_entries[i].setText(display_val)
+                    self.reading_pairs[i].set_meter_value(display_val)
+            
+            # Load diff values into the pairs
             for i, val in enumerate(diff_values):
-                if i < len(self.diff_entries):
+                if i < len(self.reading_pairs):
                     display_val = str(val)
                     try:
                         num_val = float(val)
@@ -934,7 +2148,7 @@ class MainTab(QWidget):
                             display_val = str(int(num_val))
                     except (ValueError, TypeError):
                         pass
-                    self.diff_entries[i].setText(display_val)
+                    self.reading_pairs[i].set_diff_value(display_val)
                 
             # Support both legacy 'added_amount' and new 'additional_amount' keys
             add_amt = main_data.get("additional_amount", main_data.get("added_amount", "0"))
@@ -1062,6 +2276,104 @@ class MainTab(QWidget):
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             # add before final stretch (index -1)
             self._save_buttons_row.insertWidget(self._save_buttons_row.count()-1, btn, 1)
+    
+    def _apply_consistent_theming(self):
+        """Apply consistent theming and ensure proper dark/light theme support."""
+        from qfluentwidgets import isDarkTheme, Theme
+        
+        # Detect current theme
+        is_dark = isDarkTheme()
+        
+        # Apply theme-aware styling to the main tab
+        if is_dark:
+            self._apply_dark_theme_styling()
+        else:
+            self._apply_light_theme_styling()
+        
+        # Apply consistent accent colors throughout
+        self._apply_accent_colors()
+    
+    def _apply_dark_theme_styling(self):
+        """Apply dark theme specific styling."""
+        self.setStyleSheet("""
+            MainTab {
+                background-color: #1e1e1e;
+                color: #ffffff;
+            }
+            
+            QWidget {
+                background-color: transparent;
+            }
+            
+            BodyLabel, CaptionLabel, TitleLabel {
+                color: #ffffff;
+            }
+        """)
+    
+    def _apply_light_theme_styling(self):
+        """Apply light theme specific styling."""
+        self.setStyleSheet("""
+            MainTab {
+                background-color: #f5f5f5;
+                color: #000000;
+            }
+            
+            QWidget {
+                background-color: transparent;
+            }
+            
+            BodyLabel, CaptionLabel, TitleLabel {
+                color: #000000;
+            }
+        """)
+    
+    def _apply_accent_colors(self):
+        """Apply consistent accent colors across all themed elements."""
+        # This method ensures all themed elements use the same accent color
+        accent_color = "#0078D4"
+        
+        # Update any dynamically created elements with consistent accent colors
+        for card in self.findChildren(ResultCard):
+            if hasattr(card, 'theme_color'):
+                # Maintain individual card colors but ensure consistency
+                pass
+        
+        # Ensure final amount card uses accent color
+        if hasattr(self, 'final_amount_card'):
+            self.final_amount_card.setStyleSheet(self.final_amount_card.styleSheet().replace(
+                "#0078D4", accent_color
+            ))
+    
+    def update_theme(self):
+        """Update theme when system theme changes."""
+        self._apply_consistent_theming()
+        
+        # Refresh all child widgets to apply new theme
+        for widget in self.findChildren(QWidget):
+            widget.update()
+    
+    def add_subtle_animations(self):
+        """Add subtle animations and transitions for interactive elements."""
+        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
+        
+        # Add entrance animations for all cards
+        cards = self.findChildren(CardWidget)
+        for i, card in enumerate(cards):
+            if not hasattr(card, '_entrance_animation'):
+                animation = QPropertyAnimation(card, b"windowOpacity")
+                animation.setDuration(300 + (i * 50))  # Staggered animation
+                animation.setStartValue(0.0)
+                animation.setEndValue(1.0)
+                animation.setEasingCurve(QEasingCurve.OutCubic)
+                card._entrance_animation = animation
+                animation.start()
+    
+    def showEvent(self, event):
+        """Override show event to trigger entrance animations."""
+        super().showEvent(event)
+        # Delay animations slightly to ensure proper layout
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(100, self.add_subtle_animations)
 
     # Dummy classes for testing purposes
 if __name__ == '__main__':
