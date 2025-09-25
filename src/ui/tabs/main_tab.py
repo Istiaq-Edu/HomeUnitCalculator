@@ -6,12 +6,12 @@ import traceback
 from datetime import datetime
 
 from PyQt5.QtCore import QRegExp, Qt, QTimer, QEvent, QSize
-from PyQt5.QtGui import QRegExpValidator, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QBrush, QPen
+from PyQt5.QtGui import QRegExpValidator, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QBrush, QPen, QPalette, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFormLayout, QMessageBox, QSizePolicy,
-    QGridLayout, QBoxLayout, QFrame, QMenu, QAction, QSpinBox, QComboBox,
-    QGraphicsDropShadowEffect, QScrollArea, QSpacerItem
+    QGridLayout, QBoxLayout, QFrame, QMenu, QAction, QSpinBox, QComboBox, QLineEdit,
+    QGraphicsDropShadowEffect, QScrollArea, QSpacerItem, QLayout
 
 )
 from postgrest.exceptions import APIError
@@ -25,6 +25,44 @@ from qfluentwidgets import (
 from src.core.utils import resource_path
 from src.core.add_month_manager import AddMonthManager
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
+
+def _clamp(v, lo=0, hi=255):
+    return max(lo, min(hi, int(round(v))))
+
+def _hex_to_rgb(hex_color: str):
+    c = hex_color.strip().lstrip('#')
+    if len(c) == 3:
+        c = ''.join([ch*2 for ch in c])
+    r = int(c[0:2], 16)
+    g = int(c[2:4], 16)
+    b = int(c[4:6], 16)
+    return (r, g, b)
+
+def _rgb_to_hex(rgb):
+    return '#%02X%02X%02X' % tuple(_clamp(x) for x in rgb)
+
+def _mix_colors(c1_hex: str, c2_hex: str, ratio: float):
+    # ratio 0.0 => c1, 1.0 => c2
+    r1, g1, b1 = _hex_to_rgb(c1_hex)
+    r2, g2, b2 = _hex_to_rgb(c2_hex)
+    r = r1*(1-ratio) + r2*ratio
+    g = g1*(1-ratio) + g2*ratio
+    b = b1*(1-ratio) + b2*ratio
+    return _rgb_to_hex((r, g, b))
+
+def _lighten_color(hex_color: str, ratio: float = 0.75):
+    # Blend toward white
+    return _mix_colors(hex_color, '#FFFFFF', ratio)
+
+def _darken_color(hex_color: str, ratio: float = 0.35):
+    # Blend toward black
+    return _mix_colors(hex_color, '#000000', ratio)
+
+def _rgba_from_hex(hex_color: str, alpha: float):
+    """Return an rgba() string for Qt StyleSheets given a #RRGGBB color and an alpha 0..1."""
+    r, g, b = _hex_to_rgb(hex_color)
+    # Qt supports CSS-like rgba(r,g,b,a) with a as 0..1 float
+    return f"rgba({r}, {g}, {b}, {alpha})"
 
 class ReadingPairWidget(QWidget):
     """Widget that combines meter and difference inputs in a single row with remove button."""
@@ -66,7 +104,8 @@ class ReadingPairWidget(QWidget):
         self.remove_button.setIconSize(QSize(14, 14))
         self.remove_button.setFixedSize(22, 22)  # Square size; height will sync after layout
         self.remove_button.clicked.connect(self._on_remove_clicked)
-        self.remove_button.setToolTip("Remove this reading pair")
+        # No tooltip on remove button
+        self.remove_button.setToolTip("")
         # Square glass-like background with curved corners - no red circle
         self.remove_button.setStyleSheet("""
             PushButton {
@@ -305,7 +344,7 @@ class AddPairButton(QWidget):
         return super().mouseReleaseEvent(event)
 
 
-class ResultCard(CardWidget):
+class ResultCard(QWidget):
     """Individual result card with icon, title, and value display with enhanced styling."""
     
     def __init__(self, title, icon, theme_color, value_label=None):
@@ -314,23 +353,52 @@ class ResultCard(CardWidget):
         self.theme_color = theme_color
         self.value_label = value_label  # Reference to existing label
         
-        # Set responsive size policy and constraints
+        # Set size policy and constraints (expand horizontally; height sized to fit large text/icon)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(90)  # Minimum height to prevent collapse
-        self.setMaximumHeight(130)  # Maximum height for consistency
-        self.setFixedHeight(110)  # Default height for better proportions
+        self.setMinimumHeight(90)
+        self.setMaximumHeight(90)
+        self.setFixedHeight(90)
+        # No maximum width so it can expand horizontally with the window
         
-        # Main layout with improved spacing
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)  # Increased padding
-        layout.setSpacing(16)  # Increased spacing
+        # Disable interactive hover/focus like billing containers
+        self.setAttribute(Qt.WA_Hover, False)
+        self.setMouseTracking(False)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setCursor(Qt.ArrowCursor)
+        # Ensure stylesheet background is painted on QWidget
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        # Fill background from palette/QSS
+        self.setAutoFillBackground(True)
+        
+        # Compute light/dark variants for background/value
+        light_bg = _lighten_color(self.theme_color, 0.92)
+        dark_accent = _darken_color(self.theme_color, 0.40)
+        vivid_accent = _lighten_color(self.theme_color, 0.25)  # brighter number color
+
+        # Assign a stable object name for precise QSS targeting
+        self.setObjectName("result_card")
+
+        # Root layout (no padding); inner 'panel' draws background & padding
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        panel = QWidget()
+        panel.setObjectName("result_card_panel")
+        panel.setAttribute(Qt.WA_StyledBackground, True)
+        panel.setAutoFillBackground(True)
+        # Fix the panel's height so content never expands it vertically
+        panel.setMinimumHeight(90)
+        panel.setMaximumHeight(90)
+        panel_layout = QHBoxLayout(panel)
+        panel_layout.setContentsMargins(24, 6, 24, 6)
+        panel_layout.setSpacing(10)
         
         # Icon section with enhanced styling
         icon_label = QLabel()
         if isinstance(icon, FluentIconBase):
-            pixmap = icon.icon().pixmap(36, 36)  # Slightly larger icon
+            pixmap = icon.icon().pixmap(30, 30)
         else:
-            pixmap = icon.pixmap(36, 36) if hasattr(icon, 'pixmap') else QPixmap()
+            pixmap = icon.pixmap(30, 30) if hasattr(icon, 'pixmap') else QPixmap()
         
         # Apply theme color to icon with better rendering
         if not pixmap.isNull():
@@ -345,76 +413,109 @@ class ResultCard(CardWidget):
             painter.end()
             icon_label.setPixmap(colored_pixmap)
         
-        icon_label.setFixedSize(48, 48)  # Larger icon container
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: {theme_color}25;
-                border-radius: 24px;
-                padding: 6px;
-                border: 2px solid {theme_color}40;
+        # Create a rounded "chip" container to get smooth corners (like the cards)
+        icon_chip = QWidget()
+        icon_chip.setObjectName("icon_chip")
+        icon_chip.setFixedSize(40, 40)
+        icon_chip.setAttribute(Qt.WA_StyledBackground, True)
+        icon_chip.setAutoFillBackground(True)
+        chip_bg_rgba = _rgba_from_hex(self.theme_color, 0.10)
+        icon_chip.setStyleSheet(f"""
+            #icon_chip {{
+                background-color: {chip_bg_rgba};
+                border-radius: 12px;  /* 48px -> radius 12 for clean AA */
+                border: 1px solid {dark_accent}; /* opaque solid border */
             }}
         """)
-        
-        # Content section with improved layout
-        content_layout = QVBoxLayout()
-        content_layout.setSpacing(4)
-        content_layout.setContentsMargins(0, 0, 0, 0)
+        # No shadow to avoid dotted edges on borders
+        icon_chip.setGraphicsEffect(None)
+
+        # Center the glyph inside the chip
+        icon_label.setAlignment(Qt.AlignCenter)
+        chip_layout = QVBoxLayout(icon_chip)
+        chip_layout.setContentsMargins(4, 4, 4, 4)
+        chip_layout.setSpacing(0)
+        chip_layout.addWidget(icon_label, 1, Qt.AlignCenter)
         
         # Title with enhanced styling
         title_label = CaptionLabel(title)
-        title_label.setStyleSheet(f"""
-            color: {theme_color}; 
+        title_label.setStyleSheet(
+            """
+            color: #FFFFFF; 
             font-weight: bold; 
             font-size: 13px;
             letter-spacing: 0.5px;
             text-transform: uppercase;
-        """)
+        """
+        )
         
-        # Value with improved typography
+        # Value with improved typography (bigger & brighter)
         if value_label:
             self.display_label = value_label
             self.display_label.setStyleSheet(f"""
-                color: {theme_color}; 
-                font-size: 26px; 
+                color: {vivid_accent}; 
+                font-size: 40px; 
                 font-weight: 700;
                 line-height: 1.2;
             """)
+            self.display_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         else:
             self.display_label = BodyLabel("0")
             self.display_label.setStyleSheet(f"""
-                color: {theme_color}; 
-                font-size: 26px; 
+                color: {vivid_accent}; 
+                font-size: 44px; 
                 font-weight: 700;
                 line-height: 1.2;
             """)
+            self.display_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
-        content_layout.addWidget(title_label)
-        content_layout.addWidget(self.display_label)
-        content_layout.addStretch()
+        # Header row: title left, value right (directly beside the icon)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(6)
+        header_row.addWidget(title_label, 1)
+        header_row.addStretch(1)
+        header_row.addWidget(self.display_label, 0, Qt.AlignRight | Qt.AlignVCenter)
+        # Ensure vertical centering with the icon
+        header_row.setAlignment(title_label, Qt.AlignVCenter)
+        header_row.setAlignment(self.display_label, Qt.AlignVCenter)
         
-        # Add to main layout
-        layout.addWidget(icon_label)
-        layout.addLayout(content_layout, 1)
+        # Place icon and header row in the same horizontal line for perfect vertical alignment
+        panel_layout.addWidget(icon_chip)
+        panel_layout.addLayout(header_row, 1)
+        panel_layout.setAlignment(icon_chip, Qt.AlignVCenter)
+        panel_layout.setAlignment(header_row, Qt.AlignVCenter)
+        outer_layout.addWidget(panel)
         
-        # Apply enhanced card styling with animations
-        self.setStyleSheet(f"""
-            ResultCard {{
-                background-color: #2b2b2b;
-                border: 2px solid {theme_color}30;
+        # Style the inner panel to ensure background renders
+        frosted_bg = _rgba_from_hex(self.theme_color, 0.16)
+        panel_border = _rgba_from_hex(self.theme_color, 0.35)
+        panel.setStyleSheet(f"""
+            #result_card_panel {{
+                background-color: {frosted_bg};
+                border: 1px solid {panel_border};
                 border-radius: 12px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            }}
-            ResultCard:hover {{
-                background-color: #323232;
-                border: 2px solid {theme_color}60;
-                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-                transform: translateY(-2px);
             }}
         """)
+        # Remove panel shadow to avoid band-like separators between thin cards
+        panel.setGraphicsEffect(None)
         
         # Add subtle entrance animation
         self._setup_animations()
+    
+    def enterEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def leaveEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def event(self, e):
+        """Swallow hover events to prevent CardWidget's hover visuals."""
+        if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
+            return True
+        return super().event(e)
     
     def _setup_animations(self):
         """Setup subtle animations for the card."""
@@ -467,23 +568,44 @@ class ResultCard(CardWidget):
             self._pulse_animation.start()
 
 
-class FinalAmountCard(CardWidget):
+class FinalAmountCard(QWidget):
     """Special Final Amount card with prominent styling, animations, and enhanced visual appeal."""
     
     def __init__(self, value_label):
         super().__init__()
         self.value_label = value_label
         
-        # Set responsive size policy and constraints
+        # Set size policy and constraints (fixed vertically at 120px, can expand horizontally)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(140)  # Minimum height to prevent collapse
-        self.setMaximumHeight(180)  # Maximum height for consistency
-        self.setFixedHeight(160)  # Default height for prominence
+        self.setMinimumHeight(120)
+        self.setMaximumHeight(120)
+        self.setFixedHeight(120)
         
-        # Main layout with generous padding
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)  # More generous padding
-        layout.setSpacing(20)  # Increased spacing
+        # Disable interactive hover/focus like billing containers
+        self.setAttribute(Qt.WA_Hover, False)
+        self.setMouseTracking(False)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setCursor(Qt.ArrowCursor)
+        # Ensure stylesheet background is painted on QWidget
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
+        # Match stylesheet id selector
+        self.setObjectName("final_amount_card")
+        
+        # Root layout (no padding); inner 'panel' draws background & padding
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        panel = QWidget()
+        panel.setObjectName("final_amount_panel")
+        panel.setAttribute(Qt.WA_StyledBackground, True)
+        panel.setAutoFillBackground(True)
+        # Fix inner panel to match card height so it doesn't expand vertically
+        panel.setMinimumHeight(120)
+        panel.setMaximumHeight(120)
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(28, 14, 28, 14)  # extra horizontal padding
+        layout.setSpacing(16)
         
         # Icon section with enhanced money/total icon
         icon_label = QLabel()
@@ -503,18 +625,37 @@ class FinalAmountCard(CardWidget):
             painter.end()
             icon_label.setPixmap(colored_pixmap)
         
-        icon_label.setFixedSize(64, 64)  # Much larger icon container
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet("""
-            QLabel {
-                background-color: #0078D430;
-                border-radius: 32px;
-                padding: 8px;
-                border: 3px solid #0078D460;
-            }
+        # Compute theme tints (blue theme) and frosted variants
+        theme_color = "#0078D4"
+        light_bg = _lighten_color(theme_color, 0.90)
+        dark_accent = _darken_color(theme_color, 0.40)
+        icon_bg_rgba = _rgba_from_hex(theme_color, 0.18)
+        border_rgba = _rgba_from_hex(theme_color, 0.45)
+
+        # Use a rounded chip container for smooth corners
+        icon_chip = QWidget()
+        icon_chip.setObjectName("final_amount_icon_chip")
+        icon_chip.setFixedSize(64, 64)
+        icon_chip.setAttribute(Qt.WA_StyledBackground, True)
+        icon_chip.setAutoFillBackground(True)
+        chip_bg_rgba2 = _rgba_from_hex(theme_color, 0.10)
+        icon_chip.setStyleSheet(f"""
+            #final_amount_icon_chip {{
+                background-color: {chip_bg_rgba2};
+                border-radius: 16px;  /* 64px -> radius 16 for clean AA */
+                border: 1px solid {dark_accent}; /* opaque solid border */
+            }}
         """)
+        # No shadow to avoid dotted edges on borders
+        icon_chip.setGraphicsEffect(None)
+
+        icon_label.setAlignment(Qt.AlignCenter)
+        chip_layout2 = QVBoxLayout(icon_chip)
+        chip_layout2.setContentsMargins(8, 8, 8, 8)
+        chip_layout2.setSpacing(0)
+        chip_layout2.addWidget(icon_label, 1, Qt.AlignCenter)
         
-        # Content section with improved spacing
+        # Content section with header row (title left, number right)
         content_layout = QVBoxLayout()
         content_layout.setSpacing(6)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -522,7 +663,7 @@ class FinalAmountCard(CardWidget):
         # Title with enhanced typography
         title_label = CaptionLabel("Final Amount")
         title_label.setStyleSheet("""
-            color: #0078D4; 
+            color: #FFFFFF; 
             font-weight: bold; 
             font-size: 16px;
             letter-spacing: 1px;
@@ -538,44 +679,59 @@ class FinalAmountCard(CardWidget):
             margin-bottom: 4px;
         """)
         
-        # Value with premium typography
-        self.value_label.setStyleSheet("""
-            color: #0078D4; 
-            font-size: 32px; 
+        # Value with premium typography (bigger & brighter)
+        vivid_blue = _lighten_color(theme_color, 0.18)
+        self.value_label.setStyleSheet(f"""
+            color: {vivid_blue}; 
+            font-size: 44px; 
             font-weight: 800;
             line-height: 1.1;
-            text-shadow: 0 2px 4px rgba(0, 120, 212, 0.3);
+            text-shadow: 0 2px 4px rgba(0, 120, 212, 0.15);
         """)
+        self.value_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
         
-        content_layout.addWidget(title_label)
-        content_layout.addWidget(subtitle_label)
-        content_layout.addWidget(self.value_label)
+        # Center title and value vertically stacked
+        content_layout.addWidget(title_label, 0, Qt.AlignHCenter)
+        content_layout.addWidget(self.value_label, 0, Qt.AlignHCenter)
+        content_layout.addWidget(subtitle_label, 0, Qt.AlignHCenter)
         content_layout.addStretch()
         
-        # Add to main layout
-        layout.addWidget(icon_label)
+        # Add to panel then to outer layout
+        layout.addWidget(icon_chip)
         layout.addLayout(content_layout, 1)
+        layout.setAlignment(icon_chip, Qt.AlignVCenter)
+        layout.setAlignment(content_layout, Qt.AlignVCenter)
+        outer_layout.addWidget(panel)
         
-        # Apply premium styling with enhanced effects
-        self.setStyleSheet("""
-            FinalAmountCard {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
-                    stop:0 #2b2b2b, stop:1 #323232);
-                border: 3px solid #0078D4;
-                border-radius: 16px;
-                box-shadow: 0 8px 24px rgba(0, 120, 212, 0.2);
-            }
-            FinalAmountCard:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
-                    stop:0 #323232, stop:1 #3a3a3a);
-                border: 3px solid #1084d8;
-                box-shadow: 0 12px 32px rgba(0, 120, 212, 0.4);
-                transform: translateY(-3px);
-            }
+        # Style the inner panel to ensure background renders
+        frosted_bg = _rgba_from_hex(theme_color, 0.14)
+        panel_border = _rgba_from_hex(theme_color, 0.45)
+        panel.setStyleSheet(f"""
+            #final_amount_panel {{
+                background-color: {frosted_bg};
+                border: 2px solid {panel_border};
+                border-radius: 12px;  /* match parent rounding */
+            }}
         """)
+        # Remove panel shadow for visual consistency with thin cards
+        panel.setGraphicsEffect(None)
         
         # Setup premium animations
         self._setup_premium_animations()
+    
+    def enterEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def leaveEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def event(self, e):
+        """Swallow hover events to prevent CardWidget's hover visuals."""
+        if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
+            return True
+        return super().event(e)
     
     def _setup_premium_animations(self):
         """Setup premium animations for the final amount card."""
@@ -664,6 +820,11 @@ class MainTab(QWidget):
         self.content_layout = None
         self.main_scroll_area = None
         self.pairs_scroll = None
+        self.results_group_widget = None
+        self._results_group_locked_height = None
+        self._billing_unified_group = None
+        self._no_select_lineedits = set()
+        self._no_focus_spinboxes = set()
 
         self.init_ui()
 
@@ -671,23 +832,16 @@ class MainTab(QWidget):
         """Handle window resize events to adjust layout responsively."""
         super().resizeEvent(event)
         self.adjust_responsive_layout()
-        
-    def test_layout_at_different_sizes(self):
-        """Test method to verify layout behavior at different window sizes."""
-        if not self.main_window:
-            return
-            
-        # Test at minimum supported size
-        self.main_window.resize(1000, 700)
-        QTimer.singleShot(100, lambda: self.adjust_responsive_layout())
-        
-        # Test at normal size
-        QTimer.singleShot(500, lambda: self.main_window.resize(1300, 860))
-        QTimer.singleShot(600, lambda: self.adjust_responsive_layout())
-        
-        # Test at large size
-        QTimer.singleShot(1000, lambda: self.main_window.resize(1800, 1000))
-        QTimer.singleShot(1100, lambda: self.adjust_responsive_layout())
+        # Re-lock results group's height to its content after resize
+        try:
+            QTimer.singleShot(0, self._lock_results_group_height)
+        except Exception:
+            pass
+        # Re-apply pairs scroll exact height to prevent vertical drift
+        try:
+            QTimer.singleShot(0, self.update_pairs_scroll_height)
+        except Exception:
+            pass
 
     def adjust_responsive_layout(self):
         """Adjust layout based on current window size for responsive behavior."""
@@ -736,33 +890,27 @@ class MainTab(QWidget):
     
     def _adjust_card_sizes_for_narrow_window(self):
         """Adjust card sizes for narrow windows to maintain usability."""
-        # Reduce result card heights for narrow windows
+        # Keep constant heights (do not scale with window size)
         for child in self.right_column_widget.findChildren(ResultCard):
-            child.setFixedHeight(90)  # Smaller height for narrow windows
-            
-        # Reduce final amount card height
+            child.setFixedHeight(90)
         if hasattr(self, 'final_amount_card'):
-            self.final_amount_card.setFixedHeight(140)
+            self.final_amount_card.setFixedHeight(120)
     
     def _adjust_card_sizes_for_wide_window(self):
         """Adjust card sizes for wide windows to utilize extra space."""
-        # Increase result card heights for wide windows
+        # Keep constant heights to prevent the parent group from stretching in fullscreen
         for child in self.right_column_widget.findChildren(ResultCard):
-            child.setFixedHeight(130)  # Larger height for wide windows
-            
-        # Increase final amount card height
+            child.setFixedHeight(90)
         if hasattr(self, 'final_amount_card'):
-            self.final_amount_card.setFixedHeight(180)
+            self.final_amount_card.setFixedHeight(120)
     
     def _adjust_card_sizes_for_normal_window(self):
         """Reset card sizes to default for normal window size."""
-        # Default result card heights
+        # Keep constant heights
         for child in self.right_column_widget.findChildren(ResultCard):
-            child.setFixedHeight(110)  # Default height
-            
-        # Default final amount card height
+            child.setFixedHeight(90)
         if hasattr(self, 'final_amount_card'):
-            self.final_amount_card.setFixedHeight(160)
+            self.final_amount_card.setFixedHeight(120)
     
     def ensure_widget_visible(self, widget):
         """Ensure a widget is visible in the most appropriate scroll area."""
@@ -779,6 +927,86 @@ class MainTab(QWidget):
         # Fallback to main page scroll area
         if self.main_scroll_area:
             self.main_scroll_area.ensureWidgetVisible(widget)
+
+    def eventFilter(self, obj, event):
+        """Swallow mouse clicks on the billing container background only, not its children."""
+        try:
+            if obj is self._billing_unified_group and event.type() in (
+                QEvent.MouseButtonPress,
+                QEvent.MouseButtonRelease,
+                QEvent.MouseButtonDblClick,
+            ):
+                return True  # ignore clicks on empty area of the container
+            # Prevent selection highlight for spinbox lineEdits we track
+            if obj in self._no_select_lineedits:
+                if event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+                    obj.deselect()
+                    obj.setCursorPosition(len(obj.text()))
+                    return False
+                if event.type() == QEvent.KeyPress and (event.modifiers() & Qt.ControlModifier) and event.key() == Qt.Key_A:
+                    # Block Ctrl+A select all
+                    return True
+            # Swallow focus for tracked spinboxes to avoid focus underline/box-color
+            if obj in self._no_focus_spinboxes and event.type() == QEvent.FocusIn:
+                return True
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+    def _apply_no_select_to_spinbox(self, spinbox):
+        """Disable text selection and focus underline for a SpinBox safely.
+
+        - Do not change geometry or base styles.
+        - Remove focus so focus-underlines don't appear.
+        - Make inner editor selection invisible and auto-deselect on interactions.
+        - When arrows change the value, clear selection and focus.
+        """
+        try:
+            # Prevent focus state so underline color doesn't appear
+            spinbox.setFocusPolicy(Qt.NoFocus)
+            self._no_focus_spinboxes.add(spinbox)
+            spinbox.installEventFilter(self)
+            le = None
+            if hasattr(spinbox, 'lineEdit'):
+                try:
+                    le = spinbox.lineEdit()
+                except Exception:
+                    le = None
+            if le is None:
+                le = spinbox.findChild(QLineEdit)
+            if le is None:
+                # Defer if not ready yet
+                QTimer.singleShot(0, lambda: self._apply_no_select_to_spinbox(spinbox))
+                return
+            # Inner editor should also not accept focus
+            le.setFocusPolicy(Qt.NoFocus)
+            le.installEventFilter(self)
+            # Make selection invisible on the editor only (doesn't change box layout)
+            try:
+                pal = le.palette()
+                pal.setColor(QPalette.Highlight, QColor(0, 0, 0, 0))
+                pal.setColor(QPalette.HighlightedText, pal.color(QPalette.Text))
+                le.setPalette(pal)
+            except Exception:
+                pass
+            # Clear selection initially and after interactions
+            def _clear_sel():
+                try:
+                    le.deselect(); le.setCursorPosition(len(le.text()))
+                except Exception:
+                    pass
+            _clear_sel()
+            try:
+                le.selectionChanged.connect(_clear_sel)
+            except Exception:
+                pass
+            # When arrows change value, clear selection/focus immediately after
+            try:
+                spinbox.valueChanged.connect(lambda *_: QTimer.singleShot(0, lambda: (spinbox.clearFocus(), _clear_sel())))
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def init_ui(self):
         # Root layout for the main tab
@@ -883,23 +1111,27 @@ class MainTab(QWidget):
             height: 2px;
             margin: 4px 20px;
         """)
+        
+        # Add separator line to layout
         load_data_layout.addWidget(load_line)
 
+        # Create and add the load info group
         load_info_group = self.create_load_info_group()
         load_data_layout.addWidget(load_info_group)
 
+        # Attach the whole load data group to the left column
         left_column_layout.addWidget(load_data_group)
+        # Consume extra vertical space below so upper groups don't stretch in fullscreen
+        left_column_layout.addStretch(1)
 
         # Move results to right column
         results_group = self.create_results_group()
-        right_column_layout.addWidget(results_group)
-        
-        # Create Final Amount card with special styling (positioned at bottom)
-        self.in_total_value_label = BodyLabel("0.00")
-        self.final_amount_card = FinalAmountCard(self.in_total_value_label)
-        right_column_layout.addWidget(self.final_amount_card)
+        self.results_group_widget = results_group
+        right_column_layout.addWidget(results_group, 0, Qt.AlignTop)
+        # Consume any extra vertical space below, so results_group never stretches vertically
+        right_column_layout.addStretch(1)
 
-        # Calculate button with full-width primary styling
+        # Create Calculate button with full-width primary styling
         self.main_calculate_button = PrimaryPushButton("Calculate")
         self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM)
         self.main_calculate_button.clicked.connect(self.calculate_main)
@@ -944,6 +1176,12 @@ class MainTab(QWidget):
         # Set up the scroll area with the content widget
         self.main_scroll_area.setWidget(scroll_content_widget)
         root_layout.addWidget(self.main_scroll_area)
+
+        # After layout is ready, lock results group's height to its content
+        try:
+            QTimer.singleShot(0, self._lock_results_group_height)
+        except Exception:
+            pass
         
         # ── Calculate button (sticks at bottom) ─────────────────────────────
         self.main_calculate_button.setParent(self)  # Move to root widget
@@ -1099,6 +1337,13 @@ class MainTab(QWidget):
                         _harmonise_layout(child.layout())
 
         _harmonise_layout(main_layout)
+        # Restore compact spacing for reading pairs after global harmonisation
+        try:
+            if hasattr(self, 'pairs_layout') and self.pairs_layout is not None:
+                self.pairs_layout.setSpacing(2)
+                self.pairs_layout.setContentsMargins(4, 2, 4, 0)
+        except Exception:
+            pass
 
         self.setLayout(main_layout)
         
@@ -1107,9 +1352,19 @@ class MainTab(QWidget):
 
     def create_billing_and_reading_container(self):
         """Create the unified 'Billing Period And Meter Reading' card containing all three sections."""
-        unified_group = CardWidget()
+        # Use a plain QWidget so the outer container has no interactive hover/press visuals
+        unified_group = QWidget()
         unified_group.setObjectName("billing_meter_container")
         # Force static appearance on hover for the outer container only
+        # Ensure style background is painted
+        unified_group.setAttribute(Qt.WA_StyledBackground, True)
+        # Do not take focus or track hover/mouse at the container level
+        unified_group.setFocusPolicy(Qt.NoFocus)
+        unified_group.setAttribute(Qt.WA_Hover, False)
+        unified_group.setMouseTracking(False)
+        # Do not intercept clicks; instead, we swallow only container background clicks via eventFilter
+        self._billing_unified_group = unified_group
+        unified_group.installEventFilter(self)
         unified_group.setStyleSheet(
             """
             #billing_meter_container {
@@ -1124,7 +1379,8 @@ class MainTab(QWidget):
             }
             """
         )
-        unified_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # Hug content vertically; don't stretch when the window is tall
+        unified_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         # Remove fixed minimum height to allow dynamic sizing based on content
         
         # Remove border from main container since individual sections will have thick borders
@@ -1245,6 +1501,24 @@ class MainTab(QWidget):
         self.year_spinbox = SpinBox()
         self.year_spinbox.setRange(2000, 2100)
         self.year_spinbox.setValue(datetime.now().year)
+        # Apply safe selection suppression that doesn't affect layout or focus visuals
+        self._apply_no_select_to_spinbox(self.year_spinbox)
+        # Do not allow focus so the box color doesn't change; arrows remain clickable
+        self.year_spinbox.setFocusPolicy(Qt.NoFocus)
+        QTimer.singleShot(0, lambda: (self.year_spinbox.lineEdit() and self.year_spinbox.lineEdit().setFocusPolicy(Qt.NoFocus)))
+        # Make the value bold to match month combo text weight (inline)
+        try:
+            le = self.year_spinbox.lineEdit() if hasattr(self.year_spinbox, 'lineEdit') else None
+            if le is None:
+                QTimer.singleShot(0, lambda: (
+                    self.year_spinbox.lineEdit() and self.year_spinbox.lineEdit().setFont(self.year_spinbox.lineEdit().font().setBold(True))
+                ))
+            else:
+                f = le.font()
+                f.setBold(True)
+                le.setFont(f)
+        except Exception:
+            pass
 
         controls_layout.addWidget(month_label)
         controls_layout.addWidget(self.month_combo)
@@ -1278,6 +1552,8 @@ class MainTab(QWidget):
         pairs_inner = QWidget()
         pairs_inner.setObjectName("reading_pairs_inner")
         pairs_inner.setAttribute(Qt.WA_StyledBackground, True)
+        # Prevent vertical stretching; let it hug its content
+        pairs_inner.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         # Prevent hover/focus visual changes on the container itself
         pairs_inner.setFocusPolicy(Qt.NoFocus)
         pairs_inner.setAttribute(Qt.WA_Hover, False)
@@ -1300,8 +1576,8 @@ class MainTab(QWidget):
         _shadow2.setColor(QColor(0, 0, 0, 120))
         pairs_inner.setGraphicsEffect(_shadow2)
         pairs_layout = QVBoxLayout(pairs_inner)
-        pairs_layout.setContentsMargins(16, 8, 16, 10)  # add bottom padding so button sits inside nicely
-        pairs_layout.setSpacing(4)
+        pairs_layout.setContentsMargins(16, 8, 16, 10)  # keep some baseline padding
+        pairs_layout.setSpacing(12)  # more space between scroll and button
         
         pairs_title = BodyLabel("Reading Pairs")
         pairs_title.setStyleSheet("""
@@ -1350,15 +1626,30 @@ class MainTab(QWidget):
         pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.pairs_layout = QVBoxLayout(pairs_container)
         self.pairs_layout.setSpacing(2)
-        self.pairs_layout.setContentsMargins(4, 2, 4, 0)  # Smaller margins to cut bottom gap
+        self.pairs_layout.setContentsMargins(4, 2, 4, 10)  # add more bottom padding for visual gap
         # No stretch: content should hug the bottom of the scroll area to reduce gap to the button
         pairs_scroll.setWidget(pairs_container)
-        pairs_layout.addWidget(pairs_scroll, 1)
+        # Do not give stretch so it won't claim extra vertical space; keep it top-aligned
+        pairs_layout.addWidget(pairs_scroll, 0, Qt.AlignTop)
         self.pairs_scroll = pairs_scroll
+        # Keep references used for precise height locking
+        self._pairs_inner_widget = pairs_inner
+        self._pairs_title_label = pairs_title
+        self._pairs_sep_line = pairs_sep
         
         # Add Reading Pair composite button (icon on the left of text, no overlap)
+        # Insert a fixed spacer above the button and a holder with a top margin to ensure visible gap
+        self._pairs_fixed_gap = 12
+        pairs_layout.addSpacing(self._pairs_fixed_gap)
+        self._pairs_btn_top_gap = 14
         add_pair_button = AddPairButton("Add Reading Pair", lambda: self.add_reading_pair())
-        pairs_layout.addWidget(add_pair_button)
+        button_holder = QWidget()
+        _btn_holder_layout = QVBoxLayout(button_holder)
+        _btn_holder_layout.setContentsMargins(0, self._pairs_btn_top_gap, 0, 0)
+        _btn_holder_layout.setSpacing(0)
+        _btn_holder_layout.addWidget(add_pair_button)
+        pairs_layout.addWidget(button_holder)
+        self._pairs_add_button = add_pair_button
         
         unified_layout.addWidget(pairs_box)
         
@@ -1450,7 +1741,7 @@ class MainTab(QWidget):
         amount_layout.addLayout(input_layout)
         unified_layout.addWidget(amount_box)
         
-        unified_group.setToolTip("Enter billing period, meter readings, and any additional amount")
+        # No tooltip on the outer billing container
         return unified_group
 
     def create_additional_amount_group(self):
@@ -1650,17 +1941,31 @@ class MainTab(QWidget):
         if num_pairs == 0:
             return
             
-        # Calculate optimal height for compact rows
-        pair_height = 58  # Fixed height from ReadingPairWidget
-        spacing = 2  # Spacing between pairs from layout
-        padding = 4  # Top and bottom padding
-        title_space = 40  # Title + separator space
+        # Calculate optimal height strictly for the rows area (exclude title and separator)
+        try:
+            # Use sizeHint/minimumHeight to be robust even before widget is shown
+            ph_hint = self.reading_pairs[0].sizeHint().height()
+            ph_min = self.reading_pairs[0].minimumHeight()
+            pair_height = max(1, ph_hint, ph_min)
+        except Exception:
+            pair_height = 58  # fallback
+        spacing = 2
+        try:
+            spacing = max(0, self.pairs_layout.spacing())
+        except Exception:
+            pass
+        top = bottom = 0
+        try:
+            _, top, _, bottom = self.pairs_layout.getContentsMargins()
+        except Exception:
+            pass
+        padding = max(0, top + bottom)
         
-        # Calculate total height needed
-        total_content_height = title_space + (num_pairs * pair_height) + ((num_pairs - 1) * spacing) + padding
+        # Total content height inside the scroll viewport (no title/sep area)
+        total_content_height = (num_pairs * pair_height) + ((num_pairs - 1) * spacing) + padding
         
         # Set reasonable limits
-        min_height = 110  # Minimum for one pair
+        min_height = max(58, pair_height + padding)  # Minimum for one pair
         
         # Calculate ideal height (no maximum limit since we don't want scroll bars)
         ideal_height = max(min_height, total_content_height)
@@ -1668,6 +1973,41 @@ class MainTab(QWidget):
         # Apply the calculated height - both min and max to exact size
         self.pairs_scroll.setMinimumHeight(ideal_height)
         self.pairs_scroll.setMaximumHeight(ideal_height)  # Set exact height to prevent scrolling
+        try:
+            self.pairs_scroll.setFixedHeight(ideal_height)
+        except Exception:
+            pass
+        
+        # Additionally lock the entire inner section height (title + sep + pairs + button)
+        try:
+            header_h = 0
+            if hasattr(self, '_pairs_title_label') and self._pairs_title_label:
+                header_h += self._pairs_title_label.sizeHint().height()
+            if hasattr(self, '_pairs_sep_line') and self._pairs_sep_line:
+                header_h += self._pairs_sep_line.sizeHint().height()
+            button_h = 0
+            if hasattr(self, '_pairs_add_button') and self._pairs_add_button:
+                button_h = self._pairs_add_button.sizeHint().height()
+            # Spacing between: title|sep, sep|scroll, scroll|button
+            try:
+                vspace = max(0, pairs_layout.spacing()) if (pairs_layout := self._pairs_title_label.parentWidget().layout()) else 4
+            except Exception:
+                vspace = 4
+            inter_spacing = vspace * 3  # title|sep, sep|scroll, scroll|button
+            # Margins of the pairs_layout (top+bottom)
+            try:
+                _, top2, _, bottom2 = pairs_layout.getContentsMargins()
+            except Exception:
+                top2 = bottom2 = 0
+            # Include the explicit spacing we inserted above the button
+            extra_btn_gap = getattr(self, '_pairs_btn_top_gap', 10)
+            extra_fixed_gap = getattr(self, '_pairs_fixed_gap', 0)
+            total_inner_h = header_h + ideal_height + extra_fixed_gap + extra_btn_gap + button_h + inter_spacing + top2 + bottom2
+            if hasattr(self, '_pairs_inner_widget') and self._pairs_inner_widget:
+                self._pairs_inner_widget.setMinimumHeight(total_inner_h)
+                self._pairs_inner_widget.setMaximumHeight(total_inner_h)
+        except Exception:
+            pass
         
         # Force layout update
         self.pairs_scroll.updateGeometry()
@@ -1682,67 +2022,129 @@ class MainTab(QWidget):
             return 0.0
 
     def create_results_group(self):
-        # Create a container widget for all result cards
+        # Create a titled QWidget (non-interactive) to group all result cards together
+        results_group = QWidget()
+        # Horizontal: expand; Vertical: fixed to sizeHint (won't stretch on fullscreen)
+        results_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # Keep the outer container static on hover (no interactive hover effect)
+        results_group.setObjectName("results_group_container")
+        # Ensure style background is painted and interaction is disabled
+        results_group.setAttribute(Qt.WA_StyledBackground, True)
+        results_group.setFocusPolicy(Qt.NoFocus)
+        results_group.setAttribute(Qt.WA_Hover, False)
+        results_group.setMouseTracking(False)
+        results_group.setStyleSheet(
+            """
+            #results_group_container {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            }
+            """
+        )
+        group_layout = QVBoxLayout(results_group)
+        group_layout.setContentsMargins(20, 20, 20, 20)
+        group_layout.setSpacing(10)
+
+        # Title and separator for the group
+        group_title = TitleLabel("Calculation Results")
+        group_title.setAlignment(Qt.AlignCenter)
+        group_title.setStyleSheet(
+            """
+            font-size: 28px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+            """
+        )
+        group_layout.addWidget(group_title)
+
+        group_line = QFrame()
+        group_line.setFrameShape(QFrame.HLine)
+        group_line.setFrameShadow(QFrame.Plain)
+        group_line.setStyleSheet(
+            """
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+            """
+        )
+        group_layout.addWidget(group_line)
+
+        # Inner container for the individual cards
         results_container = QWidget()
         results_layout = QVBoxLayout(results_container)
-        results_layout.setSpacing(12)
+        results_layout.setSpacing(6)
         results_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Create individual result labels first (to maintain existing variable names)
         self.total_unit_value_label = BodyLabel("0")
         self.total_diff_value_label = BodyLabel("0")
         self.per_unit_cost_value_label = BodyLabel("0.00")
         self.additional_amount_value_label = BodyLabel("0")
-        
+
         # Create individual result cards with themed colors
         # Total Units Card (Blue)
         total_units_card = ResultCard(
-            "Total Units", 
-            FluentIcon.TILES, 
+            "Total Units",
+            FluentIcon.TILES,
             "#4FC3F7",
-            self.total_unit_value_label
+            self.total_unit_value_label,
         )
         results_layout.addWidget(total_units_card)
-        
+
         # Total Difference Card (Orange)
         total_diff_card = ResultCard(
-            "Total Difference", 
-            FluentIcon.REMOVE, 
+            "Total Difference",
+            FluentIcon.REMOVE,
             "#FFB74D",
-            self.total_diff_value_label
+            self.total_diff_value_label,
         )
         results_layout.addWidget(total_diff_card)
-        
+
         # Per Unit Cost Card (Green)
         per_unit_cost_card = ResultCard(
-            "Per Unit Cost", 
-            FluentIcon.SHOPPING_CART, 
+            "Per Unit Cost",
+            FluentIcon.SHOPPING_CART,
             "#81C784",
-            self.per_unit_cost_value_label
+            self.per_unit_cost_value_label,
         )
         results_layout.addWidget(per_unit_cost_card)
-        
+
         # Added Amount Card (Purple)
         added_amount_card = ResultCard(
-            "Added Amount", 
-            FluentIcon.ADD, 
+            "Added Amount",
+            FluentIcon.ADD,
             "#BA68C8",
-            self.additional_amount_value_label
+            self.additional_amount_value_label,
         )
         results_layout.addWidget(added_amount_card)
-        
+
         # Total Cost Card (Teal) - calculated value, no existing label
         self.total_cost_card = ResultCard(
-            "Total Cost", 
-            FluentIcon.UP, 
-            "#26A69A"
+            "Total Cost",
+            FluentIcon.UP,
+            "#26A69A",
         )
         results_layout.addWidget(self.total_cost_card)
-        
-        # Add stretch to push cards to top
-        results_layout.addStretch()
-        
-        return results_container
+
+        # Final Amount card (Blue accent) - include inside this group
+        self.in_total_value_label = BodyLabel("0.00")
+        self.final_amount_card = FinalAmountCard(self.in_total_value_label)
+        results_layout.addWidget(self.final_amount_card)
+
+        # Add stretch to push cards to top inside the container
+        # No stretch so the group height hugs the content and doesn't expand vertically
+
+        # Add inner container to the titled group
+        group_layout.addWidget(results_container)
+
+        # Do not lock height here; we will lock to content once after initial layout/show.
+        return results_group
 
     def create_load_info_group(self):
         load_info_group = CardWidget()
@@ -1765,6 +2167,24 @@ class MainTab(QWidget):
         self.load_year_spinbox = SpinBox()
         self.load_year_spinbox.setRange(2000, 2100)
         self.load_year_spinbox.setValue(datetime.now().year)
+        # Apply safe selection suppression that doesn't affect layout or focus visuals
+        self._apply_no_select_to_spinbox(self.load_year_spinbox)
+        # Do not allow focus so the box color doesn't change; arrows remain clickable
+        self.load_year_spinbox.setFocusPolicy(Qt.NoFocus)
+        QTimer.singleShot(0, lambda: (self.load_year_spinbox.lineEdit() and self.load_year_spinbox.lineEdit().setFocusPolicy(Qt.NoFocus)))
+        # Make the value bold to match month combo text weight (inline)
+        try:
+            le2 = self.load_year_spinbox.lineEdit() if hasattr(self.load_year_spinbox, 'lineEdit') else None
+            if le2 is None:
+                QTimer.singleShot(0, lambda: (
+                    self.load_year_spinbox.lineEdit() and self.load_year_spinbox.lineEdit().setFont(self.load_year_spinbox.lineEdit().font().setBold(True))
+                ))
+            else:
+                f2 = le2.font()
+                f2.setBold(True)
+                le2.setFont(f2)
+        except Exception:
+            pass
 
         load_button = PrimaryPushButton("Load")
         load_button.setIcon(FluentIcon.DOWNLOAD)
