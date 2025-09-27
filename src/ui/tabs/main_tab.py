@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFormLayout, QMessageBox, QSizePolicy,
     QGridLayout, QBoxLayout, QFrame, QMenu, QAction, QSpinBox, QComboBox, QLineEdit,
-    QGraphicsDropShadowEffect, QScrollArea, QSpacerItem, QLayout
+    QGraphicsDropShadowEffect, QSpacerItem, QLayout
 
 )
 from postgrest.exceptions import APIError
@@ -19,6 +19,7 @@ from qfluentwidgets import (
     ComboBox, SpinBox, PrimaryPushButton,
     CardWidget, TitleLabel, BodyLabel, CaptionLabel,
     FluentIcon, PushButton, DropDownPushButton, RoundMenu, Action,
+    ScrollArea,
     FluentIconBase
 )
 
@@ -929,9 +930,10 @@ class MainTab(QWidget):
             self.main_scroll_area.ensureWidgetVisible(widget)
 
     def eventFilter(self, obj, event):
-        """Swallow mouse clicks on the billing container background only, not its children."""
+        """Swallow mouse clicks on the billing and load containers' backgrounds only, not their children."""
         try:
-            if obj is self._billing_unified_group and event.type() in (
+            if (obj is getattr(self, '_billing_unified_group', None) or
+                obj is getattr(self, '_load_data_group', None)) and event.type() in (
                 QEvent.MouseButtonPress,
                 QEvent.MouseButtonRelease,
                 QEvent.MouseButtonDblClick,
@@ -1014,25 +1016,14 @@ class MainTab(QWidget):
         root_layout.setSpacing(0)
         root_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create scroll area for the entire main tab content (use native QScrollArea to avoid overlay scrollbar)
-        self.main_scroll_area = QScrollArea()
+        # Create scroll area for the entire main tab content using QFluentWidgets' ScrollArea
+        self.main_scroll_area = ScrollArea()
         self.main_scroll_area.setWidgetResizable(True)
         self.main_scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Allow vertical scrolling (prevents stacking); scrollbar remains invisible via QSS
         self.main_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.main_scroll_area.setStyleSheet(
-            """
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical { width: 0px; background: transparent; }
-            QScrollBar:horizontal { height: 0px; background: transparent; }
-            QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: transparent; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { height: 0px; width: 0px; }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
-            """
-        )
+        # Use QFluentWidgets' default styling (no custom QSS)
         
         # Create scrollable content widget
         scroll_content_widget = QWidget()
@@ -1084,8 +1075,30 @@ class MainTab(QWidget):
 
         # Reading pairs and additional amount are now part of the unified card above
 
-        # Add load data section to bottom of left column
-        load_data_group = CardWidget()
+        # Add load data section as a full-width row below the two columns
+        # Use a plain QWidget (not CardWidget) so it has NO hover/press effects
+        load_data_group = QWidget()
+        load_data_group.setObjectName("load_data_group_container")
+        # Expand horizontally, and allow the height to adapt naturally
+        load_data_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # Ensure background is painted and container itself is non-interactive
+        load_data_group.setAttribute(Qt.WA_StyledBackground, True)
+        load_data_group.setAutoFillBackground(True)
+        load_data_group.setFocusPolicy(Qt.NoFocus)
+        load_data_group.setAttribute(Qt.WA_Hover, False)
+        load_data_group.setMouseTracking(False)
+        load_data_group.setStyleSheet(
+            """
+            #load_data_group_container {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-radius: 12px;
+            }
+            """
+        )
+        # Swallow clicks on empty background only (children remain interactive)
+        self._load_data_group = load_data_group
+        load_data_group.installEventFilter(self)
         load_data_layout = QVBoxLayout(load_data_group)
         load_data_layout.setContentsMargins(8, 8, 8, 8)
         load_data_layout.setSpacing(4)
@@ -1119,9 +1132,9 @@ class MainTab(QWidget):
         load_info_group = self.create_load_info_group()
         load_data_layout.addWidget(load_info_group)
 
-        # Attach the whole load data group to the left column
-        left_column_layout.addWidget(load_data_group)
-        # Consume extra vertical space below so upper groups don't stretch in fullscreen
+        # Attach the whole load data group below the two-column layout to span full width
+        main_layout.addWidget(load_data_group)
+        # Keep left column compact by consuming extra vertical space below its content
         left_column_layout.addStretch(1)
 
         # Move results to right column
@@ -1133,9 +1146,14 @@ class MainTab(QWidget):
 
         # Create Calculate button with full-width primary styling
         self.main_calculate_button = PrimaryPushButton("Calculate")
-        self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM)
+        # White icon and consistent icon size
+        # Use the Accept icon and keep it white for clarity
+        self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.main_calculate_button.setIconSize(QSize(20, 20))
+        self.main_calculate_button.setText("Calculate")
         self.main_calculate_button.clicked.connect(self.calculate_main)
-        self.main_calculate_button.setFixedHeight(50)  # Increased height for prominence
+        self.main_calculate_button.setMinimumHeight(40)
+        self.main_calculate_button.setFixedHeight(40)
         self.main_calculate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
         # Apply premium primary styling with enhanced effects
@@ -1145,12 +1163,14 @@ class MainTab(QWidget):
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #0078D4, stop:1 #005a9e);
                 border: 2px solid #0078D4;
-                border-radius: 12px;
-                font-weight: 700;
-                font-size: 18px;
-                padding: 16px 32px;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 14px;
+                qproperty-iconSize: 20px 20px;
+                /* identical padding and spacing as Save buttons */
+                padding: 8px 16px 8px 36px;
                 text-align: center;
-                margin: 12px 0px;
+                margin: 0px;
                 box-shadow: 0 6px 16px rgba(0, 120, 212, 0.3);
                 transition: all 0.3s ease;
             }
@@ -1194,7 +1214,8 @@ class MainTab(QWidget):
 
         # PDF button with red theme and document icon
         pdf_button = PrimaryPushButton("Save PDF")
-        pdf_button.setIcon(FluentIcon.DOCUMENT)
+        pdf_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+        pdf_button.setIconSize(QSize(20, 20))
         pdf_button.setFixedHeight(40)
         pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         pdf_button.clicked.connect(self.main_window.save_to_pdf)
@@ -1208,7 +1229,8 @@ class MainTab(QWidget):
                 border-radius: 8px;
                 font-weight: 600;
                 font-size: 14px;
-                padding: 12px 20px;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
                 text-align: center;
                 box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
                 transition: all 0.2s ease;
@@ -1231,7 +1253,8 @@ class MainTab(QWidget):
 
         # CSV button with green theme and save icon
         csv_button = PrimaryPushButton("Save CSV")
-        csv_button.setIcon(FluentIcon.SAVE)
+        csv_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+        csv_button.setIconSize(QSize(20, 20))
         csv_button.setFixedHeight(40)
         csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
@@ -1245,7 +1268,8 @@ class MainTab(QWidget):
                 border-radius: 8px;
                 font-weight: 600;
                 font-size: 14px;
-                padding: 12px 20px;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
                 text-align: center;
                 box-shadow: 0 4px 12px rgba(56, 142, 60, 0.3);
                 transition: all 0.2s ease;
@@ -1268,7 +1292,8 @@ class MainTab(QWidget):
 
         # Cloud button with purple theme and cloud icon
         cloud_button = PrimaryPushButton("Save Cloud")
-        cloud_button.setIcon(FluentIcon.CLOUD)
+        cloud_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+        cloud_button.setIconSize(QSize(20, 20))
         cloud_button.setFixedHeight(40)
         cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
@@ -1282,7 +1307,8 @@ class MainTab(QWidget):
                 border-radius: 8px;
                 font-weight: 600;
                 font-size: 14px;
-                padding: 12px 20px;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
                 text-align: center;
                 box-shadow: 0 4px 12px rgba(123, 31, 162, 0.3);
                 transition: all 0.2s ease;
@@ -1601,7 +1627,7 @@ class MainTab(QWidget):
         pairs_layout.addWidget(pairs_sep)
         
         # Container for pairs (no scrolling - expands to fit content)
-        pairs_scroll = QScrollArea()
+        pairs_scroll = ScrollArea()
         pairs_scroll.setObjectName("reading_pairs_scroll")
         pairs_scroll.setWidgetResizable(True)
         pairs_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Fixed height to prevent expanding
@@ -1610,18 +1636,7 @@ class MainTab(QWidget):
         # Remove maximum height constraint to allow proper expansion
         pairs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # No vertical scroll bar
         pairs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # No horizontal scroll bar
-        pairs_scroll.setStyleSheet(
-            """
-            QScrollArea#reading_pairs_scroll { border: none; background: transparent; }
-            QScrollBar:vertical { width: 0px; background: transparent; }
-            QScrollBar:horizontal { height: 0px; background: transparent; }
-            QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: transparent; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { height: 0px; width: 0px; }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
-            """
-        )
+        # Use QFluentWidgets default styling (no custom QSS)
         pairs_container = QWidget()
         pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.pairs_layout = QVBoxLayout(pairs_container)
@@ -2161,6 +2176,9 @@ class MainTab(QWidget):
             "July", "August", "September", "October", "November", "December"
         ])
         self.load_month_combo.setCurrentIndex(datetime.now().month - 1)  # Set current month
+        # Let month combo expand to use space
+        self.load_month_combo.setMinimumWidth(140)
+        self.load_month_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         load_year_label = BodyLabel("Year:")
         load_year_label.setStyleSheet("font-weight: bold; color: #ffffff;")
@@ -2172,6 +2190,9 @@ class MainTab(QWidget):
         # Do not allow focus so the box color doesn't change; arrows remain clickable
         self.load_year_spinbox.setFocusPolicy(Qt.NoFocus)
         QTimer.singleShot(0, lambda: (self.load_year_spinbox.lineEdit() and self.load_year_spinbox.lineEdit().setFocusPolicy(Qt.NoFocus)))
+        # Allow year spinbox to grow a bit but with a sensible minimum
+        self.load_year_spinbox.setMinimumWidth(100)
+        self.load_year_spinbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         # Make the value bold to match month combo text weight (inline)
         try:
             le2 = self.load_year_spinbox.lineEdit() if hasattr(self.load_year_spinbox, 'lineEdit') else None
@@ -2187,7 +2208,9 @@ class MainTab(QWidget):
             pass
 
         load_button = PrimaryPushButton("Load")
-        load_button.setIcon(FluentIcon.DOWNLOAD)
+        # Use explicit white icon and a consistent icon size to prevent overlap
+        load_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
+        load_button.setIconSize(QSize(20, 20))
         load_button.clicked.connect(self.load_info_to_inputs)
         load_button.setFixedHeight(36)
         load_button.setStyleSheet("""
@@ -2197,8 +2220,9 @@ class MainTab(QWidget):
                 border: 1px solid #0078D4;
                 border-radius: 6px;
                 font-weight: 600;
-                padding: 8px 16px;
-                text-align: center;
+                qproperty-iconSize: 20px 20px; /* ensure consistent icon size */
+                /* extra left padding so icon never overlaps text */
+                padding: 8px 16px 8px 36px;
             }
             PrimaryPushButton:hover {
                 background-color: #106ebe;
@@ -2209,12 +2233,16 @@ class MainTab(QWidget):
                 border-color: #005a9e;
             }
         """)
+        # Buttons can also expand; we give them stretch in the layout
+        load_button.setMinimumWidth(120)
+        load_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        load_info_layout.addWidget(load_month_label)
-        load_info_layout.addWidget(self.load_month_combo)
-        load_info_layout.addSpacing(16)
-        load_info_layout.addWidget(load_year_label)
-        load_info_layout.addWidget(self.load_year_spinbox)
+        # Distribute remaining width proportionally with stretch factors
+        load_info_layout.addWidget(load_month_label, 0)
+        load_info_layout.addWidget(self.load_month_combo, 2)
+        load_info_layout.addSpacing(12)
+        load_info_layout.addWidget(load_year_label, 0)
+        load_info_layout.addWidget(self.load_year_spinbox, 1)
         
         # Replace ComboBox with native Fluent DropDownPushButton for source selection
         self.main_window.load_info_source_combo.setVisible(False)
@@ -2227,8 +2255,9 @@ class MainTab(QWidget):
                 border: 1px solid #6C5CE7;
                 border-radius: 6px;
                 font-weight: 600;
-                padding: 8px 16px;
-                text-align: center;
+                qproperty-iconSize: 20px 20px; /* consistent icon size */
+                /* equal left padding for icon across all buttons */
+                padding: 8px 16px 8px 36px;
             }
             DropDownPushButton:hover {
                 background-color: #5A4FCF;
@@ -2239,25 +2268,39 @@ class MainTab(QWidget):
                 border-color: #4834D4;
             }
         """)
+        # Ensure white icon and consistent size on the dropdown button
+        try:
+            self.load_source_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+        except Exception:
+            pass
+        self.load_source_button.setIconSize(QSize(20, 20))
+        self.load_source_button.setMinimumWidth(160)
+        self.load_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         # Build Fluent-style round menu
         menu = RoundMenu(parent=self.load_source_button)
         def _set_source(text, icon, label):
             self.main_window.load_info_source_combo.setCurrentText(text)
-            self.load_source_button.setIcon(icon)
+            # Always apply white icon to match button titles and avoid theme clashes
+            try:
+                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+            except Exception:
+                qicon = icon
+            self.load_source_button.setIcon(qicon)
             self.load_source_button.setText(label)
-        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT.icon(), "Load from CSV")))
-        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD.icon(), "Load from Cloud")))
+        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT, "Load from CSV")))
+        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD, "Load from Cloud")))
         self.load_source_button.setMenu(menu)
 
-        load_info_layout.addSpacing(16)
-        load_info_layout.addWidget(self.load_source_button)
-        load_info_layout.addSpacing(16)
-        load_info_layout.addWidget(load_button)
+        load_info_layout.addSpacing(12)
+        load_info_layout.addWidget(self.load_source_button, 2)
+        load_info_layout.addSpacing(12)
+        load_info_layout.addWidget(load_button, 1)
         
         # Add Next Month button with improved styling
         add_next_month_button = PrimaryPushButton("Add Next Month")
-        add_next_month_button.setIcon(FluentIcon.ADD)
+        add_next_month_button.setIcon(FluentIcon.ADD.icon(color=QColor(255, 255, 255)))
+        add_next_month_button.setIconSize(QSize(20, 20))
         add_next_month_button.clicked.connect(self.add_month_action)
         add_next_month_button.setFixedHeight(36)
         add_next_month_button.setStyleSheet("""
@@ -2267,8 +2310,9 @@ class MainTab(QWidget):
                 border: 1px solid #FF8C00;
                 border-radius: 6px;
                 font-weight: 600;
-                padding: 8px 16px;
-                text-align: center;
+                qproperty-iconSize: 20px 20px; /* equal icon size */
+                /* equal left padding for icon across all buttons */
+                padding: 8px 16px 8px 36px;
             }
             PrimaryPushButton:hover {
                 background-color: #FF7F00;
@@ -2279,10 +2323,12 @@ class MainTab(QWidget):
                 border-color: #FF6600;
             }
         """)
+        add_next_month_button.setMinimumWidth(240)
+        add_next_month_button.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
         
-        load_info_layout.addSpacing(16)
-        load_info_layout.addWidget(add_next_month_button)
-        load_info_layout.addStretch(1)
+        load_info_layout.addSpacing(12)
+        load_info_layout.addWidget(add_next_month_button, 2)
+        # No trailing stretch needed; expanding widgets will allocate space
         return load_info_group
         
 

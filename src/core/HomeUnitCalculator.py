@@ -725,6 +725,16 @@ class MeterCalculationApp(FluentWindow):
             def _enhanced_enter_event(self, event):
                 """Enhanced enter event with subtle animation."""
                 # Skip hover behavior for containers that should not react on hover
+                # Also skip for any CardWidget inside the Rental Info interface to avoid hover crashes
+                try:
+                    p = getattr(self, 'parent', lambda: None)()
+                    while p is not None:
+                        if hasattr(p, 'objectName') and p.objectName() == 'RentalId':
+                            event.accept()
+                            return
+                        p = getattr(p, 'parent', lambda: None)()
+                except Exception:
+                    pass
                 try:
                     if hasattr(self, 'objectName') and self.objectName() in {
                         'billing_meter_container',
@@ -751,6 +761,16 @@ class MeterCalculationApp(FluentWindow):
             def _enhanced_leave_event(self, event):
                 """Enhanced leave event to reset styling."""
                 # Skip hover behavior for containers that should not react on hover
+                # Also skip for any CardWidget inside the Rental Info interface to avoid hover crashes
+                try:
+                    p = getattr(self, 'parent', lambda: None)()
+                    while p is not None:
+                        if hasattr(p, 'objectName') and p.objectName() == 'RentalId':
+                            event.accept()
+                            return
+                        p = getattr(p, 'parent', lambda: None)()
+                except Exception:
+                    pass
                 try:
                     if hasattr(self, 'objectName') and self.objectName() in {
                         'billing_meter_container',
@@ -886,9 +906,17 @@ class MeterCalculationApp(FluentWindow):
         if hasattr(current_widget, 'set_focus_on_tab_change'):
             current_widget.set_focus_on_tab_change()
         
-        # If switching to history tab, ensure tables are properly sized
-        if hasattr(current_widget, 'force_table_resize'):
-            QTimer.singleShot(150, current_widget.force_table_resize)
+        # If switching to tabs that rely on heavy delayed table resizing, avoid
+        # scheduling an extra forced resize to prevent visible jitter.
+        try:
+            tab_class = type(current_widget).__name__ if current_widget is not None else ""
+            if tab_class not in {"RentalInfoTab", "ArchivedInfoTab"}:
+                if hasattr(current_widget, 'force_table_resize'):
+                    QTimer.singleShot(150, current_widget.force_table_resize)
+        except Exception:
+            # Fallback to original behavior if detection fails
+            if hasattr(current_widget, 'force_table_resize'):
+                QTimer.singleShot(150, current_widget.force_table_resize)
 
         # QFluentWidgets sometimes resets the TitleBar icon to the current page's FluentIcon
         # (e.g., HOME). Re-apply our app icon right after the page switch.
