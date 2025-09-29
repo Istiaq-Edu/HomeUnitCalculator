@@ -531,8 +531,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Apply History tab's exact table styling
         self._style_table(self.rental_records_table)
         
-        # Configure table properties matching history tab strategy
-        self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        # Configure table properties with disabled horizontal scrollbars for stretch mode
+        self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.rental_records_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.rental_records_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.rental_records_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -680,7 +680,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from History tab
         
         # Configure scroll behavior and selection with smooth scrolling
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -801,8 +801,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Set minimum section size
         header.setMinimumSectionSize(80)
         
-        # Apply intelligent column widths for responsiveness
-        self._set_intelligent_column_widths(table)
+        # Apply stable stretch-based layout and disable horizontal scrollbars
+        self._ensure_stretch_mode(table)
 
     def _set_intelligent_column_widths(self, table: TableWidget):
         """Set responsive column widths based on content and window size with advanced caching optimization"""
@@ -817,9 +817,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         print(f"[RENTAL DEBUG] Available width: {available_width}px")
         
         if available_width <= 50:  # Minimum reasonable width
-            print(f"[RENTAL DEBUG] Available width too small ({available_width}px), retrying...")
-            # Table not ready yet, retry after a short delay
-            QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(table))
+            print(f"[RENTAL DEBUG] Available width too small ({available_width}px), skipping resize")
             return
         
         # Check if table has reasonable size (remove visibility check for headless testing)
@@ -827,9 +825,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         print(f"[RENTAL DEBUG] Table width: {table_width}px")
         
         if table_width <= 50:
-            print(f"[RENTAL DEBUG] Table width too small ({table_width}px), retrying...")
-            # Table not properly sized yet, retry after delay
-            QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(table))
+            print(f"[RENTAL DEBUG] Table width too small ({table_width}px), skipping resize")
             return
         
         # Start timing for performance monitoring
@@ -1161,24 +1157,18 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                     item.setForeground(QBrush(QColor(25, 50, 100)))  # Dark blue text (same as month)
 
     def _on_table_resize(self, table: TableWidget):
-        """Handle table resize events"""
-        QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
+        """Handle table resize events - no action needed with stretch mode"""
+        pass
 
     def resizeEvent(self, event):
-        """Handle widget resize events - directly recalculate column widths"""
+        """Handle widget resize events - stretch mode handles this automatically"""
         super().resizeEvent(event)
-        # Since table optimization is disabled, directly call our column width method
-        if hasattr(self, 'rental_records_table') and self.rental_records_table:
-            QTimer.singleShot(200, lambda: self._set_intelligent_column_widths(self.rental_records_table))
     
     def showEvent(self, event):
-        """Handle tab becoming visible - directly recalculate column widths"""
+        """Handle tab becoming visible - stretch mode handles sizing automatically"""
         try:
             super().showEvent(event)
-            
-            # Since table optimization is disabled, directly call our column width method
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
-                QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(self.rental_records_table))
+            # Stretch mode handles sizing automatically - no action needed
         except Exception as e:
             print(f"Error in showEvent: {e}")
 
@@ -2749,8 +2739,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             # Attach raw data for later dialog (store in first column)
             self.rental_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
         
-        # Apply intelligent column widths after populating data with delay to ensure table is fully rendered
-        QTimer.singleShot(200, lambda: self._set_intelligent_column_widths(self.rental_records_table))
+        # Stretch mode handles column sizing automatically - no manual adjustment needed
         
         # Clean up batch update or re-enable sorting
         try:

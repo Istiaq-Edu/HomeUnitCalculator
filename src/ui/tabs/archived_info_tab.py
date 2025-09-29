@@ -313,11 +313,8 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         except Exception as e:
             print(f"Failed to complete batch update cleanup: {e}")
         
-        # Apply intelligent column widths after populating data with delay to ensure table is fully rendered
-        QTimer.singleShot(200, lambda: self._set_intelligent_column_widths(self.archived_records_table))
-        
-        # Also recalculate when tab becomes visible to fix initial sizing issues
-        QTimer.singleShot(500, lambda: self._set_intelligent_column_widths(self.archived_records_table))
+        # Apply stable stretch-based layout - no timers needed
+        self._ensure_stretch_mode(self.archived_records_table)
 
     def _set_intelligent_column_widths(self, table: SmoothTableWidget):
         """Set responsive column widths based on content and window size with advanced caching optimization"""
@@ -327,14 +324,12 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         # Check if table is properly initialized
         available_width = table.viewport().width()
         if available_width <= 50:  # Minimum reasonable width
-            # Table not ready yet, retry after a short delay
-            QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(table))
+            # Table not ready yet, skip resize
             return
         
         # Also check if table is visible and has reasonable size
         if not table.isVisible() or table.width() <= 50:
-            # Table not properly shown yet, retry after delay
-            QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(table))
+            # Table not properly shown yet, skip resize
             return
         
         # Start timing for performance monitoring
@@ -511,6 +506,9 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         
         # Apply special styling to tenant name column
         self._apply_tenant_name_column_styling(table)
+        
+        # Apply stable stretch-based layout and disable horizontal scrollbars
+        self._ensure_stretch_mode(table)
     
     def _ensure_stretch_mode(self, table):
         """Ensure all columns are in stretch mode - called with delay to override any conflicting settings"""
@@ -943,8 +941,8 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
             self._set_intelligent_column_widths(table)
 
     def _on_table_resize(self, table: SmoothTableWidget):
-        """Handle table resize events"""
-        QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
+        """Handle table resize events - no action needed with stretch mode"""
+        pass
 
 
 
@@ -1020,7 +1018,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from History tab
         
         # Configure scroll behavior and selection with smooth scrolling
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -1154,26 +1152,20 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
 
 
     def _on_table_resize(self, table: SmoothTableWidget):
-        """Handle table resize events"""
-        QTimer.singleShot(150, lambda: self._set_intelligent_column_widths(table))
+        """Handle table resize events - no action needed with stretch mode"""
+        pass
 
     def resizeEvent(self, event):
-        """Handle widget resize events - directly recalculate column widths"""
+        """Handle widget resize events - stretch mode handles this automatically"""
         super().resizeEvent(event)
-        # Since table optimization is disabled, directly call our column width method
-        if hasattr(self, 'archived_records_table') and self.archived_records_table:
-            QTimer.singleShot(200, lambda: self._set_intelligent_column_widths(self.archived_records_table))
     
     def showEvent(self, event):
         """Handle tab becoming visible - directly recalculate column widths"""
         try:
             super().showEvent(event)
             
-            # Since table optimization is disabled, directly call our column width method
-            if hasattr(self, 'archived_records_table') and self.archived_records_table:
-                QTimer.singleShot(100, lambda: self._set_intelligent_column_widths(self.archived_records_table))
-                # Additional recalculation to ensure proper sizing
-                QTimer.singleShot(300, lambda: self._set_intelligent_column_widths(self.archived_records_table))
+            # Stretch mode handles sizing automatically - no action needed
+            pass
         except Exception as e:
             logging.warning(f"Error in showEvent: {e}")
 

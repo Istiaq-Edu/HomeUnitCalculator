@@ -221,22 +221,7 @@ class MeterCalculationApp(FluentWindow):
         self.rental_info_tab_instance = RentalInfoTab(self)
         self.archived_info_tab_instance = ArchivedInfoTab(self)
         
-        # Stabilize table sizing for Rental/Archived tabs to prevent jitter on tab switches
-        try:
-            def _patch_table_layout(tab, table_attr):
-                # Redirect any delayed sizing to a stable stretch-based layout
-                if hasattr(tab, '_set_intelligent_column_widths') and hasattr(tab, '_ensure_stretch_mode'):
-                    tab._set_intelligent_column_widths = lambda table: tab._ensure_stretch_mode(table)
-                # Prefer no horizontal scroll to avoid policy toggling
-                table = getattr(tab, table_attr, None)
-                if table:
-                    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-            _patch_table_layout(self.rental_info_tab_instance, 'rental_records_table')
-            _patch_table_layout(self.archived_info_tab_instance, 'archived_records_table')
-        except Exception:
-            # Silently continue if patching fails; better to show default than crash
-            pass
+        # Table layout stabilization is now handled directly in the tab files
 
         self._initialize_supabase_client()
         
@@ -923,38 +908,9 @@ class MeterCalculationApp(FluentWindow):
         if hasattr(current_widget, 'set_focus_on_tab_change'):
             current_widget.set_focus_on_tab_change()
         
-        # If switching to tabs that rely on heavy delayed table resizing, avoid
-        # scheduling an extra forced resize to prevent visible jitter.
-        try:
-            tab_class = type(current_widget).__name__ if current_widget is not None else ""
-            if tab_class not in {"RentalInfoTab", "ArchivedInfoTab"}:
-                if hasattr(current_widget, 'force_table_resize'):
-                    QTimer.singleShot(150, current_widget.force_table_resize)
-            else:
-                # Stabilize Rental/Archived tables immediately on tab switch
-                try:
-                    table = None
-                    if tab_class == "RentalInfoTab" and hasattr(current_widget, 'rental_records_table'):
-                        table = current_widget.rental_records_table
-                    elif tab_class == "ArchivedInfoTab" and hasattr(current_widget, 'archived_records_table'):
-                        table = current_widget.archived_records_table
-                    if table is not None:
-                        # Disable horizontal scrollbars to avoid policy toggling
-                        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-                        # Apply stable stretch-based layout if available
-                        if hasattr(current_widget, '_ensure_stretch_mode'):
-                            current_widget._ensure_stretch_mode(table)
-                        # Mark stabilized to reduce further reflows in tab code
-                        try:
-                            setattr(current_widget, '_columns_stabilized', True)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-        except Exception:
-            # Fallback to original behavior if detection fails
-            if hasattr(current_widget, 'force_table_resize'):
-                QTimer.singleShot(150, current_widget.force_table_resize)
+        # Standard tab switching behavior - table stabilization handled in tab files
+        if hasattr(current_widget, 'force_table_resize'):
+            QTimer.singleShot(150, current_widget.force_table_resize)
 
         # QFluentWidgets sometimes resets the TitleBar icon to the current page's FluentIcon
         # (e.g., HOME). Re-apply our app icon right after the page switch.
