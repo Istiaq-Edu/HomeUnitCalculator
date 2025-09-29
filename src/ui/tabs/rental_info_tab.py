@@ -531,8 +531,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Apply History tab's exact table styling
         self._style_table(self.rental_records_table)
         
-        # Configure table properties with disabled horizontal scrollbars for stretch mode
-        self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Configure table properties with horizontal scrollbars as needed for stretch mode
+        self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.rental_records_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.rental_records_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.rental_records_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -680,7 +680,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from History tab
         
         # Configure scroll behavior and selection with smooth scrolling
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -707,7 +707,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 border: none;
                 border-bottom: 3px solid #d0d7de;
                 border-right: 1px solid #d0d7de;
-                padding: 0px 1px;
+                padding: 4px 12px;
                 text-align: center;
                 text-transform: uppercase;
                 letter-spacing: 0.3px;
@@ -719,7 +719,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 border-right: none;
             }
             QTableWidget::item {
-                padding: 0px 1px;
+                padding: 4px 8px;
                 border: none;
                 border-right: 1px solid #f0f0f0;
                 text-align: center;
@@ -758,7 +758,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 border: none;
                 border-bottom: 3px solid #30363d;
                 border-right: 1px solid #30363d;
-                padding: 0px 1px;
+                padding: 4px 12px;
                 text-align: center;
                 text-transform: uppercase;
                 letter-spacing: 0.3px;
@@ -770,7 +770,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 border-right: none;
             }
             QTableWidget::item {
-                padding: 0px 1px;
+                padding: 4px 8px;
                 border: none;
                 border-right: 1px solid #30363d;
                 text-align: center;
@@ -793,7 +793,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Configure header alignment and stretching for proper window edge alignment
         header = table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignCenter)
-        header.setStretchLastSection(True)  # Fix: Enable stretch last section for proper edge alignment
+        header.setStretchLastSection(False)  # Changed: Disable stretch for equal width approach
         
         # Enable sorting
         table.setSortingEnabled(True)
@@ -801,12 +801,98 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Set minimum section size
         header.setMinimumSectionSize(80)
         
-        # Apply stable stretch-based layout and disable horizontal scrollbars
-        self._ensure_stretch_mode(table)
+        # Apply equal column widths
+        self._apply_equal_column_widths(table)
+
+    def _apply_equal_column_widths(self, table: SmoothTableWidget):
+        """Hybrid approach: Calculate content-based widths, then distribute proportionally
+        to fill the entire table width while preventing text cutoff.
+        """
+        header = table.horizontalHeader()
+        if not header or table.columnCount() == 0:
+            return
+
+        column_count = table.columnCount()
+        
+        # Get available table width
+        available_width = table.viewport().width()
+        if available_width <= 100:
+            available_width = table.width() - 20  # Account for borders
+            if available_width <= 100:
+                available_width = 800  # Fallback
+        
+        # Step 1: Calculate minimum width needed for each column based on content
+        column_min_widths = []
+        metrics = QFontMetrics(table.font())
+        
+        for col in range(column_count):
+            min_width = 120  # Generous minimum to ensure both headers and content fit
+            
+            # Check header width with CSS padding accounted for (4px + 12px on each side = 32px total)
+            header_item = table.horizontalHeaderItem(col)
+            if header_item:
+                header_text = header_item.text()
+                # Account for CSS padding: 12px left + 12px right = 24px, plus generous buffer
+                header_width = metrics.boundingRect(header_text).width() + 24 + 30  # CSS padding + generous buffer
+                min_width = max(min_width, header_width)
+            
+            # Check content width (sample first 50 rows for performance)
+            sample_rows = min(table.rowCount(), 50)
+            for row in range(sample_rows):
+                item = table.item(row, col)
+                if item:
+                    # Use the item's actual font (important for styled items like tenant names)
+                    item_font = item.font()
+                    item_metrics = QFontMetrics(item_font)
+                    # Increased padding for content to match header generosity
+                    content_width = item_metrics.boundingRect(item.text()).width() + 40
+                    min_width = max(min_width, content_width)
+            
+            column_min_widths.append(min_width)
+        
+        # Step 2: Calculate total minimum width needed
+        total_min_width = sum(column_min_widths)
+        
+        # Step 3: Distribute available width proportionally
+        if total_min_width <= available_width:
+            # Content fits - distribute extra space proportionally
+            extra_space = available_width - total_min_width
+            column_widths = []
+            
+            for i, min_width in enumerate(column_min_widths):
+                # Give each column its minimum width plus proportional extra space
+                proportion = min_width / total_min_width if total_min_width > 0 else 1.0 / column_count
+                extra_for_this_col = int(extra_space * proportion)
+                final_width = min_width + extra_for_this_col
+                column_widths.append(final_width)
+            
+            # Apply calculated widths using Fixed mode for precise control
+            for col in range(column_count - 1):
+                header.setSectionResizeMode(col, QHeaderView.Fixed)
+                table.setColumnWidth(col, column_widths[col])
+            
+            # Last column stretches to fill any remaining pixels
+            header.setSectionResizeMode(column_count - 1, QHeaderView.Stretch)
+            header.setStretchLastSection(True)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            
+        else:
+            # Content doesn't fit - use minimum widths with horizontal scrolling
+            for col in range(column_count):
+                header.setSectionResizeMode(col, QHeaderView.Fixed)
+                table.setColumnWidth(col, column_min_widths[col])
+            
+            header.setStretchLastSection(False)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
     def _set_intelligent_column_widths(self, table: TableWidget):
         """Set responsive column widths based on content and window size with advanced caching optimization"""
         print(f"[RENTAL DEBUG] _set_intelligent_column_widths called for table with {table.columnCount()} columns")
+        
+        # Check if table layout has been stabilized - if so, skip complex resizing
+        if hasattr(table, '_layout_stabilized') and table._layout_stabilized:
+            print(f"[RENTAL DEBUG] Table layout is stabilized, skipping complex resize")
+            return
         
         if table.columnCount() == 0:
             print(f"[RENTAL DEBUG] No columns, returning early")
@@ -1010,30 +1096,58 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self._apply_tenant_name_column_styling(table)
     
     def _ensure_stretch_mode(self, table):
-        """Ensure all columns are in stretch mode - called with delay to override any conflicting settings"""
+        """Ensure stable layout with proportional column distribution and horizontal scrolling"""
         try:
             header = table.horizontalHeader()
             if header and table.columnCount() > 0:
-                print(f"[RENTAL DEBUG] Ensuring stretch mode for {table.columnCount()} columns")
+                print(f"[RENTAL DEBUG] Applying proportional column distribution for {table.columnCount()} columns")
                 
-                # Force all columns to stretch mode
+                # Define column widths that ensure content visibility
+                column_widths = {
+                    0: 200,  # Tenant Name - needs space for full names
+                    1: 100,  # Room Number - compact  
+                    2: 120,  # Advanced Paid - currency values
+                    3: 180,  # Created At - date/time
+                }
+                
+                # Set minimum section size globally
+                header.setMinimumSectionSize(80)
+                
+                # Use Fixed mode for content columns, Stretch for last column
                 for col in range(table.columnCount()):
-                    header.setSectionResizeMode(col, QHeaderView.Stretch)
+                    if col in column_widths:
+                        # Fixed width for predictable content display
+                        header.setSectionResizeMode(col, QHeaderView.Fixed)
+                        table.setColumnWidth(col, column_widths[col])
+                        print(f"[RENTAL DEBUG] Column {col}: fixed width {column_widths[col]}px")
+                    else:
+                        # Last column stretches to fill remaining space
+                        header.setSectionResizeMode(col, QHeaderView.Stretch)
+                        print(f"[RENTAL DEBUG] Column {col}: stretch mode")
                 
-                # Ensure stretch last section is enabled
+                # Enable stretch last section for proper edge alignment
                 header.setStretchLastSection(True)
                 
-                # Disable horizontal scrolling
-                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                # Enable horizontal scrollbar when total width exceeds available space
+                table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
                 
-                # Debug: Check what modes were actually set
+                # Prevent policy changes by marking as stabilized
+                if not hasattr(table, '_layout_stabilized'):
+                    table._layout_stabilized = True
+                
+                # Debug: Check what modes and widths were actually set
+                total_width = 0
                 for col in range(table.columnCount()):
                     mode = header.sectionResizeMode(col)
+                    width = table.columnWidth(col)
+                    total_width += width
                     mode_name = {0: "Interactive", 1: "Fixed", 2: "Stretch", 3: "ResizeToContents"}.get(mode, f"Unknown({mode})")
-                    print(f"[RENTAL DEBUG] Column {col} mode after force: {mode_name}")
+                    print(f"[RENTAL DEBUG] Column {col}: {mode_name}, width: {width}px")
+                
+                print(f"[RENTAL DEBUG] Total table width: {total_width}px, Available: {table.viewport().width()}px")
                     
         except Exception as e:
-            print(f"[RENTAL DEBUG] Failed to ensure stretch mode: {e}")
+            print(f"[RENTAL DEBUG] Failed to apply proportional layout: {e}")
     
     def _force_proportional_distribution(self, table):
         """Force proportional column distribution - called after data is loaded"""
@@ -1161,14 +1275,19 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         pass
 
     def resizeEvent(self, event):
-        """Handle widget resize events - stretch mode handles this automatically"""
+        """Handle widget resize events - apply equal column widths"""
         super().resizeEvent(event)
+        # Apply equal widths after resize
+        if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            QTimer.singleShot(50, lambda: self._apply_equal_column_widths(self.rental_records_table))
     
     def showEvent(self, event):
-        """Handle tab becoming visible - stretch mode handles sizing automatically"""
+        """Handle tab becoming visible - apply equal column widths"""
         try:
             super().showEvent(event)
-            # Stretch mode handles sizing automatically - no action needed
+            # Apply equal widths when tab becomes visible
+            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                QTimer.singleShot(100, lambda: self._apply_equal_column_widths(self.rental_records_table))
         except Exception as e:
             print(f"Error in showEvent: {e}")
 
@@ -2118,13 +2237,19 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         from qfluentwidgets import isDarkTheme
         
         item = QTableWidgetItem(str(text))
-        item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
         
-        # Enhanced styling for identifier columns
+        # Set alignment based on identifier type - tenant names are left-aligned like History tab months
+        if identifier_type == "tenant":
+            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        else:
+            item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        
+        # Enhanced styling for identifier columns matching History tab
         if isDarkTheme():
             if identifier_type == "tenant":
-                # Sophisticated blue for tenant names in dark theme
-                item.setForeground(QBrush(QColor("#64B5F6")))  # Light blue
+                # Background and text styling matching History tab month column
+                item.setBackground(QBrush(QColor(45, 55, 75)))  # Darker blue background (same as History month)
+                item.setForeground(QBrush(QColor(220, 230, 255)))  # Light blue text (same as History month)
             elif identifier_type == "date":
                 # Elegant gray for dates in dark theme
                 item.setForeground(QBrush(QColor("#BDBDBD")))  # Light gray
@@ -2133,8 +2258,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 item.setForeground(QBrush(QColor("#4FC3F7")))  # Light cyan
         else:
             if identifier_type == "tenant":
-                # Professional blue for tenant names in light theme
-                item.setForeground(QBrush(QColor("#1976D2")))  # Material blue
+                # Background and text styling matching History tab month column
+                item.setBackground(QBrush(QColor(230, 240, 255)))  # Light blue background (same as History month)
+                item.setForeground(QBrush(QColor(25, 50, 100)))  # Dark blue text (same as History month)
             elif identifier_type == "date":
                 # Subtle gray for dates in light theme
                 item.setForeground(QBrush(QColor("#757575")))  # Medium gray
@@ -2142,10 +2268,10 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 # Sophisticated teal for room identifiers in light theme
                 item.setForeground(QBrush(QColor("#00796B")))  # Teal
         
-        # Modern typography - semi-bold with elegant sizing
+        # Modern typography - semi-bold with elegant sizing (matching History tab)
         font = item.font()
         font.setWeight(QFont.DemiBold)
-        font.setPointSizeF(font.pointSizeF() + 1)  # Slightly larger for prominence
+        font.setPointSizeF(10.5)  # Fixed absolute font size for identifier items (same as History)
         item.setFont(font)
         
         return item
@@ -2765,6 +2891,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         
         # Always allow horizontal scrollbar when needed
         self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Apply equal column widths after populating data
+        try:
+            self._apply_equal_column_widths(self.rental_records_table)
+        except Exception as e:
+            print(f"Equal width sizing failed: {e}")
 
     def show_record_details_dialog(self, index):
         if not index.isValid():
