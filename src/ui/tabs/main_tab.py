@@ -1203,6 +1203,9 @@ class MainTab(QWidget):
         except Exception:
             pass
         
+        # Add spacing between Load Data container and action buttons
+        root_layout.addSpacing(20)
+        
         # ── Calculate button (sticks at bottom) ─────────────────────────────
         self.main_calculate_button.setParent(self)  # Move to root widget
         root_layout.addWidget(self.main_calculate_button)
