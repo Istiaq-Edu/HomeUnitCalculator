@@ -5,9 +5,11 @@ from PyQt5.QtCore import Qt, QRegExp
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPainter, QColor, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
-    QWidget, QVBoxLayout, QLabel, QGridLayout,
-    QFormLayout, QMessageBox, QSizePolicy, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout,
+    QFormLayout, QMessageBox, QSizePolicy, QFrame, QLineEdit
 )
+from PyQt5.QtCore import QTimer, QSize
+from PyQt5.QtGui import QPalette
 from qfluentwidgets import (
     CardWidget, SpinBox, PrimaryPushButton,
     TitleLabel, BodyLabel, CaptionLabel, FluentIcon, StrongBodyLabel
@@ -51,18 +53,74 @@ class RoomsTab(QWidget):
         layout.setSpacing(8)
         layout.setContentsMargins(12, 12, 12, 12)
 
-        # Room Selection Group
+        # Room Selection Group (using CardWidget with object name to disable hover)
         room_selection_group = CardWidget()
+        room_selection_group.setObjectName("room_selection_card")
         room_selection_layout = QFormLayout(room_selection_group)
         room_selection_layout.setSpacing(8)
         room_selection_layout.setContentsMargins(12, 12, 12, 12)
 
 
         num_rooms_label = BodyLabel("Number of Rooms:")
+        num_rooms_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.num_rooms_spinbox = SpinBox()
         self.num_rooms_spinbox.setRange(1, 20) # Default range
         self.num_rooms_spinbox.setValue(11)    # Default value
         self.num_rooms_spinbox.valueChanged.connect(self.update_room_inputs)
+        
+        # Apply year spinbox configuration from home tab (complete)
+        # Prevent focus state so underline color doesn't appear
+        self.num_rooms_spinbox.setFocusPolicy(Qt.NoFocus)
+        
+        # Get line edit and configure it
+        def configure_spinbox_editor():
+            try:
+                le = self.num_rooms_spinbox.lineEdit() if hasattr(self.num_rooms_spinbox, 'lineEdit') else None
+                if le is None:
+                    le = self.num_rooms_spinbox.findChild(QLineEdit)
+                if le:
+                    # Inner editor should not accept focus
+                    le.setFocusPolicy(Qt.NoFocus)
+                    # Make the value bold
+                    f = le.font()
+                    f.setBold(True)
+                    le.setFont(f)
+                    # Make selection invisible - use transparent color
+                    try:
+                        pal = le.palette()
+                        pal.setColor(QPalette.Highlight, QColor(0, 0, 0, 0))  # Transparent
+                        pal.setColor(QPalette.HighlightedText, pal.color(QPalette.Text))
+                        le.setPalette(pal)
+                    except Exception:
+                        pass
+                    # Clear selection initially and after interactions
+                    def _clear_sel():
+                        try:
+                            le.deselect()
+                            le.setCursorPosition(len(le.text()))
+                        except Exception:
+                            pass
+                    _clear_sel()
+                    # Connect to selection changed to auto-clear
+                    try:
+                        le.selectionChanged.connect(_clear_sel)
+                    except Exception:
+                        pass
+                    # When value changes, clear selection/focus immediately after
+                    try:
+                        self.num_rooms_spinbox.valueChanged.connect(
+                            lambda *_: QTimer.singleShot(0, lambda: (self.num_rooms_spinbox.clearFocus(), _clear_sel()))
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        
+        # Try immediately and defer if not ready
+        configure_spinbox_editor()
+        QTimer.singleShot(0, configure_spinbox_editor)
+        QTimer.singleShot(100, configure_spinbox_editor)  # Extra fallback
+        
         room_selection_layout.addRow(num_rooms_label, self.num_rooms_spinbox)
         layout.addWidget(room_selection_group)
 
@@ -79,48 +137,49 @@ class RoomsTab(QWidget):
         scroll_wrapper_layout.addWidget(self.rooms_scroll_area)
         layout.addWidget(scroll_wrapper)
 
-        # Calculate Button
-        self.calculate_rooms_button = PrimaryPushButton(FluentIcon.EDIT, "Calculate Room Bills")
+        # Calculate Button with home tab styling
+        self.calculate_rooms_button = PrimaryPushButton("Calculate Room Bills")
         self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
-        # self.calculate_rooms_button.setFixedHeight(40) # Removed for responsiveness
-        # Set button text color to white with proper icon positioning and white icon color
+        
+        # Apply home tab configuration
+        self.calculate_rooms_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.calculate_rooms_button.setIconSize(QSize(20, 20))
+        self.calculate_rooms_button.setMinimumHeight(40)
+        self.calculate_rooms_button.setFixedHeight(40)
+        self.calculate_rooms_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        
+        # Apply premium primary styling from home tab
         self.calculate_rooms_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 4px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #0078D4, stop:1 #005a9e);
+                border: 2px solid #0078D4;
+                border-radius: 8px;
                 font-weight: 600;
-                padding: 8px 24px 8px 48px;
+                font-size: 14px;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
                 text-align: center;
-                qproperty-iconSize: 16px 16px;
+                margin: 0px;
+                box-shadow: 0 6px 16px rgba(0, 120, 212, 0.3);
+                transition: all 0.3s ease;
             }
             PrimaryPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #1084d8, stop:1 #106ebe);
+                border-color: #1084d8;
+                transform: translateY(-2px);
+                box-shadow: 0 8px 20px rgba(0, 120, 212, 0.4);
             }
             PrimaryPushButton:pressed {
-                background-color: #005a9e;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
+                    stop:0 #005a9e, stop:1 #004578);
                 border-color: #005a9e;
-            }
-            PrimaryPushButton::icon {
-                color: white;
+                transform: translateY(0px);
+                box-shadow: 0 4px 12px rgba(0, 120, 212, 0.2);
             }
         """)
-        # Create a white version of the edit icon
-        original_icon = FluentIcon.EDIT.icon()
-        white_pixmap = original_icon.pixmap(16, 16)
-        # Create a white version by applying a color overlay
-        white_icon_pixmap = QPixmap(16, 16)
-        white_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
-        painter = QPainter(white_icon_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        painter.drawPixmap(0, 0, white_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        painter.fillRect(white_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
-        painter.end()
-        white_edit_icon = QIcon(white_icon_pixmap)
-        self.calculate_rooms_button.setIcon(white_edit_icon)
         layout.addWidget(self.calculate_rooms_button)
 
         self.update_room_inputs() # Initial population of room inputs
@@ -135,28 +194,44 @@ class RoomsTab(QWidget):
 
         for i in range(num_rooms):
             room_group = CardWidget()
+            room_group.setObjectName(f"room_{i}_card")  # Set object name to disable hover
             outer_layout = QVBoxLayout(room_group)
+            outer_layout.setSpacing(12)
+            outer_layout.setContentsMargins(16, 12, 16, 16)  # Reduced top padding
+            
             title = TitleLabel(f"Room {i+1}")
-            title.setStyleSheet("font-size:18px;font-weight:bold;")
+            title.setStyleSheet("""
+                font-size: 26px;
+                font-weight: 800;
+                color: #0078D4;
+                letter-spacing: 0.5px;
+                margin: 0px 0px;
+            """)
             outer_layout.addWidget(title)
-            # Horizontal line under the room title
+            
+            # Horizontal line under the room title (blue like home tab)
             header_line = QFrame()
             header_line.setFrameShape(QFrame.HLine)
-            header_line.setStyleSheet("border-top:1px solid #888; margin-top:2px; margin-bottom:6px;")
+            header_line.setFrameShadow(QFrame.Plain)
+            header_line.setStyleSheet("""
+                color: #0078D4;
+                background-color: #0078D4;
+                border: none;
+                height: 2px;
+                margin: 4px 0px 8px 0px;
+            """)
             outer_layout.addWidget(header_line)
-            room_layout = QFormLayout()
-            outer_layout.addLayout(room_layout)
             room_group.setMinimumWidth(295)  # Set to ensure 4 boxes per row with better space utilization
             room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             # room_group border removed as per design feedback
 
             present_entry = CustomLineEdit()
             present_entry.setObjectName(f"room_{i}_present")
-            
+            present_entry.setPlaceholderText("0")
             
             previous_entry = CustomLineEdit()
             previous_entry.setObjectName(f"room_{i}_previous")
-            
+            previous_entry.setPlaceholderText("0")
             
             # Add numeric validators (only digits allowed)
             numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))
@@ -189,24 +264,122 @@ class RoomsTab(QWidget):
             grand_total_label.setStyleSheet("color:#81C784;font-weight:bold;")
             grand_total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-            room_layout.addRow(BodyLabel("Present Unit:"),   present_entry)
-            room_layout.addRow(BodyLabel("Previous Unit:"), previous_entry)
-            room_layout.addRow(BodyLabel("Gas Bill:"),      gas_bill_entry)
-            room_layout.addRow(BodyLabel("Water Bill:"),    water_bill_entry)
-            room_layout.addRow(BodyLabel("House Rent:"),    house_rent_entry)
-            room_layout.addRow(BodyLabel("Real Unit:"),     real_unit_label)
-            # Separator before Unit Bill
-            sep1 = QFrame()
-            sep1.setFrameShape(QFrame.HLine)
-            sep1.setStyleSheet("border-top:1px dashed #888;")
-            room_layout.addRow(sep1)
-            room_layout.addRow(BodyLabel("Unit Bill:"),     unit_bill_label)
-            # Separator before Grand Total
-            sep2 = QFrame()
-            sep2.setFrameShape(QFrame.HLine)
-            sep2.setStyleSheet("border-top:1px dashed #888;")
-            room_layout.addRow(sep2)
-            room_layout.addRow(BodyLabel("Grand Total:"),   grand_total_label)
+            # Create a horizontal layout for Present and Previous Unit fields side by side
+            units_row_widget = QWidget()
+            units_row_layout = QGridLayout(units_row_widget)
+            units_row_layout.setContentsMargins(0, 0, 0, 0)
+            units_row_layout.setSpacing(8)
+            
+            # Present Unit column
+            present_label = BodyLabel("Present Unit")
+            units_row_layout.addWidget(present_label, 0, 0)
+            units_row_layout.addWidget(present_entry, 1, 0)
+            
+            # Previous Unit column
+            previous_label = BodyLabel("Previous Unit")
+            units_row_layout.addWidget(previous_label, 0, 1)
+            units_row_layout.addWidget(previous_entry, 1, 1)
+            
+            outer_layout.addWidget(units_row_widget)
+            
+            # Gas Bill with label on top
+            gas_bill_widget = QWidget()
+            gas_bill_layout = QVBoxLayout(gas_bill_widget)
+            gas_bill_layout.setContentsMargins(0, 0, 0, 0)
+            gas_bill_layout.setSpacing(4)
+            gas_bill_layout.addWidget(BodyLabel("Gas Bill"))
+            gas_bill_layout.addWidget(gas_bill_entry)
+            outer_layout.addWidget(gas_bill_widget)
+            
+            # Water Bill with label on top
+            water_bill_widget = QWidget()
+            water_bill_layout = QVBoxLayout(water_bill_widget)
+            water_bill_layout.setContentsMargins(0, 0, 0, 0)
+            water_bill_layout.setSpacing(4)
+            water_bill_layout.addWidget(BodyLabel("Water Bill"))
+            water_bill_layout.addWidget(water_bill_entry)
+            outer_layout.addWidget(water_bill_widget)
+            
+            # House Rent with label on top
+            house_rent_widget = QWidget()
+            house_rent_layout = QVBoxLayout(house_rent_widget)
+            house_rent_layout.setContentsMargins(0, 0, 0, 0)
+            house_rent_layout.setSpacing(4)
+            house_rent_layout.addWidget(BodyLabel("House Rent"))
+            house_rent_layout.addWidget(house_rent_entry)
+            outer_layout.addWidget(house_rent_widget)
+            
+            # Real Unit result with frosted container (horizontal layout)
+            real_unit_container = QWidget()
+            real_unit_container.setAttribute(Qt.WA_StyledBackground, True)
+            real_unit_container.setAutoFillBackground(True)
+            real_unit_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+            real_unit_container.setStyleSheet("""
+                QWidget {
+                    background-color: rgba(79, 195, 247, 0.14);
+                    border: 1px solid rgba(79, 195, 247, 0.45);
+                    border-radius: 6px;
+                }
+            """)
+            real_unit_layout = QHBoxLayout(real_unit_container)
+            real_unit_layout.setContentsMargins(12, 10, 12, 10)
+            real_unit_layout.setSpacing(8)
+            real_unit_title = BodyLabel("Real Unit")
+            real_unit_title.setStyleSheet("color:#4FC3F7; font-weight:bold; background:transparent; border:none;")
+            real_unit_layout.addWidget(real_unit_title)
+            real_unit_layout.addStretch()
+            real_unit_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            real_unit_label.setStyleSheet("color:#4FC3F7; font-weight:bold; background:transparent; border:none; font-size:14px;")
+            real_unit_layout.addWidget(real_unit_label)
+            outer_layout.addWidget(real_unit_container)
+            
+            # Unit Bill result with frosted container (horizontal layout)
+            unit_bill_container = QWidget()
+            unit_bill_container.setAttribute(Qt.WA_StyledBackground, True)
+            unit_bill_container.setAutoFillBackground(True)
+            unit_bill_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+            unit_bill_container.setStyleSheet("""
+                QWidget {
+                    background-color: rgba(255, 183, 77, 0.14);
+                    border: 1px solid rgba(255, 183, 77, 0.45);
+                    border-radius: 6px;
+                }
+            """)
+            unit_bill_layout = QHBoxLayout(unit_bill_container)
+            unit_bill_layout.setContentsMargins(12, 10, 12, 10)
+            unit_bill_layout.setSpacing(8)
+            unit_bill_title = BodyLabel("Unit Bill")
+            unit_bill_title.setStyleSheet("color:#FFB74D; font-weight:bold; background:transparent; border:none;")
+            unit_bill_layout.addWidget(unit_bill_title)
+            unit_bill_layout.addStretch()
+            unit_bill_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            unit_bill_label.setStyleSheet("color:#FFB74D; font-weight:bold; background:transparent; border:none; font-size:14px;")
+            unit_bill_layout.addWidget(unit_bill_label)
+            outer_layout.addWidget(unit_bill_container)
+            
+            # Grand Total result with frosted container (horizontal layout)
+            grand_total_container = QWidget()
+            grand_total_container.setAttribute(Qt.WA_StyledBackground, True)
+            grand_total_container.setAutoFillBackground(True)
+            grand_total_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+            grand_total_container.setStyleSheet("""
+                QWidget {
+                    background-color: rgba(129, 199, 132, 0.14);
+                    border: 1px solid rgba(129, 199, 132, 0.45);
+                    border-radius: 6px;
+                }
+            """)
+            grand_total_layout = QHBoxLayout(grand_total_container)
+            grand_total_layout.setContentsMargins(12, 10, 12, 10)
+            grand_total_layout.setSpacing(8)
+            grand_total_title = BodyLabel("Grand Total")
+            grand_total_title.setStyleSheet("color:#81C784; font-weight:bold; background:transparent; border:none;")
+            grand_total_layout.addWidget(grand_total_title)
+            grand_total_layout.addStretch()
+            grand_total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            grand_total_label.setStyleSheet("color:#81C784; font-weight:bold; background:transparent; border:none; font-size:14px;")
+            grand_total_layout.addWidget(grand_total_label)
+            outer_layout.addWidget(grand_total_container)
 
             self.room_entries.append({
                 'present_entry': present_entry,

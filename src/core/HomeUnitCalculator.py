@@ -738,13 +738,20 @@ class MeterCalculationApp(FluentWindow):
                 except Exception:
                     pass
                 try:
-                    if hasattr(self, 'objectName') and self.objectName() in {
-                        'billing_meter_container',
-                        'billing_period_box',
-                        'reading_pairs_box',
-                        'additional_amount_box',
-                    }:
-                        event.accept(); return
+                    if hasattr(self, 'objectName'):
+                        obj_name = self.objectName()
+                        # Skip hover for specific containers
+                        if obj_name in {
+                            'billing_meter_container',
+                            'billing_period_box',
+                            'reading_pairs_box',
+                            'additional_amount_box',
+                            'room_selection_card',  # Room tab selector
+                        }:
+                            event.accept(); return
+                        # Skip hover for all room containers
+                        if obj_name.startswith('room_') and obj_name.endswith('_card'):
+                            event.accept(); return
                 except Exception:
                     pass
 
@@ -774,14 +781,22 @@ class MeterCalculationApp(FluentWindow):
                 except Exception:
                     pass
                 try:
-                    if hasattr(self, 'objectName') and self.objectName() in {
-                        'billing_meter_container',
-                        'billing_period_box',
-                        'reading_pairs_box',
-                        'additional_amount_box',
-                    }:
-                        event.accept()
-                        return
+                    if hasattr(self, 'objectName'):
+                        obj_name = self.objectName()
+                        # Skip hover for specific containers
+                        if obj_name in {
+                            'billing_meter_container',
+                            'billing_period_box',
+                            'reading_pairs_box',
+                            'additional_amount_box',
+                            'room_selection_card',  # Room tab selector
+                        }:
+                            event.accept()
+                            return
+                        # Skip hover for all room containers
+                        if obj_name.startswith('room_') and obj_name.endswith('_card'):
+                            event.accept()
+                            return
                 except Exception:
                     pass
 
