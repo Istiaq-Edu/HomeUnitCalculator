@@ -3,6 +3,9 @@ import os
 # Add the project root to the sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
+# Suppress QFluentWidgets promotional messages
+os.environ['QFLUENTWIDGETS_DISABLE_TIPS'] = '1'
+
 import json
 from datetime import datetime as dt_class
 
@@ -1285,10 +1288,11 @@ class MeterCalculationApp(FluentWindow):
             
             # Validate event
             if event is None:
-                print("[MAIN WINDOW RESIZE ERROR] Received null resize event")
+                # Null resize event received, ignoring
+                pass
                 return
                 
-            print(f"[MAIN WINDOW RESIZE DEBUG] Main window resize event: {event.size().width()}x{event.size().height()}")
+            # Window resized, notify tabs
             self.notify_tabs_of_resize()
             
         except Exception as e:
@@ -1311,7 +1315,6 @@ class MeterCalculationApp(FluentWindow):
                 
             # Handle window state changes that affect table sizing
             if event.type() == QEvent.WindowStateChange:
-                print(f"[MAIN WINDOW RESIZE DEBUG] Window state change detected: {self.windowState()}")
                 # Longer delay for window state changes as they take more time to complete
                 QTimer.singleShot(100, self.notify_tabs_of_resize)
                 
@@ -1330,27 +1333,19 @@ class MeterCalculationApp(FluentWindow):
     def notify_tabs_of_resize(self):
         """Notify current tab about resize events with comprehensive error handling"""
         try:
-            print("[MAIN WINDOW RESIZE DEBUG] Notifying tabs of resize")
-            
             current_tab = self.get_current_tab()
             if current_tab is None:
-                print("[MAIN WINDOW RESIZE DEBUG] No current tab found")
                 return
                 
-            tab_type = type(current_tab).__name__
-            print(f"[MAIN WINDOW RESIZE DEBUG] Current tab type: {tab_type}")
-            
             if hasattr(current_tab, 'force_table_resize'):
                 try:
                     current_tab.force_table_resize()
-                    print(f"[MAIN WINDOW RESIZE DEBUG] Successfully notified {tab_type} of resize")
                 except Exception as resize_error:
-                    print(f"[MAIN WINDOW RESIZE ERROR] Failed to resize tables in {tab_type}: {resize_error}")
-            else:
-                print(f"[MAIN WINDOW RESIZE DEBUG] Tab {tab_type} does not have force_table_resize method")
+                    print(f"[RESIZE ERROR] Failed to resize tables: {resize_error}")
                 
         except Exception as e:
-            print(f"[MAIN WINDOW RESIZE ERROR] Error in notify_tabs_of_resize: {e}")
+            # Silently ignore resize notification errors
+            pass
             # Continue silently to prevent crashes
 
     def refresh_all_rental_tabs(self):

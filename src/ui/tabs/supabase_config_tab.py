@@ -102,7 +102,8 @@ class SupabaseConfigTab(QWidget):
         if config:
             self.supabase_url_input.setText(config.get("SUPABASE_URL", ""))
             self.supabase_key_input.setText(config.get("SUPABASE_KEY", ""))
-            print("Loaded Supabase config into UI.")
+            # Config loaded
+            pass
         else:
             self.supabase_url_input.clear()
             self.supabase_key_input.clear()

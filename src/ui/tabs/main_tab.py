@@ -546,26 +546,8 @@ class ResultCard(QWidget):
     
     def _pulse_effect(self):
         """Add a subtle pulse effect when value updates."""
-        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
-        
-        if not hasattr(self, '_pulse_animation'):
-            self._pulse_animation = QSequentialAnimationGroup()
-            
-            # Scale up
-            scale_up = QPropertyAnimation(self, b"geometry")
-            scale_up.setDuration(100)
-            scale_up.setEasingCurve(QEasingCurve.OutCubic)
-            
-            # Scale down
-            scale_down = QPropertyAnimation(self, b"geometry")
-            scale_down.setDuration(100)
-            scale_down.setEasingCurve(QEasingCurve.InCubic)
-            
-            self._pulse_animation.addAnimation(scale_up)
-            self._pulse_animation.addAnimation(scale_down)
-        
-        if not self._pulse_animation.state():
-            self._pulse_animation.start()
+        # Disabled to prevent geometry animation warnings
+        pass
 
 
 class FinalAmountCard(QWidget):
@@ -733,31 +715,20 @@ class FinalAmountCard(QWidget):
     
     def _setup_premium_animations(self):
         """Setup premium animations for the final amount card."""
-        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
+        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
         
-        # Entrance animation with bounce effect
-        self._entrance_animation = QSequentialAnimationGroup()
-        
-        # Scale animation
-        self._scale_animation = QPropertyAnimation(self, b"geometry")
-        self._scale_animation.setDuration(400)
-        self._scale_animation.setEasingCurve(QEasingCurve.OutBounce)
-        
-        # Opacity animation
+        # Only use opacity animation (geometry animation causes warnings)
         self._opacity_animation = QPropertyAnimation(self, b"windowOpacity")
         self._opacity_animation.setDuration(300)
         self._opacity_animation.setStartValue(0.0)
         self._opacity_animation.setEndValue(1.0)
         self._opacity_animation.setEasingCurve(QEasingCurve.OutCubic)
-        
-        self._entrance_animation.addAnimation(self._opacity_animation)
-        self._entrance_animation.addAnimation(self._scale_animation)
     
     def showEvent(self, event):
-        """Override show event to trigger premium entrance animation."""
+        """Override show event to trigger entrance animation."""
         super().showEvent(event)
-        if hasattr(self, '_entrance_animation'):
-            self._entrance_animation.start()
+        if hasattr(self, '_opacity_animation'):
+            self._opacity_animation.start()
     
     def update_value(self, value):
         """Update the displayed value with premium animation effects."""
@@ -766,25 +737,8 @@ class FinalAmountCard(QWidget):
     
     def _premium_update_effect(self):
         """Add premium visual effects when value updates."""
-        from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup
-        
-        if not hasattr(self, '_update_animation'):
-            self._update_animation = QSequentialAnimationGroup()
-            
-            # Glow effect simulation through border color changes
-            glow_in = QPropertyAnimation(self, b"styleSheet")
-            glow_in.setDuration(200)
-            glow_in.setEasingCurve(QEasingCurve.OutCubic)
-            
-            glow_out = QPropertyAnimation(self, b"styleSheet")
-            glow_out.setDuration(200)
-            glow_out.setEasingCurve(QEasingCurve.InCubic)
-            
-            self._update_animation.addAnimation(glow_in)
-            self._update_animation.addAnimation(glow_out)
-        
-        if not self._update_animation.state():
-            self._update_animation.start()
+        # Disabled to prevent animation warnings
+        pass
 
 
 class MainTab(QWidget):
@@ -1347,7 +1301,8 @@ class MainTab(QWidget):
         except Exception:
             pass
 
-        self.setLayout(main_layout)
+        # Layout already set in line 966 (root_layout = QVBoxLayout(self))
+        # No need to set it again
         
         # Apply consistent theming and ensure proper theme support
         self._apply_consistent_theming()

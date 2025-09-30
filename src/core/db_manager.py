@@ -104,14 +104,16 @@ class DBManager:
                 self.execute_query("""
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_rentals_supabase_id ON rentals (supabase_id);
                 """)
-                print("Ensured unique index exists for 'supabase_id'.")
+                # Unique index ensured
+                pass
             except sqlite3.OperationalError as e:
                 # This might fail if there are duplicate values in existing rows (e.g., all NULLs).
                 # Depending on the desired behavior, you might want to handle this.
                 # For now, we'll print a warning.
                 print(f"Could not create unique index on 'supabase_id'. This may be because of existing duplicate values. Error: {e}")
 
-            print("Rentals table bootstrap completed.")
+            # Rentals table ready
+            pass
         except Exception as e:
             print(f"Database Error: Failed to bootstrap rentals table: {e}")
             raise
@@ -258,7 +260,8 @@ class DBManager:
             self.conn.close()
             self.conn = None
             self.cursor = None
-            print("Database connection closed.")
+            # Connection closed
+            pass
 
     def insert_rental_record(self, record_data: dict) -> int:
         """Insert a new rental record and return its new row-id.

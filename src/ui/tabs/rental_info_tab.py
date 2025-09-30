@@ -2649,7 +2649,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                     "FROM rentals WHERE is_archived = 0 ORDER BY created_at DESC"
                 )
                 self._local_records_cache = records
-                print(f"Loaded {len(records)} records from Local DB.")
+                # Records loaded
+                pass
                 self._populate_rental_table(selected_source, records)
             except Exception as e:
                 QMessageBox.critical(self, "Local DB Error", f"Failed to load rental records from local DB: {e}")
