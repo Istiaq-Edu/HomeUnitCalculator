@@ -463,7 +463,6 @@ class MeterCalculationApp(FluentWindow):
             background-color: #2b2b2b;
             border: 1px solid #3d3d3d;
             border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
 
         /* Explicitly keep the outer unified container static on hover */
@@ -473,7 +472,6 @@ class MeterCalculationApp(FluentWindow):
         #billing_meter_container:hover {
             background-color: #2b2b2b;
             border: 1px solid #3d3d3d;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
         
         /* Disable interaction for the three section boxes - they should not be clickable */
@@ -486,7 +484,6 @@ class MeterCalculationApp(FluentWindow):
         #additional_amount_box:hover, #additional_amount_box:pressed {
             background: transparent !important;
             border: none !important;
-            box-shadow: none !important;
         }
 
         /* Ensure inner frosted panels do not change colour on hover/press/focus */
@@ -576,7 +573,6 @@ class MeterCalculationApp(FluentWindow):
             padding: 8px 12px;
             color: #ffffff;
             font-size: 13px;
-            transition: all 0.2s ease;
         }
 
         QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover, QComboBox:hover {
@@ -595,15 +591,6 @@ class MeterCalculationApp(FluentWindow):
             border-radius: 6px;
             padding: 8px 16px;
             font-weight: 600;
-            transition: all 0.2s ease;
-        }
-
-        QPushButton:hover {
-            transform: translateY(-1px);
-        }
-
-        QPushButton:pressed {
-            transform: translateY(0px);
         }
 
         /* Consistent spacing for layouts */

@@ -162,22 +162,16 @@ class RoomsTab(QWidget):
                 padding: 8px 16px 8px 36px;
                 text-align: center;
                 margin: 0px;
-                box-shadow: 0 6px 16px rgba(0, 120, 212, 0.3);
-                transition: all 0.3s ease;
             }
             PrimaryPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #1084d8, stop:1 #106ebe);
                 border-color: #1084d8;
-                transform: translateY(-2px);
-                box-shadow: 0 8px 20px rgba(0, 120, 212, 0.4);
             }
             PrimaryPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #005a9e, stop:1 #004578);
                 border-color: #005a9e;
-                transform: translateY(0px);
-                box-shadow: 0 4px 12px rgba(0, 120, 212, 0.2);
             }
         """)
         layout.addWidget(self.calculate_rooms_button)

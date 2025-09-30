@@ -446,7 +446,6 @@ class ResultCard(QWidget):
             font-weight: bold; 
             font-size: 13px;
             letter-spacing: 0.5px;
-            text-transform: uppercase;
         """
         )
         
@@ -668,7 +667,6 @@ class FinalAmountCard(QWidget):
             font-weight: bold; 
             font-size: 16px;
             letter-spacing: 1px;
-            text-transform: uppercase;
         """)
         
         # Subtitle with better styling
@@ -687,7 +685,6 @@ class FinalAmountCard(QWidget):
             font-size: 44px; 
             font-weight: 800;
             line-height: 1.1;
-            text-shadow: 0 2px 4px rgba(0, 120, 212, 0.15);
         """)
         self.value_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
         
@@ -1171,22 +1168,16 @@ class MainTab(QWidget):
                 padding: 8px 16px 8px 36px;
                 text-align: center;
                 margin: 0px;
-                box-shadow: 0 6px 16px rgba(0, 120, 212, 0.3);
-                transition: all 0.3s ease;
             }
             PrimaryPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #1084d8, stop:1 #106ebe);
                 border-color: #1084d8;
-                transform: translateY(-2px);
-                box-shadow: 0 8px 20px rgba(0, 120, 212, 0.4);
             }
             PrimaryPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #005a9e, stop:1 #004578);
                 border-color: #005a9e;
-                transform: translateY(0px);
-                box-shadow: 0 4px 12px rgba(0, 120, 212, 0.2);
             }
         """)
         
@@ -1235,22 +1226,16 @@ class MainTab(QWidget):
                 qproperty-iconSize: 20px 20px;
                 padding: 8px 16px 8px 36px;
                 text-align: center;
-                box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
-                transition: all 0.2s ease;
             }
             PrimaryPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #f44336, stop:1 #d32f2f);
                 border-color: #f44336;
-                transform: translateY(-1px);
-                box-shadow: 0 6px 16px rgba(244, 67, 54, 0.4);
             }
             PrimaryPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #b71c1c, stop:1 #8f1414);
                 border-color: #b71c1c;
-                transform: translateY(0px);
-                box-shadow: 0 2px 8px rgba(183, 28, 28, 0.2);
             }
         """)
 
@@ -1274,22 +1259,16 @@ class MainTab(QWidget):
                 qproperty-iconSize: 20px 20px;
                 padding: 8px 16px 8px 36px;
                 text-align: center;
-                box-shadow: 0 4px 12px rgba(56, 142, 60, 0.3);
-                transition: all 0.2s ease;
             }
             PrimaryPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #4caf50, stop:1 #388e3c);
                 border-color: #4caf50;
-                transform: translateY(-1px);
-                box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
             }
             PrimaryPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #2e7d32, stop:1 #1b5e20);
                 border-color: #2e7d32;
-                transform: translateY(0px);
-                box-shadow: 0 2px 8px rgba(46, 125, 50, 0.2);
             }
         """)
 
@@ -1313,22 +1292,16 @@ class MainTab(QWidget):
                 qproperty-iconSize: 20px 20px;
                 padding: 8px 16px 8px 36px;
                 text-align: center;
-                box-shadow: 0 4px 12px rgba(123, 31, 162, 0.3);
-                transition: all 0.2s ease;
             }
             PrimaryPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #9c27b0, stop:1 #7b1fa2);
                 border-color: #9c27b0;
-                transform: translateY(-1px);
-                box-shadow: 0 6px 16px rgba(156, 39, 176, 0.4);
             }
             PrimaryPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #6a1b9a, stop:1 #4a148c);
                 border-color: #6a1b9a;
-                transform: translateY(0px);
-                box-shadow: 0 2px 8px rgba(106, 27, 154, 0.2);
             }
         """)
 
@@ -1404,7 +1377,6 @@ class MainTab(QWidget):
             #billing_meter_container:hover, #billing_meter_container:pressed {
                 background-color: #2b2b2b; /* same as normal */
                 border: 1px solid #3d3d3d;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             }
             """
         )
@@ -1864,22 +1836,16 @@ class MainTab(QWidget):
                 font-size: 14px;
                 padding: 12px 20px;
                 text-align: center;
-                box-shadow: 0 4px 12px rgba(0, 120, 212, 0.3);
-                transition: all 0.2s ease;
             }
             PrimaryPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #1084d8, stop:1 #106ebe);
                 border-color: #1084d8;
-                transform: translateY(-1px);
-                box-shadow: 0 6px 16px rgba(16, 132, 216, 0.4);
             }
             PrimaryPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
                     stop:0 #005a9e, stop:1 #004578);
                 border-color: #005a9e;
-                transform: translateY(0px);
-                box-shadow: 0 2px 8px rgba(0, 90, 158, 0.2);
             }
         """)
         pairs_layout.addWidget(add_pair_button)
@@ -2057,7 +2023,6 @@ class MainTab(QWidget):
                 background-color: #2b2b2b;
                 border: 1px solid #3d3d3d;
                 border-radius: 12px;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             }
             """
         )
