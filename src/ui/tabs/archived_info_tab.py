@@ -37,6 +37,29 @@ from src.ui.components.table_optimization import (
     BatchUpdateManager,
     ResizeDebugManager
 )
+
+from PyQt5.QtCore import QEvent
+
+
+# Custom CardWidget without hover effects for archived info tab containers
+class StaticCardWidget(CardWidget):
+    """CardWidget that disables hover effects while preserving child component functionality."""
+    
+    def enterEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def leaveEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def event(self, e):
+        """Swallow hover events to prevent CardWidget's hover visuals."""
+        if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
+            return True
+        return super().event(e)
+
+
 # >>> ADD
 # Optional Fluent-widgets progress bar (inline)
 try:
@@ -104,28 +127,36 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         main_layout.setContentsMargins(12, 12, 12, 12)
         main_layout.setSpacing(8)
 
-        table_group = CardWidget()
+        table_group = StaticCardWidget()
         outer_table_layout = QVBoxLayout(table_group)
         outer_table_layout.setSpacing(8)
         outer_table_layout.setContentsMargins(12, 12, 12, 12)
         
-        # Create title with FluentIcon to match history tab styling
-        title_layout = QHBoxLayout()
-        title_icon = QLabel()
-        title_icon.setPixmap(FluentIcon.DOCUMENT.icon().pixmap(20, 20))
-        title_text = TitleLabel("Archived Rental Records")
+        # Create title with emoji icon for consistency
+        title_text = TitleLabel("📦 Archived Rental Records")
+        title_text.setAlignment(Qt.AlignCenter)
         title_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         title_text.setWordWrap(True)
-        title_text.setStyleSheet("font-weight: 600; font-size: 16px; color: #0969da; margin-bottom: 8px;")
-        title_layout.addWidget(title_icon)
-        title_layout.addWidget(title_text)
-        title_layout.addStretch()
-        outer_table_layout.addLayout(title_layout)
+        title_text.setStyleSheet("""
+            font-size: 28px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
+        outer_table_layout.addWidget(title_text)
         
-        # Add subtle divider
+        # Add divider
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
+        divider.setFrameShadow(QFrame.Plain)
+        divider.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
         outer_table_layout.addWidget(divider)
         
         table_layout = QVBoxLayout()

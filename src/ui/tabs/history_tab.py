@@ -20,6 +20,25 @@ from qfluentwidgets import (
     DropDownPushButton, RoundMenu, Action, setCustomStyleSheet, IconWidget
 )
 
+
+# Custom CardWidget without hover effects for history tab containers
+class StaticCardWidget(CardWidget):
+    """CardWidget that disables hover effects while preserving child component functionality."""
+    
+    def enterEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def leaveEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def event(self, e):
+        """Swallow hover events to prevent CardWidget's hover visuals."""
+        if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
+            return True
+        return super().event(e)
+
 # Ensure project root (containing 'src') is on sys.path when running this file standalone
 try:
     from src.core.utils import resource_path  # For icons
@@ -57,7 +76,7 @@ class EditRecordDialog(ResponsiveDialog):
         self.month_year_label = TitleLabel(f"Record for: {main_data.get('month', '')} {main_data.get('year', '')}")
         main_layout.addWidget(self.month_year_label)
 
-        main_group = CardWidget()
+        main_group = StaticCardWidget()
         main_group_vbox = QVBoxLayout(main_group)
         main_group_vbox.addWidget(TitleLabel("Main Calculation Data"))
         main_scroll_area = AutoScrollArea()
@@ -103,7 +122,7 @@ class EditRecordDialog(ResponsiveDialog):
         main_group_layout.addRow("Additional Amount:", self.additional_amount_edit)
         main_layout.addWidget(main_group)
 
-        self.rooms_group = CardWidget()
+        self.rooms_group = StaticCardWidget()
         rooms_main_layout = QVBoxLayout(self.rooms_group)
         rooms_main_layout.addWidget(TitleLabel("Room Data"))
         scroll_area_rooms = AutoScrollArea() # Renamed to avoid conflict if self.scroll_area is used elsewhere
@@ -122,7 +141,7 @@ class EditRecordDialog(ResponsiveDialog):
             nested = room_data.get('room_data') if isinstance(room_data, dict) else None
             rd = nested if isinstance(nested, dict) else room_data
             room_name = rd.get('room_name', 'Unknown Room')
-            room_edit_group = CardWidget()
+            room_edit_group = StaticCardWidget()
             room_edit_main_layout = QVBoxLayout(room_edit_group)
             room_edit_main_layout.addWidget(TitleLabel(room_name))
             form_widget = QWidget()
@@ -488,6 +507,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self._cache_statistics = {'hits': 0, 'misses': 0, 'invalidations': 0}  # Performance monitoring
         # load_history_source_combo is accessed via self.main_window
 
+        # Track spinboxes with no-select behavior (like main tab)
+        self._no_focus_spinboxes = set()
+
         # Initialize resize debouncing mechanism
         self._setup_resize_debouncing()
 
@@ -503,6 +525,73 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             self._consolidate_resize_handlers()
         except Exception:
             pass
+
+    def _apply_no_select_to_spinbox(self, spinbox):
+        """Disable text selection for SpinBox (exact copy from main tab)"""
+        try:
+            spinbox.setFocusPolicy(Qt.NoFocus)
+            self._no_focus_spinboxes.add(spinbox)
+            spinbox.installEventFilter(self)
+            le = None
+            if hasattr(spinbox, 'lineEdit'):
+                try:
+                    le = spinbox.lineEdit()
+                except Exception:
+                    le = None
+            if le is None:
+                le = spinbox.findChild(QLineEdit)
+            if le is None:
+                QTimer.singleShot(0, lambda: self._apply_no_select_to_spinbox(spinbox))
+                return
+            le.setFocusPolicy(Qt.NoFocus)
+            le.installEventFilter(self)
+            # Make selection invisible
+            try:
+                pal = le.palette()
+                pal.setColor(QPalette.Highlight, QColor(0, 0, 0, 0))
+                pal.setColor(QPalette.HighlightedText, pal.color(QPalette.Text))
+                le.setPalette(pal)
+            except Exception:
+                pass
+            # Clear selection
+            def _clear_sel():
+                try:
+                    le.deselect()
+                    le.setCursorPosition(len(le.text()))
+                except Exception:
+                    pass
+            _clear_sel()
+            # Connect to selectionChanged signal to auto-clear
+            try:
+                le.selectionChanged.connect(_clear_sel)
+            except Exception:
+                pass
+            # When arrows change value, clear selection/focus
+            try:
+                spinbox.valueChanged.connect(lambda *_: QTimer.singleShot(0, lambda: (spinbox.clearFocus(), _clear_sel())))
+            except Exception:
+                pass
+        except Exception:
+            pass
+    
+    def eventFilter(self, obj, event):
+        """Event filter for spinboxes"""
+        # Block focus and mouse events for no-select spinboxes
+        if obj in self._no_focus_spinboxes:
+            if event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+                return True
+        # Also check if obj is a line edit child of a no-select spinbox
+        for spinbox in self._no_focus_spinboxes:
+            try:
+                le = spinbox.lineEdit() if hasattr(spinbox, 'lineEdit') else None
+                if le and obj == le:
+                    if event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+                        # Clear any selection
+                        QTimer.singleShot(0, lambda: (le.deselect(), le.setCursorPosition(len(le.text()))))
+                        return True
+            except:
+                pass
+        return super().eventFilter(obj, event)
 
     def clear_table_cache(self):
         """Clear the cached table references to allow repopulation with new instances"""
@@ -1048,10 +1137,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """Sync the button display with the actual combo box value"""
         current_source = self.main_window.load_history_source_combo.currentText()
         if current_source == "Load from Cloud":
-            self.load_history_source_button.setIcon(FluentIcon.SETTING.icon())
+            self.load_history_source_button.setIcon(FluentIcon.CLOUD.icon())
             self.load_history_source_button.setText("Load from Cloud")
         else:
-            self.load_history_source_button.setIcon(FluentIcon.FOLDER.icon())
+            self.load_history_source_button.setIcon(FluentIcon.DOCUMENT.icon())
             self.load_history_source_button.setText("Load from CSV")
     
     def _is_priority_column(self, table_type: str, column_name: str) -> bool:
@@ -1781,98 +1870,125 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         top_layout.setSpacing(15)
 
         # Combined "Load Records" group (Month/Year/Source/Load)
-        load_records_group = CardWidget()
+        load_records_group = StaticCardWidget()
         lr_outer = QVBoxLayout(load_records_group)
         lr_outer.setContentsMargins(8,8,8,8)
         title = TitleLabel("Load Records")
-        title.setAlignment(Qt.AlignHCenter)
-        title.setStyleSheet("font-weight:bold;")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("""
+            font-size: 26px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
         lr_outer.addWidget(title)
         header_line = QFrame()
         header_line.setFrameShape(QFrame.HLine)
-        header_line.setStyleSheet("border-top:1px solid #666; margin-bottom:6px;")
+        header_line.setFrameShadow(QFrame.Plain)
+        header_line.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
         lr_outer.addWidget(header_line)
         lr_layout = QHBoxLayout()
         lr_layout.setContentsMargins(8,6,8,6)
         lr_layout.setSpacing(10)
         lr_layout.addStretch(1)
-        lr_layout.addWidget(BodyLabel("Month:"))
+        month_label = BodyLabel("Month:")
+        month_label.setStyleSheet("font-weight: bold;")
+        lr_layout.addWidget(month_label)
         self.history_month_combo = ComboBox()
         self.history_month_combo.addItems(["All","January","February","March","April","May","June","July","August","September","October","November","December"])
         lr_layout.addWidget(self.history_month_combo)
         lr_layout.addSpacing(10)
-        lr_layout.addWidget(BodyLabel("Year:"))
+        year_label = BodyLabel("Year:")
+        year_label.setStyleSheet("font-weight: bold;")
+        lr_layout.addWidget(year_label)
         self.history_year_spinbox = SpinBox()
         self.history_year_spinbox.setRange(0,2100)
         self.history_year_spinbox.setSpecialValueText("All")
         self.history_year_spinbox.setValue(datetime.now().year)
+        # Apply exact same config as main tab
+        self._apply_no_select_to_spinbox(self.history_year_spinbox)
+        self.history_year_spinbox.setFocusPolicy(Qt.NoFocus)
+        QTimer.singleShot(0, lambda: (self.history_year_spinbox.lineEdit() and self.history_year_spinbox.lineEdit().setFocusPolicy(Qt.NoFocus)))
+        # Make the value bold
+        try:
+            le = self.history_year_spinbox.lineEdit() if hasattr(self.history_year_spinbox, 'lineEdit') else None
+            if le is None:
+                QTimer.singleShot(0, lambda: (
+                    self.history_year_spinbox.lineEdit() and self.history_year_spinbox.lineEdit().setFont(self.history_year_spinbox.lineEdit().font().setBold(True))
+                ))
+            else:
+                f = le.font()
+                f.setBold(True)
+                le.setFont(f)
+        except Exception:
+            pass
         lr_layout.addWidget(self.history_year_spinbox)
         lr_layout.addSpacing(10)
         # Use Fluent DropDownPushButton instead of plain ComboBox
         self.main_window.load_history_source_combo.setVisible(False)
         self.load_history_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
-        # self.load_history_source_button.setFixedWidth(190) # Removed for responsiveness
-        # Set button text color to white with proper icon positioning and white icon color
+        self.load_history_source_button.setFixedHeight(36)
         self.load_history_source_button.setStyleSheet("""
             DropDownPushButton {
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 4px;
+                background-color: #6C5CE7;
+                border: 1px solid #6C5CE7;
+                border-radius: 6px;
                 font-weight: 600;
-                padding: 8px 24px 8px 48px;
-                text-align: center;
-                qproperty-iconSize: 16px 16px;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 40px 8px 36px;
             }
             DropDownPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
+                background-color: #5A4FCF;
+                border-color: #5A4FCF;
             }
             DropDownPushButton:pressed {
-                background-color: #005a9e;
-                border-color: #005a9e;
-            }
-            DropDownPushButton::icon {
-                color: white;
+                background-color: #4834D4;
+                border-color: #4834D4;
             }
         """)
-        # Create a white version of the document icon
-        original_doc_icon = FluentIcon.DOCUMENT.icon()
-        white_doc_pixmap = original_doc_icon.pixmap(16, 16)
-        # Create a white version by applying a color overlay
-        white_doc_icon_pixmap = QPixmap(16, 16)
-        white_doc_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
-        painter = QPainter(white_doc_icon_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        painter.drawPixmap(0, 0, white_doc_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        painter.fillRect(white_doc_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
-        painter.end()
-        white_document_icon = QIcon(white_doc_icon_pixmap)
-        self.load_history_source_button.setIcon(white_document_icon)
+        try:
+            self.load_history_source_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+        except Exception:
+            pass
+        self.load_history_source_button.setIconSize(QSize(20, 20))
+        self.load_history_source_button.setMinimumWidth(160)
+        self.load_history_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        
         menu = RoundMenu(parent=self.load_history_source_button)
         def _set_source(text, icon, label):
             self.main_window.load_history_source_combo.setCurrentText(text)
-            self.load_history_source_button.setIcon(icon)
+            try:
+                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+            except Exception:
+                qicon = icon
+            self.load_history_source_button.setIcon(qicon)
             self.load_history_source_button.setText(label)
-        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT.icon(), "Load from CSV")))
-        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD.icon(), "Load from Cloud")))
+        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT, "Load from CSV")))
+        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD, "Load from Cloud")))
         self.load_history_source_button.setMenu(menu)
         lr_layout.addWidget(self.load_history_source_button)
-        load_history_button = PrimaryPushButton(FluentIcon.DOWNLOAD, "Load")
+        load_history_button = PrimaryPushButton("Load")
+        load_history_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
+        load_history_button.setIconSize(QSize(20, 20))
         load_history_button.clicked.connect(self.load_history)
-        load_history_button.setFixedHeight(40)
-        # Set button text color to white with proper icon positioning and white icon color
+        load_history_button.setFixedHeight(36)
         load_history_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
                 background-color: #0078D4;
                 border: 1px solid #0078D4;
-                border-radius: 4px;
+                border-radius: 6px;
                 font-weight: 600;
-                padding: 8px 24px 8px 48px;
-                text-align: center;
-                qproperty-iconSize: 16px 16px;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
             }
             PrimaryPushButton:hover {
                 background-color: #106ebe;
@@ -1882,59 +1998,110 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 background-color: #005a9e;
                 border-color: #005a9e;
             }
-            PrimaryPushButton::icon {
-                color: white;
-            }
         """)
-        # Create a white version of the download icon
-        original_icon = FluentIcon.DOWNLOAD.icon()
-        white_pixmap = original_icon.pixmap(16, 16)
-        # Create a white version by applying a color overlay
-        white_icon_pixmap = QPixmap(16, 16)
-        white_icon_pixmap.fill(QColor(255, 255, 255, 0))  # Transparent background
-        painter = QPainter(white_icon_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
-        painter.drawPixmap(0, 0, white_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-        painter.fillRect(white_icon_pixmap.rect(), QColor(255, 255, 255))  # White color
-        painter.end()
-        white_download_icon = QIcon(white_icon_pixmap)
-        load_history_button.setIcon(white_download_icon)
+        load_history_button.setMinimumWidth(120)
+        load_history_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         lr_layout.addWidget(load_history_button)
         lr_layout.addStretch(1)
-        controls_card = CardWidget()
+        controls_card = StaticCardWidget()
         controls_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         controls_card.setLayout(lr_layout)
         lr_outer.addWidget(controls_card)
-        top_layout.addWidget(load_records_group, 3)
+        top_layout.addWidget(load_records_group, 4)
 
         # Record Actions titled group
-        record_actions_group = CardWidget()
+        record_actions_group = StaticCardWidget()
         ra_outer = QVBoxLayout(record_actions_group)
         ra_outer.setContentsMargins(8,8,8,8)
         ra_outer.setSpacing(4)
         ra_title = TitleLabel("Record Actions")
-        ra_title.setAlignment(Qt.AlignHCenter)
-        ra_title.setStyleSheet("font-weight:bold;")
+        ra_title.setAlignment(Qt.AlignCenter)
+        ra_title.setStyleSheet("""
+            font-size: 26px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
         ra_outer.addWidget(ra_title)
         ra_line = QFrame()
         ra_line.setFrameShape(QFrame.HLine)
-        ra_line.setStyleSheet("border-top:1px solid #666; margin-bottom:6px;")
+        ra_line.setFrameShadow(QFrame.Plain)
+        ra_line.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
         ra_outer.addWidget(ra_line)
         record_actions_layout = QHBoxLayout()
         record_actions_layout.setContentsMargins(8,6,8,6)
         record_actions_layout.setSpacing(40)
         # Add stretch on both sides for perfect centering
         record_actions_layout.addStretch(1)
-        self.edit_selected_record_button = PrimaryPushButton(FluentIcon.EDIT, "Edit Record")
-        # self.edit_selected_record_button.setMinimumWidth(150) # Removed for responsiveness
-        self.edit_selected_record_button.setStyleSheet("QPushButton{background-color:#2e7d32;color:white;padding:6px 24px 6px 52px;border-radius:4px;}QPushButton:hover{background-color:#388e3c;}QPushButton:pressed{background-color:#1b5e20;}QPushButton:disabled{background-color:#3d3d3d;color:#777;}")
-        self.edit_selected_record_button.setFixedHeight(40)
+        self.edit_selected_record_button = PrimaryPushButton("Edit Record")
+        self.edit_selected_record_button.setIcon(FluentIcon.EDIT.icon(color=QColor(255, 255, 255)))
+        self.edit_selected_record_button.setIconSize(QSize(20, 20))
+        self.edit_selected_record_button.setFixedHeight(36)
+        self.edit_selected_record_button.setStyleSheet("""
+            PrimaryPushButton {
+                background-color: #2e7d32;
+                color: white;
+                border: 1px solid #2e7d32;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #388e3c;
+                border-color: #388e3c;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #1b5e20;
+                border-color: #1b5e20;
+            }
+            PrimaryPushButton:disabled {
+                background-color: #3d3d3d;
+                border-color: #3d3d3d;
+                color: #777;
+            }
+        """)
+        self.edit_selected_record_button.setMinimumWidth(120)
+        self.edit_selected_record_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.edit_selected_record_button.clicked.connect(self.handle_edit_selected_record)
-        self.delete_selected_record_button = PrimaryPushButton(FluentIcon.DELETE, "Delete Record")
-        # self.delete_selected_record_button.setMinimumWidth(160) # Removed for responsiveness
-        self.delete_selected_record_button.setStyleSheet("QPushButton{background-color:#c62828;color:white;padding:6px 24px 6px 52px;border-radius:4px;}QPushButton:hover{background-color:#d84315;}QPushButton:pressed{background-color:#b71c1c;}QPushButton:disabled{background-color:#3d3d3d;color:#777;}")
-        self.delete_selected_record_button.setFixedHeight(40)
+        
+        self.delete_selected_record_button = PrimaryPushButton("Delete Record")
+        self.delete_selected_record_button.setIcon(FluentIcon.DELETE.icon(color=QColor(255, 255, 255)))
+        self.delete_selected_record_button.setIconSize(QSize(20, 20))
+        self.delete_selected_record_button.setFixedHeight(36)
+        self.delete_selected_record_button.setStyleSheet("""
+            PrimaryPushButton {
+                background-color: #c62828;
+                color: white;
+                border: 1px solid #c62828;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #d84315;
+                border-color: #d84315;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #b71c1c;
+                border-color: #b71c1c;
+            }
+            PrimaryPushButton:disabled {
+                background-color: #3d3d3d;
+                border-color: #3d3d3d;
+                color: #777;
+            }
+        """)
+        self.delete_selected_record_button.setMinimumWidth(120)
+        self.delete_selected_record_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.delete_selected_record_button.clicked.connect(self.handle_delete_selected_record)
         # Initially disabled until a row is selected
         self.edit_selected_record_button.setEnabled(False)
@@ -1943,14 +2110,14 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         record_actions_layout.addWidget(self.delete_selected_record_button)
         record_actions_layout.addStretch(1)
         # Wrap in card
-        controls_actions_card = CardWidget()
+        controls_actions_card = StaticCardWidget()
         
         controls_actions_card.setLayout(record_actions_layout)
         ra_outer.addWidget(controls_actions_card)
-        top_layout.addWidget(record_actions_group, 3)
+        top_layout.addWidget(record_actions_group, 2)
         layout.addLayout(top_layout)
 
-        main_calc_group = CardWidget()
+        main_calc_group = StaticCardWidget()
         # Force the CardWidget to expand to full width
         main_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         main_calc_group.setMinimumWidth(0)
@@ -1958,23 +2125,31 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         main_calc_layout = QVBoxLayout(main_calc_group)
         main_calc_layout.setContentsMargins(5, 5, 5, 5)  # Minimal margins
         
-        # Create title with FluentIcon to match room section styling
-        main_title_layout = QHBoxLayout()
-        main_title_icon = QLabel()
-        main_title_icon.setPixmap(FluentIcon.SETTING.icon().pixmap(20, 20))
-        main_title_text = TitleLabel("Main Calculation Info")
+        # Create title with emoji icon for consistency
+        main_title_text = TitleLabel("⚙️ Main Calculation Info")
+        main_title_text.setAlignment(Qt.AlignCenter)
         main_title_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         main_title_text.setWordWrap(True)
-        main_title_text.setStyleSheet("font-weight: 600; font-size: 16px; color: #0969da; margin-bottom: 8px;")
-        main_title_layout.addWidget(main_title_icon)
-        main_title_layout.addWidget(main_title_text)
-        main_title_layout.addStretch()
-        main_calc_layout.addLayout(main_title_layout)
+        main_title_text.setStyleSheet("""
+            font-size: 28px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
+        main_calc_layout.addWidget(main_title_text)
         
-        # Add subtle divider
+        # Add divider
         divider1 = QFrame()
         divider1.setFrameShape(QFrame.HLine)
-        divider1.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
+        divider1.setFrameShadow(QFrame.Plain)
+        divider1.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
         main_calc_layout.addWidget(divider1)
         self.main_history_table = SmoothTableWidget()
         # Clear table cache since main_history_table was recreated
@@ -2004,7 +2179,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         main_calc_layout.addWidget(self.main_history_table, 1)  # Give stretch factor
         layout.addWidget(main_calc_group)  # No stretch factor - let it size naturally
 
-        room_calc_group = CardWidget()
+        room_calc_group = StaticCardWidget()
         # Force room CardWidget to expand to full width
         room_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         room_calc_group.setMinimumWidth(0)
@@ -2013,15 +2188,29 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         room_calc_layout.setContentsMargins(5, 5, 5, 5)  # Minimal margins
         
         room_title = TitleLabel("🏠 Room Calculation Info")
+        room_title.setAlignment(Qt.AlignCenter)
         room_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         room_title.setWordWrap(True)
-        room_title.setStyleSheet("font-weight: 600; font-size: 16px; color: #0969da; margin-bottom: 8px;")
+        room_title.setStyleSheet("""
+            font-size: 28px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
         room_calc_layout.addWidget(room_title)
         
-        # Add subtle divider
+        # Add divider
         divider2 = QFrame()
         divider2.setFrameShape(QFrame.HLine)
-        divider2.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
+        divider2.setFrameShadow(QFrame.Plain)
+        divider2.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
         room_calc_layout.addWidget(divider2)
         self.room_history_table = SmoothTableWidget()
         # Clear table cache since room_history_table was recreated
@@ -2056,18 +2245,32 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         layout.addWidget(room_calc_group)  # No stretch factor - let it size naturally
 
         # Add new totals section
-        totals_group = CardWidget()
+        totals_group = StaticCardWidget()
         totals_layout = QVBoxLayout(totals_group)
         totals_title = TitleLabel("📈 Total Summary")
+        totals_title.setAlignment(Qt.AlignCenter)
         totals_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         totals_title.setWordWrap(True)
-        totals_title.setStyleSheet("font-weight: 600; font-size: 16px; color: #0969da; margin-bottom: 8px;")
+        totals_title.setStyleSheet("""
+            font-size: 28px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
         totals_layout.addWidget(totals_title)
         
-        # Add subtle divider
+        # Add divider
         divider3 = QFrame()
         divider3.setFrameShape(QFrame.HLine)
-        divider3.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
+        divider3.setFrameShadow(QFrame.Plain)
+        divider3.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
         totals_layout.addWidget(divider3)
         self.totals_table = SmoothTableWidget()
         # Clear table cache since totals_table was recreated

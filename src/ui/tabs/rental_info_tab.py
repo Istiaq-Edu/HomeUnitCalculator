@@ -56,6 +56,26 @@ from src.ui.components.table_optimization import (
     ResizeDebugManager
 )
 
+
+# Custom CardWidget without hover effects for rental info tab containers
+class StaticCardWidget(CardWidget):
+    """CardWidget that disables hover effects while preserving child component functionality."""
+    
+    def enterEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def leaveEvent(self, event):
+        """Do not invoke base CardWidget hover behavior."""
+        return  # No-op to keep static appearance
+
+    def event(self, e):
+        """Swallow hover events to prevent CardWidget's hover visuals."""
+        if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
+            return True
+        return super().event(e)
+
+
 # >>> ADD
 # Fluent-widgets progress bar
 try:
@@ -202,7 +222,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.rental_details_card.setTitle("Rental Details")
         self.rental_details_card.setBorderRadius(8)
         self.rental_details_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # Remove maximum width for responsive behavior
+        # Apply blue color styling to match app theme
+        self.rental_details_card.headerLabel.setStyleSheet("""
+            QLabel {
+                color: #0078D4;
+                font-weight: 700;
+                font-size: 18px;
+            }
+        """)
+        self.rental_details_card.headerLabel.setAlignment(Qt.AlignCenter)
+        # Reduce header padding to compensate for larger text
+        self.rental_details_card.headerLayout.setContentsMargins(16, 8, 16, 8)
+        # Style separator with blue color using palette
+        palette = self.rental_details_card.separator.palette()
+        palette.setColor(self.rental_details_card.separator.backgroundRole(), QColor("#0078D4"))
+        self.rental_details_card.separator.setPalette(palette)
+        self.rental_details_card.separator.setAutoFillBackground(True)
 
         # Create simple vertical layout for input fields
         rental_details_layout = QVBoxLayout()
@@ -264,7 +299,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.document_upload_card.setTitle("Document Upload")
         self.document_upload_card.setBorderRadius(8)
         self.document_upload_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # Remove maximum width for responsive behavior
+        # Apply blue color styling to match app theme
+        self.document_upload_card.headerLabel.setStyleSheet("""
+            QLabel {
+                color: #0078D4;
+                font-weight: 700;
+                font-size: 18px;
+            }
+        """)
+        self.document_upload_card.headerLabel.setAlignment(Qt.AlignCenter)
+        # Reduce header padding to compensate for larger text
+        self.document_upload_card.headerLayout.setContentsMargins(16, 8, 16, 8)
+        # Style separator with blue color using palette
+        palette = self.document_upload_card.separator.palette()
+        palette.setColor(self.document_upload_card.separator.backgroundRole(), QColor("#0078D4"))
+        self.document_upload_card.separator.setPalette(palette)
+        self.document_upload_card.separator.setAutoFillBackground(True)
 
         # Create modern file upload widgets with vertical layout (row by row)
         upload_layout = QVBoxLayout()
@@ -307,7 +357,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.save_options_card.setTitle("Save Options")
         self.save_options_card.setBorderRadius(8)
         self.save_options_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # Remove maximum width for responsive behavior
+        # Apply blue color styling to match app theme
+        self.save_options_card.headerLabel.setStyleSheet("""
+            QLabel {
+                color: #0078D4;
+                font-weight: 700;
+                font-size: 18px;
+            }
+        """)
+        self.save_options_card.headerLabel.setAlignment(Qt.AlignCenter)
+        # Reduce header padding to compensate for larger text
+        self.save_options_card.headerLayout.setContentsMargins(16, 8, 16, 8)
+        # Style separator with blue color using palette
+        palette = self.save_options_card.separator.palette()
+        palette.setColor(self.save_options_card.separator.backgroundRole(), QColor("#0078D4"))
+        self.save_options_card.separator.setPalette(palette)
+        self.save_options_card.separator.setAutoFillBackground(True)
 
         # Create save options layout with horizontal arrangement for compactness
         save_options_layout = QHBoxLayout()
@@ -438,8 +503,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         right_column_layout = QVBoxLayout()
         right_column_layout.setSpacing(16)
 
-        # Records Table Card using CardWidget to match History tab
-        self.records_table_card = CardWidget()
+        # Records Table Card using StaticCardWidget to match History tab
+        self.records_table_card = StaticCardWidget()
         self.records_table_card.setBorderRadius(8)
         self.records_table_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
@@ -447,23 +512,31 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         records_card_layout.setSpacing(8)
         records_card_layout.setContentsMargins(12, 12, 12, 12)
         
-        # Create title with FluentIcon to match history tab styling
-        title_layout = QHBoxLayout()
-        title_icon = QLabel()
-        title_icon.setPixmap(FluentIcon.PEOPLE.icon().pixmap(20, 20))
-        title_text = TitleLabel("Existing Rental Records")
+        # Create title with emoji icon for consistency
+        title_text = TitleLabel("👥 Existing Rental Records")
+        title_text.setAlignment(Qt.AlignCenter)
         title_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         title_text.setWordWrap(True)
-        title_text.setStyleSheet("font-weight: 600; font-size: 16px; color: #0969da; margin-bottom: 8px;")
-        title_layout.addWidget(title_icon)
-        title_layout.addWidget(title_text)
-        title_layout.addStretch()
-        records_card_layout.addLayout(title_layout)
+        title_text.setStyleSheet("""
+            font-size: 28px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
+        records_card_layout.addWidget(title_text)
         
-        # Add subtle divider
+        # Add divider
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet("QFrame { border: 1px solid #e1e4e8; margin: 8px 0; }")
+        divider.setFrameShadow(QFrame.Plain)
+        divider.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
         records_card_layout.addWidget(divider)
 
         # Create table controls layout
