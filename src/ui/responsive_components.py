@@ -102,7 +102,9 @@ class ResponsiveDialog(QDialog):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
+        
+        # Use frameless window to avoid white title bar, but keep dialog behavior
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setSizeGripEnabled(True)  # Allow manual resizing
         
         # Remove any fixed size constraints
@@ -111,6 +113,19 @@ class ResponsiveDialog(QDialog):
         
         # Set responsive size policies
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        
+        # Apply dark theme styling to match main window with rounded corners
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #3d3d3d;
+                border-radius: 8px;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+        """)
     
     def showEvent(self, event):
         """Override to adjust size and center on parent when shown."""

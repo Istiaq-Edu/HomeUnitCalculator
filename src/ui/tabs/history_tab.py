@@ -11,7 +11,7 @@ from PyQt5.QtGui import QRegExpValidator, QIcon, QFont, QPainter, QColor, QPixma
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFormLayout, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
-    QDialog, QAbstractItemView, QFrame
+    QDialog, QAbstractItemView, QFrame, QGridLayout
 )
 from postgrest.exceptions import APIError
 from qfluentwidgets import (
@@ -69,16 +69,174 @@ class EditRecordDialog(ResponsiveDialog):
         self.setWindowTitle("Edit Calculation Record")
         # self.setMinimumWidth(600) # Removed for responsiveness
         # self.setMinimumHeight(500) # Removed for responsiveness
+        
+        # Enable translucent background for rounded corners
+        self.setAttribute(Qt.WA_TranslucentBackground)
 
+        # Main container with rounded corners
+        container = QWidget()
+        container.setObjectName("dialogContainer")
+        container.setStyleSheet("""
+            QWidget#dialogContainer {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-radius: 8px;
+            }
+            QLineEdit, CustomLineEdit {
+                border: none;
+                background-color: #3d3d3d;
+                color: #ffffff;
+                padding: 5px;
+                border-radius: 4px;
+            }
+            QLineEdit:focus, CustomLineEdit:focus {
+                background-color: #4d4d4d;
+                border: none;
+            }
+            StaticCardWidget {
+                border: 1px solid #3d3d3d;
+                border-radius: 6px;
+                background-color: rgba(61, 61, 61, 0.3);
+            }
+        """)
+        
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
+        
+        # Custom title bar with dark theme
+        title_bar = QWidget()
+        title_bar.setStyleSheet("""
+            QWidget {
+                background-color: #1f1f1f;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }
+        """)
+        title_bar_layout = QHBoxLayout(title_bar)
+        title_bar_layout.setContentsMargins(10, 8, 8, 8)
+        title_bar_layout.setSpacing(8)
+        
+        # App icon (try to load from main window or use calculator icon)
+        app_icon_label = QLabel()
+        try:
+            from src.core.utils import resource_path
+            icon_path = resource_path("icons/icon.png")
+            if os.path.exists(icon_path):
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    app_icon_label.setPixmap(pixmap.scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                else:
+                    app_icon_label.setPixmap(FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18))
+            else:
+                app_icon_label.setPixmap(FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18))
+        except:
+            app_icon_label.setPixmap(FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18))
+        title_bar_layout.addWidget(app_icon_label)
+        
+        # Title text
+        title_text = QLabel("Edit Calculation Record")
+        title_text.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px; background: transparent;")
+        title_bar_layout.addWidget(title_text)
+        title_bar_layout.addStretch()
+        
+        # Close button with visible X - always red background
+        close_btn_container = QPushButton("×")
+        close_btn_container.setFixedSize(32, 32)
+        close_btn_container.setCursor(Qt.PointingHandCursor)
+        close_btn_container.clicked.connect(self.reject)
+        close_btn_container.setStyleSheet("""
+            QPushButton {
+                background-color: #c42b1c;
+                border: none;
+                border-radius: 4px;
+                color: #ffffff;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 0px;
+                padding-bottom: 2px;
+                margin: 0px;
+                line-height: 32px;
+            }
+            QPushButton:hover {
+                background-color: #d84315;
+            }
+            QPushButton:pressed {
+                background-color: #a02315;
+            }
+        """)
+        
+        title_bar_layout.addWidget(close_btn_container)
+        
+        # Make title bar draggable
+        title_bar.mousePressEvent = self.title_bar_mouse_press
+        title_bar.mouseMoveEvent = self.title_bar_mouse_move
+        self._drag_pos = None
+        
+        container_layout.addWidget(title_bar)
+        
+        # Content container with padding and rounded bottom corners
+        content_widget = QWidget()
+        content_widget.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                border-bottom-left-radius: 8px;
+                border-bottom-right-radius: 8px;
+            }
+        """)
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(15, 15, 15, 15)
+        container_layout.addWidget(content_widget)
+        
         button_layout = QHBoxLayout()
 
+        # Title with purple color, much larger size, center aligned
         self.month_year_label = TitleLabel(f"Record for: {main_data.get('month', '')} {main_data.get('year', '')}")
-        main_layout.addWidget(self.month_year_label)
+        self.month_year_label.setAlignment(Qt.AlignCenter)
+        self.month_year_label.setStyleSheet("""
+            color: #6C5CE7; 
+            font-weight: bold;
+            font-size: 28px;
+            padding-bottom: 3px;
+        """)
+        content_layout.addWidget(self.month_year_label)
+        
+        # Purple divider line for main header
+        header_divider = QFrame()
+        header_divider.setFrameShape(QFrame.HLine)
+        header_divider.setStyleSheet("background-color: #6C5CE7; min-height: 3px; max-height: 3px;")
+        content_layout.addWidget(header_divider)
+        content_layout.addSpacing(5)
 
+        # Horizontal layout for side-by-side sections
+        sections_layout = QHBoxLayout()
+        
+        # LEFT SECTION: Main Calculation Data
         main_group = StaticCardWidget()
         main_group_vbox = QVBoxLayout(main_group)
-        main_group_vbox.addWidget(TitleLabel("Main Calculation Data"))
+        
+        # Section title with purple color, center aligned
+        main_section_label = TitleLabel("Main calculation data")
+        main_section_label.setAlignment(Qt.AlignCenter)
+        main_section_label.setStyleSheet("""
+            color: #6C5CE7; 
+            font-weight: bold;
+            font-size: 20px;
+            padding-bottom: 2px;
+        """)
+        main_group_vbox.addWidget(main_section_label)
+        
+        # Purple divider line
+        main_divider = QFrame()
+        main_divider.setFrameShape(QFrame.HLine)
+        main_divider.setStyleSheet("background-color: #6C5CE7; min-height: 2px; max-height: 2px;")
+        main_group_vbox.addWidget(main_divider)
+        main_group_vbox.addSpacing(3)
+        
         main_scroll_area = AutoScrollArea()
         main_scroll_area.setWidgetResizable(True)
         main_scroll_widget = QWidget()
@@ -101,6 +259,7 @@ class EditRecordDialog(ResponsiveDialog):
         # Ensure at least 3 pairs for backward compatibility or if extra readings make it longer.
         num_pairs = max(3, len(meter_values), len(diff_values))
         
+        # Create labels with purple color
         for i in range(num_pairs):
             if i < 3:
                 meter_edit = [self.meter1_edit, self.meter2_edit, self.meter3_edit][i]
@@ -111,39 +270,96 @@ class EditRecordDialog(ResponsiveDialog):
                 diff_edit = CustomLineEdit()
                 diff_edit.setObjectName(f"dialog_diff{i+1}_edit")
             
-            main_group_layout.addRow(f"Meter {i+1} Reading:", meter_edit)
-            main_group_layout.addRow(f"Difference {i+1}:", diff_edit)
+            # Create labels with bold white styling (like main tab)
+            meter_label = QLabel(f"Meter {i+1} Reading:")
+            meter_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            diff_label = QLabel(f"Difference {i+1}:")
+            diff_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            
+            main_group_layout.addRow(meter_label, meter_edit)
+            main_group_layout.addRow(diff_label, diff_edit)
             
             self.meter_diff_edit_widgets.append({'meter_edit': meter_edit, 'diff_edit': diff_edit, 'index': i})
         
         self.additional_amount_edit = CustomLineEdit()
         self.additional_amount_edit.setObjectName("dialog_additional_amount_edit")
         self.additional_amount_edit.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
-        main_group_layout.addRow("Additional Amount:", self.additional_amount_edit)
-        main_layout.addWidget(main_group)
+        
+        additional_label = QLabel("Additional Amount:")
+        additional_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+        main_group_layout.addRow(additional_label, self.additional_amount_edit)
+        
+        sections_layout.addWidget(main_group)
 
+        # RIGHT SECTION: Room Calculation Data
         self.rooms_group = StaticCardWidget()
         rooms_main_layout = QVBoxLayout(self.rooms_group)
-        rooms_main_layout.addWidget(TitleLabel("Room Data"))
-        scroll_area_rooms = AutoScrollArea() # Renamed to avoid conflict if self.scroll_area is used elsewhere
+        
+        # Section title with purple color, center aligned
+        room_section_label = TitleLabel("Room calculation data")
+        room_section_label.setAlignment(Qt.AlignCenter)
+        room_section_label.setStyleSheet("""
+            color: #6C5CE7; 
+            font-weight: bold;
+            font-size: 20px;
+            padding-bottom: 2px;
+        """)
+        rooms_main_layout.addWidget(room_section_label)
+        
+        # Purple divider line
+        room_divider = QFrame()
+        room_divider.setFrameShape(QFrame.HLine)
+        room_divider.setStyleSheet("background-color: #6C5CE7; min-height: 2px; max-height: 2px;")
+        rooms_main_layout.addWidget(room_divider)
+        rooms_main_layout.addSpacing(3)
+        
+        scroll_area_rooms = AutoScrollArea()
         scroll_area_rooms.setWidgetResizable(True)
         scroll_content_widget = QWidget()
-        self.rooms_edit_layout = QVBoxLayout(scroll_content_widget)
+        
+        # Grid layout for rooms (3 columns)
+        self.rooms_edit_layout = QGridLayout(scroll_content_widget)
+        self.rooms_edit_layout.setSpacing(10)
+        
         scroll_area_rooms.setWidget(scroll_content_widget)
         rooms_main_layout.addWidget(scroll_area_rooms)
 
+        sections_layout.addWidget(self.rooms_group)
+        content_layout.addLayout(sections_layout)
+        
         # Store original month/year for update
         self.original_month = main_data.get('month')
         self.original_year = main_data.get('year')
 
+        # Populate rooms in 3-column grid
         for i, room_data in enumerate(room_data_list):
             # Handle nested room_data dict returned from SupabaseManager
             nested = room_data.get('room_data') if isinstance(room_data, dict) else None
             rd = nested if isinstance(nested, dict) else room_data
             room_name = rd.get('room_name', 'Unknown Room')
+            
+            # Create room card
             room_edit_group = StaticCardWidget()
             room_edit_main_layout = QVBoxLayout(room_edit_group)
-            room_edit_main_layout.addWidget(TitleLabel(room_name))
+            
+            # Room title with purple color, center aligned
+            room_title = TitleLabel(room_name)
+            room_title.setAlignment(Qt.AlignCenter)
+            room_title.setStyleSheet("""
+                color: #6C5CE7; 
+                font-weight: bold;
+                font-size: 18px;
+                padding-bottom: 2px;
+            """)
+            room_edit_main_layout.addWidget(room_title)
+            
+            # Purple divider line for room
+            room_title_divider = QFrame()
+            room_title_divider.setFrameShape(QFrame.HLine)
+            room_title_divider.setStyleSheet("background-color: #6C5CE7; min-height: 2px; max-height: 2px;")
+            room_edit_main_layout.addWidget(room_title_divider)
+            room_edit_main_layout.addSpacing(3)
+            
             form_widget = QWidget()
             room_edit_form_layout = QFormLayout(form_widget)
             room_edit_main_layout.addWidget(form_widget)
@@ -162,13 +378,29 @@ class EditRecordDialog(ResponsiveDialog):
             house_rent_edit = CustomLineEdit()
             house_rent_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_rent")
 
-            room_edit_form_layout.addRow("Present Reading:", present_edit)
-            room_edit_form_layout.addRow("Previous Reading:", previous_edit)
-            room_edit_form_layout.addRow("Gas Bill:", gas_bill_edit)
-            room_edit_form_layout.addRow("Water Bill:", water_bill_edit)
-            room_edit_form_layout.addRow("House Rent:", house_rent_edit)
+            # Create labels with bold white styling (like main tab)
+            present_label = QLabel("Present Reading:")
+            present_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            previous_label = QLabel("Previous Reading:")
+            previous_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            gas_label = QLabel("Gas Bill:")
+            gas_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            water_label = QLabel("Water Bill:")
+            water_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            rent_label = QLabel("House Rent:")
+            rent_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
 
-            self.rooms_edit_layout.addWidget(room_edit_group)
+            room_edit_form_layout.addRow(present_label, present_edit)
+            room_edit_form_layout.addRow(previous_label, previous_edit)
+            room_edit_form_layout.addRow(gas_label, gas_bill_edit)
+            room_edit_form_layout.addRow(water_label, water_bill_edit)
+            room_edit_form_layout.addRow(rent_label, house_rent_edit)
+
+            # Add to grid layout (3 columns)
+            row = i // 3
+            col = i % 3
+            self.rooms_edit_layout.addWidget(room_edit_group, row, col)
+            
             self.room_edit_widgets.append({
                 "room_id": room_id, "name": room_name,
                 "present_edit": present_edit, "previous_edit": previous_edit,
@@ -178,21 +410,83 @@ class EditRecordDialog(ResponsiveDialog):
             
         if not room_data_list:
              no_rooms_label = QLabel("No room data associated with this record.")
-             self.rooms_edit_layout.addWidget(no_rooms_label)
-        main_layout.addWidget(self.rooms_group)
+             self.rooms_edit_layout.addWidget(no_rooms_label, 0, 0)
 
-        self.save_button = PrimaryPushButton(FluentIcon.ACCEPT_MEDIUM, "Save Changes")
-        self.cancel_button = PushButton(FluentIcon.CANCEL_MEDIUM, "Cancel")
+        self.save_button = PrimaryPushButton("Save Changes")
+        self.save_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.save_button.setIconSize(QSize(20, 20))
+        self.save_button.setFixedHeight(36)
+        self.save_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #2e7d32;
+                border: 1px solid #2e7d32;
+                border-radius: 6px;
+                font-weight: bold;
+                padding: 8px 16px 8px 40px;
+                text-align: left;
+            }
+            PrimaryPushButton:hover {
+                background-color: #43a047;
+                border-color: #43a047;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #1b5e20;
+                border-color: #1b5e20;
+            }
+            PrimaryPushButton::icon {
+                margin-right: 8px;
+            }
+        """)
+        
+        self.cancel_button = PrimaryPushButton("Cancel")
+        self.cancel_button.setIcon(FluentIcon.CANCEL_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.cancel_button.setIconSize(QSize(20, 20))
+        self.cancel_button.setFixedHeight(36)
+        self.cancel_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #c62828;
+                border: 1px solid #c62828;
+                border-radius: 6px;
+                font-weight: bold;
+                padding: 8px 16px 8px 40px;
+                text-align: left;
+            }
+            PrimaryPushButton:hover {
+                background-color: #d84315;
+                border-color: #d84315;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #b71c1c;
+                border-color: #b71c1c;
+            }
+            PrimaryPushButton::icon {
+                margin-right: 8px;
+            }
+        """)
 
         button_layout.addStretch()
         button_layout.addWidget(self.cancel_button)
         button_layout.addWidget(self.save_button)
-        main_layout.addLayout(button_layout)
+        content_layout.addLayout(button_layout)
 
         self.populate_data(main_data, room_data_list)
         self.save_button.clicked.connect(self.save_changes)
         self.cancel_button.clicked.connect(self.reject)
         self._setup_navigation_edit_dialog()
+
+    def title_bar_mouse_press(self, event):
+        """Handle mouse press on title bar for dragging."""
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def title_bar_mouse_move(self, event):
+        """Handle mouse move on title bar for dragging."""
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPos() - self._drag_pos)
+            event.accept()
 
     def _setup_navigation_edit_dialog(self):
         save_btn = self.save_button
