@@ -1349,14 +1349,18 @@ class MeterCalculationApp(FluentWindow):
             # Continue silently to prevent crashes
 
     def refresh_all_rental_tabs(self):
-        # This method will be called when rental info is updated
-        # It should trigger a refresh in all tabs that display rental info
-        # For now, it only refreshes the HistoryTab
+        """Refresh all rental-related tabs to show updated records."""
         try:
-            self.rental_info_tab_instance.load_rental_records()
-            self.archived_info_tab_instance.load_archived_records()
+            print("Refreshing rental tabs...")
+            if hasattr(self, 'rental_info_tab_instance') and self.rental_info_tab_instance:
+                self.rental_info_tab_instance.load_rental_records(force_refresh=True)
+                print("[OK] Rental Info Tab refreshed")
+            if hasattr(self, 'archived_info_tab_instance') and self.archived_info_tab_instance:
+                self.archived_info_tab_instance.load_archived_records()
+                print("[OK] Archived Info Tab refreshed")
         except Exception as e:
             logging.error(f"Error refreshing rental tabs: {e}")
+            print(f"[ERROR] Failed to refresh tabs: {e}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

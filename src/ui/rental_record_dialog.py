@@ -962,11 +962,12 @@ class RentalRecordDialog(ResponsiveDialog):
             
             self.is_archived_record = new_archive_status
             
-            try:
-                if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
+            # Refresh the tabs to show updated records
+            if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
+                try:
                     self.main_window.refresh_all_rental_tabs()
-            except Exception:
-                pass
+                except Exception as e:
+                    print(f"Warning: Failed to refresh tabs: {e}")
             
             self.accept()
         except Exception as e:
@@ -1015,8 +1016,13 @@ class RentalRecordDialog(ResponsiveDialog):
                         QMessageBox.warning(self, "Supabase Error", "Supabase manager not available.")
                         return
                 
+                # Refresh the tabs to show updated records
                 if self.main_window and hasattr(self.main_window, 'refresh_all_rental_tabs'):
-                    self.main_window.refresh_all_rental_tabs()
+                    try:
+                        self.main_window.refresh_all_rental_tabs()
+                    except Exception as e:
+                        print(f"Warning: Failed to refresh tabs: {e}")
+                
                 self.accept()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to delete record: {e}")
