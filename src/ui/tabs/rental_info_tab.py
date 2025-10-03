@@ -46,7 +46,7 @@ from qfluentwidgets import (
 
 from src.core.utils import resource_path, _clear_layout
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgressDialog, SmoothTableWidget
-from src.ui.dialogs import RentalRecordDialog
+from src.ui.rental_record_dialog import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.components import EnhancedTableMixin
 from src.ui.components.table_optimization import (

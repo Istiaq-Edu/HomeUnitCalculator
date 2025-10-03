@@ -28,7 +28,7 @@ from qfluentwidgets import (
     DropDownPushButton, Action, RoundMenu, ToolButton
 )
 
-from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
+from src.ui.rental_record_dialog import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.custom_widgets import FluentProgressDialog, SmoothTableWidget  # Avoid top-level import to keep optional
 from src.ui.components import EnhancedTableMixin

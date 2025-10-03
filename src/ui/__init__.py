@@ -31,6 +31,7 @@ from .custom_widgets import (
     CustomNavButton,
     FluentProgressDialog
 )
+from .rental_record_dialog import RentalRecordDialog
 
 __all__ = [
     # Responsive infrastructure
@@ -56,5 +57,8 @@ __all__ = [
     'LeftIconButton', 
     'AutoScrollArea',
     'CustomNavButton',
-    'FluentProgressDialog'
+    'FluentProgressDialog',
+    
+    # Dialogs
+    'RentalRecordDialog'
 ]
