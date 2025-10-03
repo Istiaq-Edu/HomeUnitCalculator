@@ -21,7 +21,7 @@ except ModuleNotFoundError:
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer
+from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer, QSize
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap, QPainter, QColor, QFont, QFontMetrics # Keep QPixmap for _validate_image_file
 from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
@@ -41,7 +41,7 @@ from qfluentwidgets import (
     LineEdit, TableWidget, FluentIcon, TitleLabel, GroupHeaderCardWidget,
     HeaderCardWidget, BodyLabel, CaptionLabel, SwitchButton, IndicatorPosition,
     SearchLineEdit, ToolButton, TransparentToolButton, Action, RoundMenu,
-    HyperlinkButton, IconWidget, InfoBarIcon, setCustomStyleSheet
+    HyperlinkButton, IconWidget, InfoBarIcon, setCustomStyleSheet, DropDownPushButton
 )
 
 from src.core.utils import resource_path, _clear_layout
@@ -247,16 +247,19 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Create input fields with modern styling and labels
         # Tenant Name field
         tenant_name_label = BodyLabel("Tenant Name")
+        tenant_name_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.tenant_name_input = LineEdit()
         self.tenant_name_input.setClearButtonEnabled(True)
         
         # Room Number field
         room_number_label = BodyLabel("Room Number")
+        room_number_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.room_number_input = LineEdit()
         self.room_number_input.setClearButtonEnabled(True)
 
         # Advanced Paid field
         advanced_paid_label = BodyLabel("Advanced Paid (TK)")
+        advanced_paid_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.advanced_paid_input = LineEdit()
         self.advanced_paid_input.setClearButtonEnabled(True)
         numeric_validator = QRegExpValidator(QRegExp(r'^\d*\.?\d*$'))
@@ -376,42 +379,62 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
         # Create save options layout with horizontal arrangement for compactness
         save_options_layout = QHBoxLayout()
-        save_options_layout.setSpacing(12)  # Space between PC and Cloud options
-        save_options_layout.setContentsMargins(4, 4, 4, 4)  # Reduced margins to give action buttons more space
+        save_options_layout.setSpacing(40)  # Space between PC and Cloud options
+        save_options_layout.setContentsMargins(4, 0, 4, 0)  # Reduced vertical margins
 
-        # Save to PC option - more compact
+        # Save to PC option - using checkbox
         pc_save_layout = QHBoxLayout()
-        pc_save_layout.setSpacing(6)
+        pc_save_layout.setSpacing(8)
         
         pc_icon = IconWidget(FluentIcon.SAVE)
-        pc_icon.setFixedSize(16, 16)  # Smaller icon
-        pc_label = CaptionLabel("PC")  # Shorter label
-        self.save_to_pc_switch = SwitchButton("Off", indicatorPos=IndicatorPosition.RIGHT)
-        self.save_to_pc_switch.setOnText("On")
-        self.save_to_pc_switch.setChecked(True)
+        pc_icon.setFixedSize(18, 18)
+        self.save_to_pc_checkbox = CheckBox("PC")
+        self.save_to_pc_checkbox.setStyleSheet("""
+            CheckBox {
+                font-weight: bold;
+                color: #ffffff;
+            }
+            CheckBox::indicator {
+                border-radius: 5px;
+            }
+            CheckBox::indicator:checked {
+                border-radius: 5px;
+            }
+        """)
+        self.save_to_pc_checkbox.setChecked(True)
         
         pc_save_layout.addWidget(pc_icon)
-        pc_save_layout.addWidget(pc_label)
-        pc_save_layout.addWidget(self.save_to_pc_switch)
+        pc_save_layout.addWidget(self.save_to_pc_checkbox)
         
-        # Save to Cloud option - more compact
+        # Save to Cloud option - using checkbox
         cloud_save_layout = QHBoxLayout()
-        cloud_save_layout.setSpacing(6)
+        cloud_save_layout.setSpacing(8)
         
         cloud_icon = IconWidget(FluentIcon.CLOUD)
-        cloud_icon.setFixedSize(16, 16)  # Smaller icon
-        cloud_label = CaptionLabel("Cloud")  # Shorter label
-        self.save_to_cloud_switch = SwitchButton("Off", indicatorPos=IndicatorPosition.RIGHT)
-        self.save_to_cloud_switch.setOnText("On")
-        self.save_to_cloud_switch.setChecked(True)
+        cloud_icon.setFixedSize(18, 18)
+        self.save_to_cloud_checkbox = CheckBox("Cloud")
+        self.save_to_cloud_checkbox.setStyleSheet("""
+            CheckBox {
+                font-weight: bold;
+                color: #ffffff;
+            }
+            CheckBox::indicator {
+                border-radius: 5px;
+            }
+            CheckBox::indicator:checked {
+                border-radius: 5px;
+            }
+        """)
+        self.save_to_cloud_checkbox.setChecked(True)
         
         cloud_save_layout.addWidget(cloud_icon)
-        cloud_save_layout.addWidget(cloud_label)
-        cloud_save_layout.addWidget(self.save_to_cloud_switch)
+        cloud_save_layout.addWidget(self.save_to_cloud_checkbox)
 
+        # Add even padding on both sides and center the options
+        save_options_layout.addStretch(1)
         save_options_layout.addLayout(pc_save_layout)
-        save_options_layout.addStretch(1)  # Add stretch between options
         save_options_layout.addLayout(cloud_save_layout)
+        save_options_layout.addStretch(1)
 
         self.save_options_card.viewLayout.addLayout(save_options_layout)
         left_column_layout.addWidget(self.save_options_card)
@@ -544,12 +567,56 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         table_controls_layout.setSpacing(12)
         table_controls_layout.setContentsMargins(0, 0, 0, 8)
 
-        # Load Source Combo with modern styling
-        source_label = BodyLabel("Data Source:")
+        # Load Source Combo - hidden but kept for backend logic
         self.load_source_combo = ComboBox()
         self.load_source_combo.addItems(["Local DB", "Cloud (Supabase)"])
         self.load_source_combo.currentIndexChanged.connect(self.load_rental_records)
-        # self.load_source_combo.setFixedWidth(180) # Removed for responsiveness
+        self.load_source_combo.setVisible(False)
+
+        # Use Fluent DropDownPushButton instead of plain ComboBox (matching History tab)
+        self.load_source_button = DropDownPushButton(FluentIcon.SAVE, "Local DB")
+        self.load_source_button.setFixedHeight(36)
+        self.load_source_button.setStyleSheet("""
+            DropDownPushButton {
+                color: white;
+                background-color: #6C5CE7;
+                border: 1px solid #6C5CE7;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 40px 8px 36px;
+            }
+            DropDownPushButton:hover {
+                background-color: #5A4FCF;
+                border-color: #5A4FCF;
+            }
+            DropDownPushButton:pressed {
+                background-color: #4834D4;
+                border-color: #4834D4;
+            }
+        """)
+        try:
+            self.load_source_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+        except Exception:
+            pass
+        self.load_source_button.setIconSize(QSize(20, 20))
+        self.load_source_button.setMinimumWidth(200)
+        # No maximum width - let it fill the container
+        self.load_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        
+        # Create menu for source selection
+        source_menu = RoundMenu(parent=self.load_source_button)
+        def _set_rental_source(text, icon, label):
+            self.load_source_combo.setCurrentText(text)
+            try:
+                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+            except Exception:
+                qicon = icon
+            self.load_source_button.setIcon(qicon)
+            self.load_source_button.setText(label)
+        source_menu.addAction(Action(FluentIcon.SAVE, "Local DB", triggered=lambda: _set_rental_source("Local DB", FluentIcon.SAVE, "Local DB")))
+        source_menu.addAction(Action(FluentIcon.CLOUD, "Cloud (Supabase)", triggered=lambda: _set_rental_source("Cloud (Supabase)", FluentIcon.CLOUD, "Cloud (Supabase)")))
+        self.load_source_button.setMenu(source_menu)
 
         # Add refresh button
         self.refresh_button = ToolButton(FluentIcon.UPDATE)
@@ -576,10 +643,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             }
         """)
 
-        table_controls_layout.addWidget(source_label)
-        table_controls_layout.addWidget(self.load_source_combo)
-        table_controls_layout.addWidget(self.refresh_button)
-        table_controls_layout.addStretch(1)
+        table_controls_layout.addWidget(self.load_source_button, 1)  # Stretch factor 1 to expand
+        table_controls_layout.addWidget(self.refresh_button, 0)  # No stretch, fixed size
 
         # Create main table layout
         table_layout = QVBoxLayout()
@@ -651,6 +716,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         text_layout.setSpacing(2)
         
         title_label = BodyLabel(title)  # Use BodyLabel for better visibility
+        title_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         description_label = CaptionLabel(description)
         description_label.setTextColor("#666666", "#9f9f9f")
         
@@ -2593,8 +2659,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 QMessageBox.critical(self, "Path Error", f"Failed to get file paths: {path_error}")
                 return
 
-            save_to_pc = self.save_to_pc_switch.isChecked()
-            save_to_cloud = self.save_to_cloud_switch.isChecked()
+            save_to_pc = self.save_to_pc_checkbox.isChecked()
+            save_to_cloud = self.save_to_cloud_checkbox.isChecked()
 
             if not tenant_name or not room_number:
                 QMessageBox.warning(self, "Input Error", "Tenant Name and Room Number cannot be empty.")

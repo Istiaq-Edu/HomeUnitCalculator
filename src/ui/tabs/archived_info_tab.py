@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 from typing import Dict, Any, List
 
-from PyQt5.QtCore import Qt, QRegExp, QTimer
+from PyQt5.QtCore import Qt, QRegExp, QTimer, QSize
 from PyQt5.QtGui import QColor, QBrush, QFont, QFontMetrics
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap
 from src.core.utils import resource_path
@@ -24,7 +24,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from qfluentwidgets import (
-    CardWidget, ComboBox, TableWidget, TitleLabel, FluentIcon, setCustomStyleSheet
+    CardWidget, ComboBox, TableWidget, TitleLabel, FluentIcon, setCustomStyleSheet,
+    DropDownPushButton, Action, RoundMenu, ToolButton
 )
 
 from src.ui.dialogs import RentalRecordDialog # Move to shared dialogs module
@@ -165,11 +166,91 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         self.table_layout = table_layout  # expose to insert/remove progress bar
         # <<< ADD
 
-        # Add Load Source Combo Box
+        # Create table controls layout
+        table_controls_layout = QHBoxLayout()
+        table_controls_layout.setSpacing(12)
+        table_controls_layout.setContentsMargins(0, 0, 0, 8)
+
+        # Load Source Combo - hidden but kept for backend logic
         self.load_source_combo = ComboBox()
         self.load_source_combo.addItems(["Local DB", "Cloud (Supabase)"])
         self.load_source_combo.currentIndexChanged.connect(self.load_archived_records)
-        table_layout.addWidget(self.load_source_combo)
+        self.load_source_combo.setVisible(False)
+
+        # Use Fluent DropDownPushButton instead of plain ComboBox (matching History tab)
+        self.load_source_button = DropDownPushButton(FluentIcon.SAVE, "Local DB")
+        self.load_source_button.setFixedHeight(36)
+        self.load_source_button.setStyleSheet("""
+            DropDownPushButton {
+                color: white;
+                background-color: #6C5CE7;
+                border: 1px solid #6C5CE7;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 40px 8px 36px;
+            }
+            DropDownPushButton:hover {
+                background-color: #5A4FCF;
+                border-color: #5A4FCF;
+            }
+            DropDownPushButton:pressed {
+                background-color: #4834D4;
+                border-color: #4834D4;
+            }
+        """)
+        try:
+            self.load_source_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+        except Exception:
+            pass
+        self.load_source_button.setIconSize(QSize(20, 20))
+        self.load_source_button.setMinimumWidth(200)
+        # No maximum width - let it fill the container
+        self.load_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        
+        # Create menu for source selection
+        source_menu = RoundMenu(parent=self.load_source_button)
+        def _set_archived_source(text, icon, label):
+            self.load_source_combo.setCurrentText(text)
+            try:
+                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+            except Exception:
+                qicon = icon
+            self.load_source_button.setIcon(qicon)
+            self.load_source_button.setText(label)
+        source_menu.addAction(Action(FluentIcon.SAVE, "Local DB", triggered=lambda: _set_archived_source("Local DB", FluentIcon.SAVE, "Local DB")))
+        source_menu.addAction(Action(FluentIcon.CLOUD, "Cloud (Supabase)", triggered=lambda: _set_archived_source("Cloud (Supabase)", FluentIcon.CLOUD, "Cloud (Supabase)")))
+        self.load_source_button.setMenu(source_menu)
+
+        # Add refresh button
+        self.refresh_button = ToolButton(FluentIcon.UPDATE)
+        self.refresh_button.setToolTip("Refresh records")
+        # Refresh reloads the records
+        self.refresh_button.clicked.connect(self.load_archived_records)
+        # Set button text color to white
+        self.refresh_button.setStyleSheet("""
+            ToolButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 4px;
+                padding: 4px;
+                qproperty-iconSize: 16px 16px;
+            }
+            ToolButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            ToolButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
+
+        table_controls_layout.addWidget(self.load_source_button, 1)  # Stretch factor 1 to expand
+        table_controls_layout.addWidget(self.refresh_button, 0)  # No stretch, fixed size
+        
+        table_layout.addLayout(table_controls_layout)
 
         self.archived_records_table = SmoothTableWidget()
         
