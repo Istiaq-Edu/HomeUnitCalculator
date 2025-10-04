@@ -266,11 +266,13 @@ class RoomsTab(QWidget):
             
             # Present Unit column
             present_label = BodyLabel("Present Unit")
+            present_label.setStyleSheet("font-weight: bold; color: #ffffff;")
             units_row_layout.addWidget(present_label, 0, 0)
             units_row_layout.addWidget(present_entry, 1, 0)
             
             # Previous Unit column
             previous_label = BodyLabel("Previous Unit")
+            previous_label.setStyleSheet("font-weight: bold; color: #ffffff;")
             units_row_layout.addWidget(previous_label, 0, 1)
             units_row_layout.addWidget(previous_entry, 1, 1)
             
@@ -281,7 +283,9 @@ class RoomsTab(QWidget):
             gas_bill_layout = QVBoxLayout(gas_bill_widget)
             gas_bill_layout.setContentsMargins(0, 0, 0, 0)
             gas_bill_layout.setSpacing(4)
-            gas_bill_layout.addWidget(BodyLabel("Gas Bill"))
+            gas_bill_label = BodyLabel("Gas Bill")
+            gas_bill_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+            gas_bill_layout.addWidget(gas_bill_label)
             gas_bill_layout.addWidget(gas_bill_entry)
             outer_layout.addWidget(gas_bill_widget)
             
@@ -290,7 +294,9 @@ class RoomsTab(QWidget):
             water_bill_layout = QVBoxLayout(water_bill_widget)
             water_bill_layout.setContentsMargins(0, 0, 0, 0)
             water_bill_layout.setSpacing(4)
-            water_bill_layout.addWidget(BodyLabel("Water Bill"))
+            water_bill_label = BodyLabel("Water Bill")
+            water_bill_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+            water_bill_layout.addWidget(water_bill_label)
             water_bill_layout.addWidget(water_bill_entry)
             outer_layout.addWidget(water_bill_widget)
             
@@ -299,7 +305,9 @@ class RoomsTab(QWidget):
             house_rent_layout = QVBoxLayout(house_rent_widget)
             house_rent_layout.setContentsMargins(0, 0, 0, 0)
             house_rent_layout.setSpacing(4)
-            house_rent_layout.addWidget(BodyLabel("House Rent"))
+            house_rent_label = BodyLabel("House Rent")
+            house_rent_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+            house_rent_layout.addWidget(house_rent_label)
             house_rent_layout.addWidget(house_rent_entry)
             outer_layout.addWidget(house_rent_widget)
             

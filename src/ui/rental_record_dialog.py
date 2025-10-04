@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply, QNetworkDiskCache
 from qfluentwidgets import (
-    CardWidget, PrimaryPushButton, PushButton, TitleLabel, FluentIcon
+    CardWidget, PrimaryPushButton, PushButton, TitleLabel, FluentIcon, BodyLabel
 )
 
 from .responsive_components import ResponsiveDialog
@@ -290,6 +290,10 @@ class RentalRecordDialog(ResponsiveDialog):
         """Initialize the UI with modern purple theme and side-by-side layout."""
         self.setWindowTitle("Rental Record Details")
         
+        # Set minimum dialog size to prevent horizontal scrollbar in info section
+        self.setMinimumWidth(1200)
+        self.setMinimumHeight(700)
+        
         # Enable translucent background for rounded corners
         self.setAttribute(Qt.WA_TranslucentBackground)
         
@@ -456,7 +460,8 @@ class RentalRecordDialog(ResponsiveDialog):
         
         # LEFT: Informations section (30%)
         info_section = StaticCardWidget()
-        info_section.setMaximumWidth(350)
+        info_section.setMaximumWidth(500)
+        info_section.setMinimumWidth(450)
         info_layout = QVBoxLayout(info_section)
         
         # Section header
@@ -481,24 +486,138 @@ class RentalRecordDialog(ResponsiveDialog):
         info_scroll = AutoScrollArea()
         info_scroll.setWidgetResizable(True)
         info_widget = QWidget()
-        info_form = QFormLayout(info_widget)
-        info_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        info_vbox = QVBoxLayout(info_widget)
+        info_vbox.setContentsMargins(10, 10, 10, 10)
+        info_vbox.setSpacing(8)
         info_scroll.setWidget(info_widget)
         info_layout.addWidget(info_scroll)
         
-        # Information labels
+        # Information labels (initialize first)
         self.tenant_name_label = QLabel()
         self.room_number_label = QLabel()
         self.advanced_paid_label = QLabel()
         self.created_at_label = QLabel()
         self.updated_at_label = QLabel()
         
-        # Add rows with purple labels
-        self._add_info_row(info_form, "Tenant Name:", self.tenant_name_label)
-        self._add_info_row(info_form, "Room Number:", self.room_number_label)
-        self._add_info_row(info_form, "Advanced Paid:", self.advanced_paid_label)
-        self._add_info_row(info_form, "Created At:", self.created_at_label)
-        self._add_info_row(info_form, "Updated At:", self.updated_at_label)
+        # Tenant Name with frosted container (horizontal layout) - White
+        tenant_name_container = QWidget()
+        tenant_name_container.setAttribute(Qt.WA_StyledBackground, True)
+        tenant_name_container.setAutoFillBackground(True)
+        tenant_name_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+        tenant_name_container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 255, 255, 0.14);
+                border: 1px solid rgba(255, 255, 255, 0.45);
+                border-radius: 6px;
+            }
+        """)
+        tenant_name_layout = QHBoxLayout(tenant_name_container)
+        tenant_name_layout.setContentsMargins(12, 6, 12, 6)
+        tenant_name_layout.setSpacing(8)
+        tenant_name_title = BodyLabel("Tenant Name:")
+        tenant_name_title.setStyleSheet("color:#FFFFFF; font-weight:bold; background:transparent; border:none;")
+        tenant_name_layout.addWidget(tenant_name_title)
+        self.tenant_name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.tenant_name_label.setStyleSheet("color:#FFFFFF; font-weight:bold; background:transparent; border:none; font-size:14px;")
+        tenant_name_layout.addWidget(self.tenant_name_label)
+        tenant_name_layout.addStretch()
+        info_vbox.addWidget(tenant_name_container)
+        
+        # Room Number with frosted container (horizontal layout) - Blue/Cyan
+        room_number_container = QWidget()
+        room_number_container.setAttribute(Qt.WA_StyledBackground, True)
+        room_number_container.setAutoFillBackground(True)
+        room_number_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+        room_number_container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(79, 195, 247, 0.14);
+                border: 1px solid rgba(79, 195, 247, 0.45);
+                border-radius: 6px;
+            }
+        """)
+        room_number_layout = QHBoxLayout(room_number_container)
+        room_number_layout.setContentsMargins(12, 6, 12, 6)
+        room_number_layout.setSpacing(8)
+        room_number_title = BodyLabel("Room Number:")
+        room_number_title.setStyleSheet("color:#4FC3F7; font-weight:bold; background:transparent; border:none;")
+        room_number_layout.addWidget(room_number_title)
+        self.room_number_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.room_number_label.setStyleSheet("color:#4FC3F7; font-weight:bold; background:transparent; border:none; font-size:14px;")
+        room_number_layout.addWidget(self.room_number_label)
+        room_number_layout.addStretch()
+        info_vbox.addWidget(room_number_container)
+        
+        # Advanced Paid with frosted container (horizontal layout) - Green
+        advanced_paid_container = QWidget()
+        advanced_paid_container.setAttribute(Qt.WA_StyledBackground, True)
+        advanced_paid_container.setAutoFillBackground(True)
+        advanced_paid_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+        advanced_paid_container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(129, 199, 132, 0.14);
+                border: 1px solid rgba(129, 199, 132, 0.45);
+                border-radius: 6px;
+            }
+        """)
+        advanced_paid_layout = QHBoxLayout(advanced_paid_container)
+        advanced_paid_layout.setContentsMargins(12, 6, 12, 6)
+        advanced_paid_layout.setSpacing(8)
+        advanced_paid_title = BodyLabel("Advanced Paid:")
+        advanced_paid_title.setStyleSheet("color:#81C784; font-weight:bold; background:transparent; border:none;")
+        advanced_paid_layout.addWidget(advanced_paid_title)
+        self.advanced_paid_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.advanced_paid_label.setStyleSheet("color:#81C784; font-weight:bold; background:transparent; border:none; font-size:14px;")
+        advanced_paid_layout.addWidget(self.advanced_paid_label)
+        advanced_paid_layout.addStretch()
+        info_vbox.addWidget(advanced_paid_container)
+        
+        # Created At with frosted container (horizontal layout) - Orange
+        created_at_container = QWidget()
+        created_at_container.setAttribute(Qt.WA_StyledBackground, True)
+        created_at_container.setAutoFillBackground(True)
+        created_at_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+        created_at_container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 183, 77, 0.14);
+                border: 1px solid rgba(255, 183, 77, 0.45);
+                border-radius: 6px;
+            }
+        """)
+        created_at_layout = QHBoxLayout(created_at_container)
+        created_at_layout.setContentsMargins(12, 6, 12, 6)
+        created_at_layout.setSpacing(8)
+        created_at_title = BodyLabel("Created At:")
+        created_at_title.setStyleSheet("color:#FFB74D; font-weight:bold; background:transparent; border:none;")
+        created_at_layout.addWidget(created_at_title)
+        self.created_at_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.created_at_label.setStyleSheet("color:#FFB74D; font-weight:bold; background:transparent; border:none; font-size:14px;")
+        created_at_layout.addWidget(self.created_at_label)
+        created_at_layout.addStretch()
+        info_vbox.addWidget(created_at_container)
+        
+        # Updated At with frosted container (horizontal layout) - Pink/Rose
+        updated_at_container = QWidget()
+        updated_at_container.setAttribute(Qt.WA_StyledBackground, True)
+        updated_at_container.setAutoFillBackground(True)
+        updated_at_container.setGraphicsEffect(None)  # Remove shadow to avoid dotted edges
+        updated_at_container.setStyleSheet("""
+            QWidget {
+                background-color: rgba(236, 64, 122, 0.14);
+                border: 1px solid rgba(236, 64, 122, 0.45);
+                border-radius: 6px;
+            }
+        """)
+        updated_at_layout = QHBoxLayout(updated_at_container)
+        updated_at_layout.setContentsMargins(12, 6, 12, 6)
+        updated_at_layout.setSpacing(8)
+        updated_at_title = BodyLabel("Updated At:")
+        updated_at_title.setStyleSheet("color:#EC407A; font-weight:bold; background:transparent; border:none;")
+        updated_at_layout.addWidget(updated_at_title)
+        self.updated_at_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.updated_at_label.setStyleSheet("color:#EC407A; font-weight:bold; background:transparent; border:none; font-size:14px;")
+        updated_at_layout.addWidget(self.updated_at_label)
+        updated_at_layout.addStretch()
+        info_vbox.addWidget(updated_at_container)
         
         sections_layout.addWidget(info_section)
         
@@ -560,11 +679,7 @@ class RentalRecordDialog(ResponsiveDialog):
         sections_layout.addWidget(doc_section)
         layout.addLayout(sections_layout)
     
-    def _add_info_row(self, form_layout, label_text, value_widget):
-        """Add a row to the information form with styled label."""
-        label = QLabel(label_text)
-        label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
-        form_layout.addRow(label, value_widget)
+
 
     
     def _create_pdf_section(self, layout):
