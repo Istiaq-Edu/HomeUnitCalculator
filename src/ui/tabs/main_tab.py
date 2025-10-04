@@ -2085,7 +2085,9 @@ class MainTab(QWidget):
         return results_group
 
     def create_load_info_group(self):
-        load_info_group = CardWidget()
+        # Use StaticCardWidget to disable hover effects
+        from src.ui.tabs.history_tab import StaticCardWidget
+        load_info_group = StaticCardWidget()
         load_info_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         load_info_layout = QHBoxLayout(load_info_group)
         load_info_layout.setContentsMargins(8, 8, 8, 8)
@@ -2169,35 +2171,26 @@ class MainTab(QWidget):
         
         # Replace ComboBox with native Fluent DropDownPushButton for source selection
         self.main_window.load_info_source_combo.setVisible(False)
-        self.load_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
+        
+        # Determine initial state based on combo box selection
+        current_source = self.main_window.load_info_source_combo.currentText()
+        if "Cloud" in current_source:
+            initial_icon = FluentIcon.CLOUD
+            initial_label = "Load from Cloud"
+        else:
+            initial_icon = FluentIcon.DOCUMENT
+            initial_label = "Load from CSV"
+        
+        self.load_source_button = DropDownPushButton(initial_icon, initial_label)
         self.load_source_button.setFixedHeight(36)
-        self.load_source_button.setStyleSheet("""
-            DropDownPushButton {
-                color: white;
-                background-color: #6C5CE7;
-                border: 1px solid #6C5CE7;
-                border-radius: 6px;
-                font-weight: 600;
-                qproperty-iconSize: 20px 20px; /* consistent icon size */
-                /* equal left padding for icon across all buttons */
-                padding: 8px 16px 8px 36px;
-            }
-            DropDownPushButton:hover {
-                background-color: #5A4FCF;
-                border-color: #5A4FCF;
-            }
-            DropDownPushButton:pressed {
-                background-color: #4834D4;
-                border-color: #4834D4;
-            }
-        """)
+        # Initial stylesheet will be set by _update_source_button_color below
         # Ensure white icon and consistent size on the dropdown button
         try:
-            self.load_source_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setIcon(initial_icon.icon(color=QColor(255, 255, 255)))
         except Exception:
             pass
         self.load_source_button.setIconSize(QSize(20, 20))
-        self.load_source_button.setMinimumWidth(160)
+        self.load_source_button.setMinimumWidth(180)
         self.load_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         # Build Fluent-style round menu
@@ -2211,9 +2204,14 @@ class MainTab(QWidget):
                 qicon = icon
             self.load_source_button.setIcon(qicon)
             self.load_source_button.setText(label)
+            # Update button color based on selection
+            self._update_source_button_color(label)
         menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT, "Load from CSV")))
         menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD, "Load from Cloud")))
         self.load_source_button.setMenu(menu)
+        
+        # Set initial color based on actual selection
+        self._update_source_button_color(initial_label)
 
         load_info_layout.addSpacing(12)
         load_info_layout.addWidget(self.load_source_button, 2)
@@ -2304,6 +2302,77 @@ class MainTab(QWidget):
             QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values for all readings.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
+
+    def _update_source_button_color(self, source_text):
+        """Update button color based on selected data source.
+        
+        Args:
+            source_text: The label text of the selected source ("Load from Cloud" or "Load from CSV")
+        """
+        if "Cloud" in source_text:
+            # Apply purple styling for Cloud
+            self.load_source_button.setStyleSheet("""
+                DropDownPushButton {
+                    color: white;
+                    background-color: #6C5CE7;
+                    border: 1px solid #6C5CE7;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    qproperty-iconSize: 20px 20px;
+                    padding: 8px 40px 8px 36px;
+                }
+                DropDownPushButton:hover {
+                    background-color: #5A4FCF;
+                    border-color: #5A4FCF;
+                }
+                DropDownPushButton:pressed {
+                    background-color: #4834D4;
+                    border-color: #4834D4;
+                }
+                DropDownPushButton::menu-indicator {
+                    subcontrol-position: right center;
+                    subcontrol-origin: padding;
+                    right: 8px;
+                }
+            """)
+        else:  # CSV
+            # Apply green styling for CSV
+            self.load_source_button.setStyleSheet("""
+                DropDownPushButton {
+                    color: white;
+                    background-color: #2e7d32;
+                    border: 1px solid #2e7d32;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    qproperty-iconSize: 20px 20px;
+                    padding: 8px 40px 8px 36px;
+                }
+                DropDownPushButton:hover {
+                    background-color: #43a047;
+                    border-color: #43a047;
+                }
+                DropDownPushButton:pressed {
+                    background-color: #1b5e20;
+                    border-color: #1b5e20;
+                }
+                DropDownPushButton::menu-indicator {
+                    subcontrol-position: right center;
+                    subcontrol-origin: padding;
+                    right: 8px;
+                }
+            """)
+
+    def sync_source_button_display(self):
+        """Sync the dropdown button display with the combo box selection."""
+        current_source = self.main_window.load_info_source_combo.currentText()
+        if "Cloud" in current_source:
+            self.load_source_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setText("Load from Cloud")
+            self._update_source_button_color("Load from Cloud")
+        else:
+            self.load_source_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setText("Load from CSV")
+            self._update_source_button_color("Load from CSV")
 
     def load_info_to_inputs(self):
         source = self.main_window.load_info_source_combo.currentText()

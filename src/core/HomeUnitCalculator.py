@@ -42,6 +42,7 @@ from src.ui.tabs.history_tab import HistoryTab, EditRecordDialog # EditRecordDia
 from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
 from src.ui.tabs.rental_info_tab import RentalInfoTab
 from src.ui.tabs.archived_info_tab import ArchivedInfoTab
+from src.ui.save_dialog import SaveDialog
 from qfluentwidgets import (
     InfoBar, InfoBarPosition,
     NavigationInterface, NavigationItemPosition, setThemeColor,
@@ -832,12 +833,28 @@ class MeterCalculationApp(FluentWindow):
         self.supabase_manager = SupabaseManager()
         
         if self.supabase_manager.is_client_initialized():
-            # Set default load source to Cloud if Supabase is configured
+            # Set default load source to Cloud if Supabase is configured for all tabs
             self.load_history_source_combo.setCurrentText("Load from Cloud")
+            self.load_info_source_combo.setCurrentText("Load from Cloud")
+            self.rental_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
+            self.archived_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
+            
+            # Sync the button displays to match the combo box selections
+            self.main_tab_instance.sync_source_button_display()
+            self.rental_info_tab_instance.sync_source_button_display()
+            self.archived_info_tab_instance.sync_source_button_display()
         else:
             print("Supabase client not initialized. Cloud features disabled.")
-            # If Supabase fails to initialize, ensure source is PC (CSV)
+            # If Supabase fails to initialize, ensure source is PC (CSV) / Local DB
             self.load_history_source_combo.setCurrentText("Load from PC (CSV)")
+            self.load_info_source_combo.setCurrentText("Load from PC (CSV)")
+            self.rental_info_tab_instance.load_source_combo.setCurrentText("Local DB")
+            self.archived_info_tab_instance.load_source_combo.setCurrentText("Local DB")
+            
+            # Sync the button displays to match the combo box selections
+            self.main_tab_instance.sync_source_button_display()
+            self.rental_info_tab_instance.sync_source_button_display()
+            self.archived_info_tab_instance.sync_source_button_display()
 
 
     def init_navigation(self):
@@ -940,8 +957,14 @@ class MeterCalculationApp(FluentWindow):
                 QMessageBox.critical(self, "PDF Save Error", f"Failed to save PDF: {e}\n{traceback.format_exc()}")
                 return False
         
-        options = QFileDialog.Options()
-        file_path, _ = QFileDialog.getSaveFileName(self, "Save PDF", default_filename, "PDF Files (*.pdf);;All Files (*)", options=options)
+        # Use modern file dialog
+        file_path = SaveDialog.get_save_filename(
+            parent=self,
+            title="Save PDF Report",
+            default_filename=default_filename,
+            file_filter="PDF Files (*.pdf);;All Files (*)"
+        )
+        
         if file_path:
             try_save_pdf(file_path)
 

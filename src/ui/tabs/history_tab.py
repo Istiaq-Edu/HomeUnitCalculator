@@ -11,7 +11,7 @@ from PyQt5.QtGui import QRegExpValidator, QIcon, QFont, QPainter, QColor, QPixma
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFormLayout, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
-    QDialog, QAbstractItemView, QFrame, QGridLayout
+    QDialog, QAbstractItemView, QFrame, QGridLayout, QFileDialog
 )
 from postgrest.exceptions import APIError
 from qfluentwidgets import (
@@ -45,6 +45,7 @@ try:
     from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, SmoothTableWidget
     from src.ui.responsive_components import ResponsiveDialog
     from src.ui.components import EnhancedTableMixin
+    from src.ui.save_dialog import SaveDialog
 except ModuleNotFoundError:
     import pathlib, sys as _sys
     # Add two levels up (project root) to sys.path
@@ -1431,11 +1432,13 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """Sync the button display with the actual combo box value"""
         current_source = self.main_window.load_history_source_combo.currentText()
         if current_source == "Load from Cloud":
-            self.load_history_source_button.setIcon(FluentIcon.CLOUD.icon())
-            self.load_history_source_button.setText("Load from Cloud")
+            self.load_history_source_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+            self.load_history_source_button.setText("Cloud")
+            self._update_source_button_color("Cloud")
         else:
-            self.load_history_source_button.setIcon(FluentIcon.DOCUMENT.icon())
-            self.load_history_source_button.setText("Load from CSV")
+            self.load_history_source_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+            self.load_history_source_button.setText("CSV")
+            self._update_source_button_color("CSV")
     
     def _is_priority_column(self, table_type: str, column_name: str) -> bool:
         """Check if a column is priority based on table type and column name"""
@@ -1451,6 +1454,69 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             if hasattr(self, 'room_history_table') and self.room_history_table.columnCount() > column_index:
                 return self.room_history_table.horizontalHeaderItem(column_index).text() if self.room_history_table.horizontalHeaderItem(column_index) else ""
         return ""
+    
+    def _update_source_button_color(self, source_text):
+        """Update button color based on selected data source.
+        
+        Args:
+            source_text: The label text of the selected source ("Cloud" or "CSV")
+        """
+        if "Cloud" in source_text:
+            # Apply purple styling for Cloud
+            self.load_history_source_button.setStyleSheet("""
+                DropDownPushButton {
+                    color: white;
+                    background-color: #6C5CE7;
+                    border: 1px solid #6C5CE7;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    qproperty-iconSize: 18px 18px;
+                    padding: 8px 28px 8px 12px;
+                    padding-left: 38px;
+                    text-align: left;
+                }
+                DropDownPushButton:hover {
+                    background-color: #5A4FCF;
+                    border-color: #5A4FCF;
+                }
+                DropDownPushButton:pressed {
+                    background-color: #4834D4;
+                    border-color: #4834D4;
+                }
+                DropDownPushButton::menu-indicator {
+                    subcontrol-position: right center;
+                    subcontrol-origin: padding;
+                    right: 8px;
+                }
+            """)
+        else:  # CSV
+            # Apply green styling for CSV
+            self.load_history_source_button.setStyleSheet("""
+                DropDownPushButton {
+                    color: white;
+                    background-color: #2e7d32;
+                    border: 1px solid #2e7d32;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    qproperty-iconSize: 18px 18px;
+                    padding: 8px 28px 8px 12px;
+                    padding-left: 38px;
+                    text-align: left;
+                }
+                DropDownPushButton:hover {
+                    background-color: #43a047;
+                    border-color: #43a047;
+                }
+                DropDownPushButton:pressed {
+                    background-color: #1b5e20;
+                    border-color: #1b5e20;
+                }
+                DropDownPushButton::menu-indicator {
+                    subcontrol-position: right center;
+                    subcontrol-origin: padding;
+                    right: 8px;
+                }
+            """)
     
     def _set_table_headers_with_icons(self, table: TableWidget, headers: list, table_type: str):
         """Set table headers with icons and priority-aware styling"""
@@ -2163,49 +2229,56 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         top_layout = QHBoxLayout()
         top_layout.setSpacing(15)
 
-        # Combined "Load Records" group (Month/Year/Source/Load)
-        load_records_group = StaticCardWidget()
-        lr_outer = QVBoxLayout(load_records_group)
-        lr_outer.setContentsMargins(8,8,8,8)
-        title = TitleLabel("Load Records")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("""
+        # SECTION 1: DATE (Month and Year selectors)
+        date_group = StaticCardWidget()
+        date_group.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)  # Minimum size policy
+        date_outer = QVBoxLayout(date_group)
+        date_outer.setContentsMargins(12,12,12,12)
+        date_title = TitleLabel("DATE")
+        date_title.setAlignment(Qt.AlignCenter)
+        date_title.setStyleSheet("""
             font-size: 26px;
             font-weight: 800;
             color: #0078D4;
             letter-spacing: 1px;
             margin: 8px 0px;
         """)
-        lr_outer.addWidget(title)
-        header_line = QFrame()
-        header_line.setFrameShape(QFrame.HLine)
-        header_line.setFrameShadow(QFrame.Plain)
-        header_line.setStyleSheet("""
+        date_outer.addWidget(date_title)
+        date_line = QFrame()
+        date_line.setFrameShape(QFrame.HLine)
+        date_line.setFrameShadow(QFrame.Plain)
+        date_line.setStyleSheet("""
             color: #0078D4;
             background-color: #0078D4;
             border: none;
             height: 2px;
             margin: 4px 20px;
         """)
-        lr_outer.addWidget(header_line)
-        lr_layout = QHBoxLayout()
-        lr_layout.setContentsMargins(8,6,8,6)
-        lr_layout.setSpacing(10)
-        lr_layout.addStretch(1)
+        date_outer.addWidget(date_line)
+        date_layout = QHBoxLayout()
+        date_layout.setContentsMargins(12,10,12,10)  # Better padding for fullscreen
+        date_layout.setSpacing(12)
+        date_layout.addStretch(1)  # Add stretch before controls
         month_label = BodyLabel("Month:")
-        month_label.setStyleSheet("font-weight: bold;")
-        lr_layout.addWidget(month_label)
+        month_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        date_layout.addWidget(month_label)
         self.history_month_combo = ComboBox()
         self.history_month_combo.addItems(["All","January","February","March","April","May","June","July","August","September","October","November","December"])
-        lr_layout.addWidget(self.history_month_combo)
-        lr_layout.addSpacing(10)
+        self.history_month_combo.setMinimumWidth(110)
+        self.history_month_combo.setMaximumWidth(140)
+        self.history_month_combo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        date_layout.addWidget(self.history_month_combo)
+        date_layout.addSpacing(16)  # More space between controls
         year_label = BodyLabel("Year:")
-        year_label.setStyleSheet("font-weight: bold;")
-        lr_layout.addWidget(year_label)
+        year_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        date_layout.addWidget(year_label)
         self.history_year_spinbox = SpinBox()
         self.history_year_spinbox.setRange(0,2100)
         self.history_year_spinbox.setSpecialValueText("All")
         self.history_year_spinbox.setValue(datetime.now().year)
+        self.history_year_spinbox.setMinimumWidth(120)
+        self.history_year_spinbox.setMaximumWidth(150)
+        self.history_year_spinbox.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         # Apply exact same config as main tab
         self._apply_no_select_to_spinbox(self.history_year_spinbox)
         self.history_year_spinbox.setFocusPolicy(Qt.NoFocus)
@@ -2223,90 +2296,19 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 le.setFont(f)
         except Exception:
             pass
-        lr_layout.addWidget(self.history_year_spinbox)
-        lr_layout.addSpacing(10)
-        # Use Fluent DropDownPushButton instead of plain ComboBox
-        self.main_window.load_history_source_combo.setVisible(False)
-        self.load_history_source_button = DropDownPushButton(FluentIcon.DOCUMENT, "Load from CSV")
-        self.load_history_source_button.setFixedHeight(36)
-        self.load_history_source_button.setStyleSheet("""
-            DropDownPushButton {
-                color: white;
-                background-color: #6C5CE7;
-                border: 1px solid #6C5CE7;
-                border-radius: 6px;
-                font-weight: 600;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 40px 8px 36px;
-            }
-            DropDownPushButton:hover {
-                background-color: #5A4FCF;
-                border-color: #5A4FCF;
-            }
-            DropDownPushButton:pressed {
-                background-color: #4834D4;
-                border-color: #4834D4;
-            }
-        """)
-        try:
-            self.load_history_source_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
-        except Exception:
-            pass
-        self.load_history_source_button.setIconSize(QSize(20, 20))
-        self.load_history_source_button.setMinimumWidth(160)
-        self.load_history_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        
-        menu = RoundMenu(parent=self.load_history_source_button)
-        def _set_source(text, icon, label):
-            self.main_window.load_history_source_combo.setCurrentText(text)
-            try:
-                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
-            except Exception:
-                qicon = icon
-            self.load_history_source_button.setIcon(qicon)
-            self.load_history_source_button.setText(label)
-        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT, "Load from CSV")))
-        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD, "Load from Cloud")))
-        self.load_history_source_button.setMenu(menu)
-        lr_layout.addWidget(self.load_history_source_button)
-        load_history_button = PrimaryPushButton("Load")
-        load_history_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
-        load_history_button.setIconSize(QSize(20, 20))
-        load_history_button.clicked.connect(self.load_history)
-        load_history_button.setFixedHeight(36)
-        load_history_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 6px;
-                font-weight: 600;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
-            }
-            PrimaryPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
-            }
-            PrimaryPushButton:pressed {
-                background-color: #005a9e;
-                border-color: #005a9e;
-            }
-        """)
-        load_history_button.setMinimumWidth(120)
-        load_history_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        lr_layout.addWidget(load_history_button)
-        lr_layout.addStretch(1)
-        controls_card = StaticCardWidget()
-        controls_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-        controls_card.setLayout(lr_layout)
-        lr_outer.addWidget(controls_card)
-        top_layout.addWidget(load_records_group, 4)
+        date_layout.addWidget(self.history_year_spinbox)
+        date_layout.addStretch(1)  # Add stretch after controls
+        date_card = StaticCardWidget()
+        date_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        date_card.setLayout(date_layout)
+        date_outer.addWidget(date_card)
+        top_layout.addWidget(date_group, 3)  # Increased from 2 to 3 for more space
 
-        # Record Actions titled group
+        # SECTION 2: Record Actions (Data source selector and Load button)
         record_actions_group = StaticCardWidget()
+        record_actions_group.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)  # Minimum size policy
         ra_outer = QVBoxLayout(record_actions_group)
-        ra_outer.setContentsMargins(8,8,8,8)
+        ra_outer.setContentsMargins(12,12,12,12)
         ra_outer.setSpacing(4)
         ra_title = TitleLabel("Record Actions")
         ra_title.setAlignment(Qt.AlignCenter)
@@ -2329,14 +2331,157 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             margin: 4px 20px;
         """)
         ra_outer.addWidget(ra_line)
-        record_actions_layout = QHBoxLayout()
-        record_actions_layout.setContentsMargins(8,6,8,6)
-        record_actions_layout.setSpacing(40)
-        # Add stretch on both sides for perfect centering
-        record_actions_layout.addStretch(1)
+        ra_layout = QHBoxLayout()
+        ra_layout.setContentsMargins(12,10,12,10)  # Better padding for fullscreen
+        ra_layout.setSpacing(12)
+        ra_layout.addStretch(1)  # Add stretch before controls
+        # Use Fluent DropDownPushButton instead of plain ComboBox
+        self.main_window.load_history_source_combo.setVisible(False)
+        
+        # Determine initial state based on combo box selection
+        current_source = self.main_window.load_history_source_combo.currentText()
+        if "Cloud" in current_source:
+            initial_icon = FluentIcon.CLOUD
+            initial_label = "Cloud"
+        else:
+            initial_icon = FluentIcon.DOCUMENT
+            initial_label = "CSV"
+        
+        self.load_history_source_button = DropDownPushButton(initial_icon, initial_label)
+        self.load_history_source_button.setFixedHeight(36)
+        # Initial stylesheet will be set by _update_source_button_color below
+        try:
+            self.load_history_source_button.setIcon(initial_icon.icon(color=QColor(255, 255, 255)))
+        except Exception:
+            pass
+        self.load_history_source_button.setIconSize(QSize(18, 18))
+        self.load_history_source_button.setMinimumWidth(110)
+        self.load_history_source_button.setMaximumWidth(130)
+        self.load_history_source_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        
+        menu = RoundMenu(parent=self.load_history_source_button)
+        def _set_source(text, icon, label):
+            self.main_window.load_history_source_combo.setCurrentText(text)
+            try:
+                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+            except Exception:
+                qicon = icon
+            self.load_history_source_button.setIcon(qicon)
+            self.load_history_source_button.setText(label)
+            # Update button color based on selection
+            self._update_source_button_color(label)
+        menu.addAction(Action(FluentIcon.DOCUMENT, "CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT, "CSV")))
+        menu.addAction(Action(FluentIcon.CLOUD, "Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD, "Cloud")))
+        self.load_history_source_button.setMenu(menu)
+        
+        # Set initial color based on actual selection
+        self._update_source_button_color(initial_label)
+        
+        ra_layout.addWidget(self.load_history_source_button)
+        load_history_button = PrimaryPushButton("Load")
+        load_history_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
+        load_history_button.setIconSize(QSize(18, 18))
+        load_history_button.clicked.connect(self.load_history)
+        load_history_button.setFixedHeight(36)
+        load_history_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 18px 18px;
+                padding: 8px 16px 8px 12px;
+                padding-left: 38px;
+                text-align: left;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
+        load_history_button.setMinimumWidth(80)
+        load_history_button.setMaximumWidth(100)
+        load_history_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        ra_layout.addWidget(load_history_button)
+        
+        # Download CSV button - Green color to differentiate from Load button
+        self.download_csv_button = PrimaryPushButton("Download CSV")
+        self.download_csv_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
+        self.download_csv_button.setIconSize(QSize(18, 18))
+        self.download_csv_button.clicked.connect(self.download_csv_from_cloud)
+        self.download_csv_button.setFixedHeight(36)
+        self.download_csv_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #2e7d32;
+                border: 1px solid #2e7d32;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 18px 18px;
+                padding: 8px 16px 8px 12px;
+                padding-left: 38px;
+                text-align: left;
+            }
+            PrimaryPushButton:hover {
+                background-color: #388e3c;
+                border-color: #388e3c;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #1b5e20;
+                border-color: #1b5e20;
+            }
+        """)
+        self.download_csv_button.setMinimumWidth(140)
+        self.download_csv_button.setMaximumWidth(180)
+        self.download_csv_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        ra_layout.addWidget(self.download_csv_button)
+        ra_layout.addStretch(1)  # Add stretch after controls
+        
+        ra_card = StaticCardWidget()
+        ra_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        ra_card.setLayout(ra_layout)
+        ra_outer.addWidget(ra_card)
+        top_layout.addWidget(record_actions_group, 4)  # Adjusted from 3 to 4 to maintain proportion
+
+        # SECTION 3: Modify Actions (Edit and Delete buttons)
+        modify_actions_group = StaticCardWidget()
+        modify_actions_group.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)  # Minimum size policy
+        ma_outer = QVBoxLayout(modify_actions_group)
+        ma_outer.setContentsMargins(12,12,12,12)
+        ma_outer.setSpacing(4)
+        ma_title = TitleLabel("Modify Actions")
+        ma_title.setAlignment(Qt.AlignCenter)
+        ma_title.setStyleSheet("""
+            font-size: 26px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            margin: 8px 0px;
+        """)
+        ma_outer.addWidget(ma_title)
+        ma_line = QFrame()
+        ma_line.setFrameShape(QFrame.HLine)
+        ma_line.setFrameShadow(QFrame.Plain)
+        ma_line.setStyleSheet("""
+            color: #0078D4;
+            background-color: #0078D4;
+            border: none;
+            height: 2px;
+            margin: 4px 20px;
+        """)
+        ma_outer.addWidget(ma_line)
+        modify_actions_layout = QHBoxLayout()
+        modify_actions_layout.setContentsMargins(12,10,12,10)  # Better padding for fullscreen
+        modify_actions_layout.setSpacing(16)
+        modify_actions_layout.addStretch(1)  # Add stretch before controls
         self.edit_selected_record_button = PrimaryPushButton("Edit Record")
         self.edit_selected_record_button.setIcon(FluentIcon.EDIT.icon(color=QColor(255, 255, 255)))
-        self.edit_selected_record_button.setIconSize(QSize(20, 20))
+        self.edit_selected_record_button.setIconSize(QSize(18, 18))
         self.edit_selected_record_button.setFixedHeight(36)
         self.edit_selected_record_button.setStyleSheet("""
             PrimaryPushButton {
@@ -2345,8 +2490,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 border: 1px solid #2e7d32;
                 border-radius: 6px;
                 font-weight: 600;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
+                qproperty-iconSize: 18px 18px;
+                padding: 8px 16px 8px 12px;
+                padding-left: 38px;
+                text-align: left;
             }
             PrimaryPushButton:hover {
                 background-color: #388e3c;
@@ -2362,13 +2509,14 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 color: #777;
             }
         """)
-        self.edit_selected_record_button.setMinimumWidth(120)
-        self.edit_selected_record_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.edit_selected_record_button.setMinimumWidth(110)
+        self.edit_selected_record_button.setMaximumWidth(140)
+        self.edit_selected_record_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.edit_selected_record_button.clicked.connect(self.handle_edit_selected_record)
         
         self.delete_selected_record_button = PrimaryPushButton("Delete Record")
         self.delete_selected_record_button.setIcon(FluentIcon.DELETE.icon(color=QColor(255, 255, 255)))
-        self.delete_selected_record_button.setIconSize(QSize(20, 20))
+        self.delete_selected_record_button.setIconSize(QSize(18, 18))
         self.delete_selected_record_button.setFixedHeight(36)
         self.delete_selected_record_button.setStyleSheet("""
             PrimaryPushButton {
@@ -2377,8 +2525,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 border: 1px solid #c62828;
                 border-radius: 6px;
                 font-weight: 600;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
+                qproperty-iconSize: 18px 18px;
+                padding: 8px 16px 8px 12px;
+                padding-left: 38px;
+                text-align: left;
             }
             PrimaryPushButton:hover {
                 background-color: #d84315;
@@ -2395,20 +2545,21 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             }
         """)
         self.delete_selected_record_button.setMinimumWidth(120)
-        self.delete_selected_record_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.delete_selected_record_button.setMaximumWidth(150)
+        self.delete_selected_record_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.delete_selected_record_button.clicked.connect(self.handle_delete_selected_record)
         # Initially disabled until a row is selected
         self.edit_selected_record_button.setEnabled(False)
         self.delete_selected_record_button.setEnabled(False)
-        record_actions_layout.addWidget(self.edit_selected_record_button)
-        record_actions_layout.addWidget(self.delete_selected_record_button)
-        record_actions_layout.addStretch(1)
+        modify_actions_layout.addWidget(self.edit_selected_record_button)
+        modify_actions_layout.addWidget(self.delete_selected_record_button)
+        modify_actions_layout.addStretch(1)  # Add stretch after controls
         # Wrap in card
-        controls_actions_card = StaticCardWidget()
+        ma_card = StaticCardWidget()
         
-        controls_actions_card.setLayout(record_actions_layout)
-        ra_outer.addWidget(controls_actions_card)
-        top_layout.addWidget(record_actions_group, 2)
+        ma_card.setLayout(modify_actions_layout)
+        ma_outer.addWidget(ma_card)
+        top_layout.addWidget(modify_actions_group, 3)  # Increased from 2 to 3 for better balance
         layout.addLayout(top_layout)
 
         main_calc_group = StaticCardWidget()
@@ -2612,6 +2763,45 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         
         # Ensure tables are properly sized after initialization
         QTimer.singleShot(100, self._initial_table_resize)
+        
+        # Update Download CSV button state based on Supabase configuration and internet connectivity
+        self._update_download_csv_button_state()
+
+    def _update_download_csv_button_state(self):
+        """
+        Enable or disable the Download CSV button based on Supabase configuration and internet connectivity.
+        Button is enabled only when both Supabase is configured and internet is available.
+        """
+        try:
+            # Check if Supabase is configured and internet is available
+            supabase_configured = (
+                hasattr(self.main_window, 'supabase_manager') and 
+                self.main_window.supabase_manager and 
+                self.main_window.supabase_manager.is_client_initialized()
+            )
+            
+            internet_available = (
+                hasattr(self.main_window, 'check_internet_connectivity') and 
+                self.main_window.check_internet_connectivity()
+            )
+            
+            # Enable button only if both conditions are met
+            should_enable = supabase_configured and internet_available
+            
+            if hasattr(self, 'download_csv_button') and self.download_csv_button:
+                self.download_csv_button.setEnabled(should_enable)
+                
+                # Update tooltip to inform user why button is disabled
+                if not should_enable:
+                    if not supabase_configured:
+                        self.download_csv_button.setToolTip("Supabase not configured. Please configure Supabase in Settings.")
+                    elif not internet_available:
+                        self.download_csv_button.setToolTip("No internet connection. Cannot download from cloud.")
+                else:
+                    self.download_csv_button.setToolTip("Download records from cloud to CSV file")
+        except Exception as e:
+            # Silently handle errors to avoid breaking the UI
+            pass
 
     def _style_table(self, table: TableWidget):
         """Apply qfluentwidgets-compatible styling with enhanced visual design"""
@@ -2914,6 +3104,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             super().showEvent(event)
             self._trigger_debounced_resize()
             QTimer.singleShot(100, self._recalculate_all_table_widths)
+            # Update Download CSV button state when tab becomes visible
+            self._update_download_csv_button_state()
         except Exception as e:
             self._log_resize_error("Error in showEvent", e)
         
@@ -3747,6 +3939,248 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             QMessageBox.critical(self, "Load History Error", f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}")
             # Clear tables on error to avoid displaying partial data
             self.calculate_and_display_totals_from_supabase_records([], []) # Clear totals
+
+    def download_csv_from_cloud(self):
+        """
+        Download records from Supabase and save to CSV file.
+        Respects current date filter selections.
+        """
+        # Check Supabase connection and internet connectivity
+        if not self.main_window.supabase_manager.is_client_initialized():
+            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in Settings.")
+            return
+        
+        if not self.main_window.check_internet_connectivity():
+            QMessageBox.warning(self, "Error", "No internet connection. Cannot download from cloud.")
+            return
+        
+        try:
+            # Get current date filter values from UI controls
+            selected_month = self.history_month_combo.currentText()
+            selected_year_val = self.history_year_spinbox.value()
+            
+            # Handle "All" vs specific month/year selections
+            actual_month_filter = None if selected_month == "All" else selected_month
+            actual_year_filter = None if selected_year_val == 0 else selected_year_val
+            
+            # Fetch records from Supabase with filters
+            main_calculations = self.main_window.supabase_manager.get_main_calculations(
+                month=actual_month_filter,
+                year=actual_year_filter
+            )
+            
+            # Handle empty results gracefully
+            if not main_calculations:
+                QMessageBox.information(self, "No Data", "No records found for the selected filters.")
+                return
+            
+            # For each main calculation, fetch associated room calculations
+            all_records_with_rooms = []
+            for main_calc in main_calculations:
+                main_calc_id = main_calc.get("id")
+                if main_calc_id:
+                    room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
+                    all_records_with_rooms.append({
+                        'main_calc': main_calc,
+                        'room_records': room_records
+                    })
+            
+            # Sort records chronologically (most recent first)
+            all_records_with_rooms.sort(
+                key=lambda r: (
+                    r['main_calc'].get("year", 0),
+                    self.MONTH_ORDER.get(r['main_calc'].get("month", ""), 0)
+                ),
+                reverse=True
+            )
+            
+            # Determine dynamic column count for meters/diffs
+            max_meters = 3  # minimum of 3 pairs
+            for record in all_records_with_rooms:
+                main_data = record['main_calc'].get("main_data", {})
+                if isinstance(main_data, str):
+                    try:
+                        main_data = json.loads(main_data)
+                    except json.JSONDecodeError:
+                        main_data = {}
+                
+                # Scan all meter/diff pairs to find max
+                for i in range(10):  # maximum of 10 pairs
+                    meter_key = f"meter_{i+1}"
+                    diff_key = f"diff_{i+1}"
+                    meter_val = main_data.get(meter_key)
+                    diff_val = main_data.get(diff_key)
+                    
+                    # Only count if meter or diff is not 0 or empty
+                    if (meter_val and str(meter_val).strip() and str(meter_val) != "0") or \
+                       (diff_val and str(diff_val).strip() and str(diff_val) != "0"):
+                        max_meters = max(max_meters, i + 1)
+            
+            max_meters = min(max_meters, 10)  # maximum of 10 pairs
+            
+            # Ask user where to save the file using modern dialog
+            default_filename = "meter_calculation_history.csv"
+            filename = SaveDialog.get_save_filename(
+                parent=self,
+                title="Save CSV File",
+                default_filename=default_filename,
+                file_filter="CSV Files (*.csv);;All Files (*)"
+            )
+            
+            # If user cancelled the dialog, return
+            if not filename:
+                return
+            
+            # Ensure the filename has .csv extension
+            if not filename.lower().endswith('.csv'):
+                filename += '.csv'
+            
+            # Write CSV file with proper structure
+            with open(filename, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                
+                # Write header row with dynamic Meter-1 through Meter-N and Diff-1 through Diff-N columns
+                header = ["Month"]
+                for i in range(max_meters):
+                    header.append(f"Meter-{i+1}")
+                for i in range(max_meters):
+                    header.append(f"Diff-{i+1}")
+                header.extend([
+                    "Total Unit Cost", "Total Diff Units", "Per Unit Cost", "Added Amount", "In Total",
+                    "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill",
+                    "Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill",
+                    "Gas Bill", "Water Bill", "House Rent", "Grand Total"
+                ])
+                writer.writerow(header)
+                
+                # For each main calculation, write main row with all meter/diff values
+                for record in all_records_with_rooms:
+                    main_calc = record['main_calc']
+                    main_data = main_calc.get("main_data", {})
+                    if isinstance(main_data, str):
+                        try:
+                            main_data = json.loads(main_data)
+                        except json.JSONDecodeError:
+                            main_data = {}
+                    
+                    # Calculate totals from room records for this main calculation
+                    total_house_rent = 0.0
+                    total_water_bill = 0.0
+                    total_gas_bill = 0.0
+                    total_room_unit_bill = 0.0
+                    
+                    for room_record in record['room_records']:
+                        room_data = room_record.get("room_data", {})
+                        if isinstance(room_data, str):
+                            try:
+                                room_data = json.loads(room_data)
+                            except json.JSONDecodeError:
+                                room_data = {}
+                        
+                        try:
+                            total_house_rent += float(room_data.get("house_rent", 0) or 0)
+                            total_water_bill += float(room_data.get("water_bill", 0) or 0)
+                            total_gas_bill += float(room_data.get("gas_bill", 0) or 0)
+                            total_room_unit_bill += float(room_data.get("unit_bill", 0) or 0)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Build main row
+                    month_year = f"{main_calc.get('month', '')} {main_calc.get('year', '')}"
+                    row = [month_year]
+                    
+                    # Add meter values
+                    for i in range(max_meters):
+                        meter_val = main_data.get(f"meter_{i+1}", "0")
+                        row.append(str(meter_val) if meter_val else "0")
+                    
+                    # Add diff values
+                    for i in range(max_meters):
+                        diff_val = main_data.get(f"diff_{i+1}", "0")
+                        row.append(str(diff_val) if diff_val else "0")
+                    
+                    # Add fixed columns including totals
+                    row.extend([
+                        str(main_data.get("total_unit_cost", "0")),
+                        str(main_data.get("total_diff_units", "0")),
+                        str(main_data.get("per_unit_cost", "0")),
+                        str(main_data.get("added_amount", "0")),
+                        str(main_data.get("grand_total", "0")),
+                        f"{total_house_rent:.2f}",  # Total House Rent
+                        f"{total_water_bill:.2f}",  # Total Water Bill
+                        f"{total_gas_bill:.2f}",    # Total Gas Bill
+                        f"{total_room_unit_bill:.2f}",  # Total Room Unit Bill
+                        "",  # Room Name (empty for main row)
+                        "",  # Present Unit
+                        "",  # Previous Unit
+                        "",  # Real Unit
+                        "",  # Unit Bill
+                        "",  # Gas Bill
+                        "",  # Water Bill
+                        "",  # House Rent
+                        ""   # Grand Total (room)
+                    ])
+                    
+                    writer.writerow(row)
+                    
+                    # For each room calculation under main calculation, write room row with empty Month column
+                    for room_record in record['room_records']:
+                        room_data = room_record.get("room_data", {})
+                        if isinstance(room_data, str):
+                            try:
+                                room_data = json.loads(room_data)
+                            except json.JSONDecodeError:
+                                room_data = {}
+                        
+                        # Build room row with empty Month column
+                        room_row = [""]  # Empty month column
+                        
+                        # Empty meter columns
+                        for i in range(max_meters):
+                            room_row.append("")
+                        
+                        # Empty diff columns
+                        for i in range(max_meters):
+                            room_row.append("")
+                        
+                        # Empty fixed columns from main calculation (5 columns)
+                        room_row.extend(["", "", "", "", ""])
+                        
+                        # Empty totals columns (4 columns)
+                        room_row.extend(["", "", "", ""])
+                        
+                        # Add room-specific data
+                        room_row.extend([
+                            str(room_data.get("room_name", "")),
+                            str(room_data.get("present_unit", "0")),
+                            str(room_data.get("previous_unit", "0")),
+                            str(room_data.get("real_unit", "0")),
+                            str(room_data.get("unit_bill", "0")),
+                            str(room_data.get("gas_bill", "0")),
+                            str(room_data.get("water_bill", "0")),
+                            str(room_data.get("house_rent", "0")),
+                            str(room_data.get("grand_total", "0"))
+                        ])
+                        
+                        writer.writerow(room_row)
+            
+            # Display success message with count of downloaded records
+            total_room_count = sum(len(r['room_records']) for r in all_records_with_rooms)
+            QMessageBox.information(
+                self, 
+                "Download Successful", 
+                f"Downloaded {len(all_records_with_rooms)} main records and {total_room_count} room records to {filename}"
+            )
+            
+        except APIError as e:
+            # Handle Supabase connection errors with appropriate warning
+            QMessageBox.critical(self, "Download Error", f"Failed to fetch records from cloud: {e}")
+        except IOError as e:
+            # Handle file write errors (permissions, disk space)
+            QMessageBox.critical(self, "File Error", f"Failed to write CSV file: {e}")
+        except Exception as e:
+            # Handle unexpected errors
+            QMessageBox.critical(self, "Download Error", f"Unexpected error: {e}\n{traceback.format_exc()}")
 
     def calculate_and_display_totals_from_supabase_records(self, main_calculations: list[dict], all_room_rows: list[dict]):
         grouped = {}

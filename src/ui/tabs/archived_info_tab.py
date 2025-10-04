@@ -178,29 +178,20 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         self.load_source_combo.setVisible(False)
 
         # Use Fluent DropDownPushButton instead of plain ComboBox (matching History tab)
-        self.load_source_button = DropDownPushButton(FluentIcon.SAVE, "Local DB")
+        # Determine initial state based on combo box selection
+        current_source = self.load_source_combo.currentText()
+        if "Cloud" in current_source:
+            initial_icon = FluentIcon.CLOUD
+            initial_label = "Cloud (Supabase)"
+        else:
+            initial_icon = FluentIcon.SAVE
+            initial_label = "Local DB"
+        
+        self.load_source_button = DropDownPushButton(initial_icon, initial_label)
         self.load_source_button.setFixedHeight(36)
-        self.load_source_button.setStyleSheet("""
-            DropDownPushButton {
-                color: white;
-                background-color: #6C5CE7;
-                border: 1px solid #6C5CE7;
-                border-radius: 6px;
-                font-weight: 600;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 40px 8px 36px;
-            }
-            DropDownPushButton:hover {
-                background-color: #5A4FCF;
-                border-color: #5A4FCF;
-            }
-            DropDownPushButton:pressed {
-                background-color: #4834D4;
-                border-color: #4834D4;
-            }
-        """)
+        # Initial stylesheet will be set by _update_source_button_color below
         try:
-            self.load_source_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setIcon(initial_icon.icon(color=QColor(255, 255, 255)))
         except Exception:
             pass
         self.load_source_button.setIconSize(QSize(20, 20))
@@ -218,9 +209,14 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
                 qicon = icon
             self.load_source_button.setIcon(qicon)
             self.load_source_button.setText(label)
+            # Update button color based on selection
+            self._update_source_button_color(label)
         source_menu.addAction(Action(FluentIcon.SAVE, "Local DB", triggered=lambda: _set_archived_source("Local DB", FluentIcon.SAVE, "Local DB")))
         source_menu.addAction(Action(FluentIcon.CLOUD, "Cloud (Supabase)", triggered=lambda: _set_archived_source("Cloud (Supabase)", FluentIcon.CLOUD, "Cloud (Supabase)")))
         self.load_source_button.setMenu(source_menu)
+        
+        # Set initial color based on actual selection
+        self._update_source_button_color(initial_label)
 
         # Add refresh button
         self.refresh_button = ToolButton(FluentIcon.UPDATE)
@@ -275,6 +271,77 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         
         main_layout.addWidget(table_group)
         self.setLayout(main_layout)
+
+    def _update_source_button_color(self, source_text):
+        """Update button color based on selected data source.
+        
+        Args:
+            source_text: The label text of the selected source ("Cloud (Supabase)" or "Local DB")
+        """
+        if "Cloud" in source_text:
+            # Apply purple styling for Cloud
+            self.load_source_button.setStyleSheet("""
+                DropDownPushButton {
+                    color: white;
+                    background-color: #6C5CE7;
+                    border: 1px solid #6C5CE7;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    qproperty-iconSize: 20px 20px;
+                    padding: 8px 40px 8px 36px;
+                }
+                DropDownPushButton:hover {
+                    background-color: #5A4FCF;
+                    border-color: #5A4FCF;
+                }
+                DropDownPushButton:pressed {
+                    background-color: #4834D4;
+                    border-color: #4834D4;
+                }
+                DropDownPushButton::menu-indicator {
+                    subcontrol-position: right center;
+                    subcontrol-origin: padding;
+                    right: 8px;
+                }
+            """)
+        else:  # Local DB
+            # Apply green styling for Local DB
+            self.load_source_button.setStyleSheet("""
+                DropDownPushButton {
+                    color: white;
+                    background-color: #2e7d32;
+                    border: 1px solid #2e7d32;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    qproperty-iconSize: 20px 20px;
+                    padding: 8px 40px 8px 36px;
+                }
+                DropDownPushButton:hover {
+                    background-color: #43a047;
+                    border-color: #43a047;
+                }
+                DropDownPushButton:pressed {
+                    background-color: #1b5e20;
+                    border-color: #1b5e20;
+                }
+                DropDownPushButton::menu-indicator {
+                    subcontrol-position: right center;
+                    subcontrol-origin: padding;
+                    right: 8px;
+                }
+            """)
+
+    def sync_source_button_display(self):
+        """Sync the dropdown button display with the combo box selection."""
+        current_source = self.load_source_combo.currentText()
+        if "Cloud" in current_source:
+            self.load_source_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setText("Cloud (Supabase)")
+            self._update_source_button_color("Cloud (Supabase)")
+        else:
+            self.load_source_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setText("Local DB")
+            self._update_source_button_color("Local DB")
 
     def load_archived_records(self):
         # Reset table first
