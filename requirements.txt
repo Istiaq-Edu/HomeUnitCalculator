@@ -5,7 +5,7 @@ python-dotenv
 postgrest
 cryptography
 keyring
-PyQt-Fluent-Widgets[full]>=1.7.0
+PyQt-Fluent-Widgets[full]>=1.9.0
 websockets==10.4
 requests>=2.31.0
 urllib3>=1.26.0
