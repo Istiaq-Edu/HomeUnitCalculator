@@ -1,0 +1,58 @@
+name: Build • PyInstaller (Lean)
+
+on:
+  # Manual trigger only; avoids accidental, heavy CI runs on every push
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Windows • One-file EXE (Lean)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"  # Keep in sync with project requirement
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Build-only tools
+          pip install pyinstaller
+
+      - name: Build one-file executable (lean)
+        run: >
+          pyinstaller
+          --noconsole
+          --onefile
+          --icon=icons/icon.png
+          --add-data "icons;icons"
+          --additional-hooks-dir=pyinstaller_hooks
+          --hidden-import=src.core.supabase_patch
+          --collect-submodules qfluentwidgets
+          --collect-submodules supabase
+          --collect-submodules gotrue
+          --collect-submodules postgrest
+          --collect-submodules storage3
+          --exclude-module PyQt5.QtWebEngineWidgets
+          --exclude-module PyQt5.QtWebEngineCore
+          --exclude-module PyQt5.QtWebEngine
+          --exclude-module PyQt5.QtWebChannel
+          --exclude-module PyQt5.QtNetworkAuth
+          src/core/HomeUnitCalculator.py
+
+      # Optional: List bundled contents for inspection (ensures no accidental realtime/webengine)
+      - name: Show dist layout
+        run: |
+          Get-ChildItem -Recurse dist | Select-Object FullName, Length | Sort-Object Length -Descending | Select-Object -First 20
+
+      - name: Upload artifact (single EXE)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeUnitCalculator-PyInstaller-Lean-${{ runner.os }}
+          path: dist/HomeUnitCalculator.exe
