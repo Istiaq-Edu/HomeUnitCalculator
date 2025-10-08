@@ -89,11 +89,9 @@ exe = EXE(
     strip=False,   # keep symbols on Windows; strip is more effective on Linux
     upx=False,     # user requested no compression
     console=False, # GUI app
-    icon=str(spec_root / 'icons' / 'icon.png'),  # resolved via spec_root; robust when overriding dist/work paths
+    icon=str(spec_root / 'icons' / 'icon.png'),
 )
 
 # Usage:
 #   pyinstaller HomeUnitCalculator.spec
-#   # or override dist/work paths explicitly (useful in CI):
-#   pyinstaller --distpath HomeUnitCalculator/dist --workpath HomeUnitCalculator/build HomeUnitCalculator/HomeUnitCalculator.spec
-# The output EXE will be created at dist/HomeUnitCalculator.exe (or at the overridden --distpath)
+# The output will be a single EXE under dist/HomeUnitCalculator.exe
