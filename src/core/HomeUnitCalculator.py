@@ -6,6 +6,17 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 # Suppress QFluentWidgets promotional messages
 os.environ['QFLUENTWIDGETS_DISABLE_TIPS'] = '1'
 
+# Optional: Enable startup timing (comment out to disable)
+try:
+    from src.core.startup_timer import StartupTimer
+    StartupTimer.checkpoint("Imports started")
+except ImportError:
+    class StartupTimer:
+        @staticmethod
+        def checkpoint(label): pass
+        @staticmethod
+        def finish(): pass
+
 import json
 from datetime import datetime as dt_class
 
@@ -19,12 +30,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QShortcut,
     QAbstractSpinBox, QStyleOptionSpinBox, QStyle, QDesktopWidget, QSizePolicy, QDialog, QAbstractItemView
 )
-from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+# reportlab imports deferred to generate_pdf() for faster startup
 import csv
 import os
 import traceback
@@ -115,6 +121,7 @@ except ImportError:
 
 class MeterCalculationApp(FluentWindow):
     def __init__(self):
+        StartupTimer.checkpoint("Creating main window")
         super().__init__()
 
         # Set a modern, cross-platform default font to avoid rendering issues
@@ -200,11 +207,13 @@ class MeterCalculationApp(FluentWindow):
         self.image_storage_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'data', 'images')
         os.makedirs(self.image_storage_dir, exist_ok=True)
         
+        StartupTimer.checkpoint("Initializing database")
         self.db_manager = DBManager()
         self.db_manager.bootstrap_rentals_table()
         self.encryption_util = EncryptionUtil()
         self.supabase_manager = SupabaseManager() # Initialize SupabaseManager
         
+        StartupTimer.checkpoint("Creating UI components")
         self.load_info_source_combo = ComboBox()
         self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
         self.load_info_source_combo.setItemIcon(0, FluentIcon.DOCUMENT.icon())
@@ -218,6 +227,7 @@ class MeterCalculationApp(FluentWindow):
         self.load_history_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
         self.load_history_source_combo.setIconSize(QSize(16, 16))
         
+        StartupTimer.checkpoint("Creating tabs")
         self.main_tab_instance = MainTab(self)
         self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self)
         self.history_tab_instance = HistoryTab(self)
@@ -232,6 +242,7 @@ class MeterCalculationApp(FluentWindow):
         # Sync the history tab button display after Supabase initialization
         self.history_tab_instance.sync_source_button_display()
 
+        StartupTimer.checkpoint("Setting up navigation")
         self.init_navigation()
         self.setup_navigation()
         self.center_window()
@@ -250,6 +261,9 @@ class MeterCalculationApp(FluentWindow):
             self._kb_nav_manager = KeyboardNavigationManager(self)
         except Exception as nav_exc:  # pragma: no cover – keep UI alive even if navigation fails
             print(f"Keyboard navigation failed to initialise: {nav_exc}")
+        
+        StartupTimer.checkpoint("Initialization complete")
+        StartupTimer.finish()
 
     def _set_title_bar_icon(self):
         """Set a larger title bar icon by directly manipulating the title bar widgets."""
@@ -969,6 +983,14 @@ class MeterCalculationApp(FluentWindow):
             try_save_pdf(file_path)
 
     def generate_pdf(self, file_path):
+        # Import reportlab modules only when generating PDF (deferred for faster startup)
+        from reportlab.lib.units import inch
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        
         doc = SimpleDocTemplate(file_path, pagesize=letter, topMargin=0.3*inch, bottomMargin=0.3*inch, leftMargin=0.3*inch, rightMargin=0.3*inch)
         elements = []
         styles = getSampleStyleSheet()
