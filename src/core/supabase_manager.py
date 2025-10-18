@@ -51,7 +51,8 @@ class SupabaseManager:
 
     def upload_image(self, local_file_path: str, bucket_name: str = "rental-images", folder: str = "rentals") -> str | None:
         """
-        Uploads an image to Supabase Storage and returns its public URL.
+        Uploads an image to Supabase Storage with optimized compression and returns its public URL.
+        Uses optimized JPEG for photos (smaller, visually lossless at quality 95).
         :param local_file_path: The path to the local image file.
         :param bucket_name: The name of the Supabase Storage bucket.
         :param folder: The folder within the bucket to store the image.
@@ -65,23 +66,55 @@ class SupabaseManager:
             print(f"Local file not found: {local_file_path}")
             return None
 
-        file_name = os.path.basename(local_file_path)
-        storage_path = f"{folder}/{file_name}"
-
         try:
-            with open(local_file_path, 'rb') as f:
-                # Set "upsert" to "true" (as a string) in file_options to overwrite if it exists.
-                self.supabase.storage.from_(bucket_name).upload(
-                    path=storage_path, 
-                    file=f.read(), 
-                    file_options={"content-type": "image/jpeg", "upsert": "true"}
-                )
-                
-                # If we reach here, the upload was successful. Get the public URL.
-                public_url_response = self.supabase.storage.from_(bucket_name).get_public_url(storage_path)
-                return public_url_response
+            from PIL import Image
+            import io
+            
+            # Open the image
+            img = Image.open(local_file_path)
+            
+            # Convert to RGB if needed (JPEG doesn't support transparency)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                # Create white background for transparency
+                if img.mode == 'RGBA' or (img.mode == 'P' and 'transparency' in img.info):
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'P':
+                        img = img.convert('RGBA')
+                    background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
+                    img = background
+                else:
+                    img = img.convert('RGB')
+            elif img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+            
+            # Save as optimized JPEG to memory buffer
+            # quality=95 is visually lossless but 30-50% smaller than quality=100
+            # optimize=True enables additional lossless compression
+            buffer = io.BytesIO()
+            img.save(buffer, format='JPEG', quality=95, optimize=True)
+            buffer.seek(0)
+            
+            # Keep original filename with .jpg extension
+            original_name = os.path.basename(local_file_path)
+            name_without_ext = os.path.splitext(original_name)[0]
+            file_name = f"{name_without_ext}.jpg"
+            storage_path = f"{folder}/{file_name}"
+            
+            # Upload the optimized JPEG
+            self.supabase.storage.from_(bucket_name).upload(
+                path=storage_path, 
+                file=buffer.read(), 
+                file_options={"content-type": "image/jpeg", "upsert": "true"}
+            )
+            
+            # Get the public URL
+            public_url_response = self.supabase.storage.from_(bucket_name).get_public_url(storage_path)
+            logging.info(f"✓ Uploaded optimized JPEG: {file_name}")
+            return public_url_response
+            
         except Exception as e:
             print(f"Error uploading image {local_file_path}: {e}")
+            logging.error(f"Upload error details: {e}")
             return None
 
     def save_main_calculation(self, main_calc_data: dict) -> int | None:
