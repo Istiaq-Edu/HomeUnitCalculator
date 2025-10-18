@@ -1103,6 +1103,29 @@ class MeterCalculationApp(FluentWindow):
                 ('BOTTOMPADDING', (0,0), (-1,-1), 2),
             ]))
             elements.append(summary_table)
+            
+            # Add Owner Unit Bill section
+            elements.append(Spacer(1, 0.1*inch))
+            elements.append(create_cell("Owner Unit Bill", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))
+            
+            # Calculate owner unit bill: total water bill + total room unit bill - total unit cost
+            total_unit_cost_text = self.main_tab_instance.total_unit_value_label.text() or '0'
+            total_unit_cost = float(total_unit_cost_text.replace('TK', '').strip()) if total_unit_cost_text != 'N/A' else 0.0
+            
+            owner_unit_bill = room_bill_totals['total_water_bill'] + room_bill_totals['total_room_unit_bill'] - total_unit_cost
+            
+            owner_data = [
+                [Paragraph("Owner Unit Bill:", normal_style), Paragraph(f"{owner_unit_bill:.2f} TK", normal_style)],
+            ]
+            owner_table = Table(owner_data, colWidths=[2.5*inch, 2.5*inch], rowHeights=[0.2*inch])
+            owner_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.white), ('BOX', (0,0), (-1,-1), 1, colors.darkblue),
+                ('LINEABOVE', (0,0), (-1,-1), 1, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('LEFTPADDING', (0,0), (-1,-1), 6),
+                ('RIGHTPADDING', (0,0), (-1,-1), 6), ('TOPPADDING', (0,0), (-1,-1), 2),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ]))
+            elements.append(owner_table)
 
         doc.build(elements)
 
