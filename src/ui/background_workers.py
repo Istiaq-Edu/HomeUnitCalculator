@@ -3,6 +3,7 @@ from postgrest.exceptions import APIError
 from gotrue.errors import AuthApiError
 import logging
 from typing import Dict, List, Optional
+from src.core.supabase_error_handler import SupabaseErrorHandler
 
 class FetchSupabaseRentalRecordsWorker(QThread):
     """Background worker that retrieves rental records from Supabase without blocking the UI."""
@@ -48,13 +49,26 @@ class FetchSupabaseRentalRecordsWorker(QThread):
             self.records_fetched.emit(records or [])
         except APIError as e:
             logging.error(f"Supabase API Error fetching rental records: {e}")
-            self.error_occurred.emit(f"API Error: {e.message}")
+            # Detect error type for better user message
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")  # Special marker
+            else:
+                self.error_occurred.emit(f"API Error: {e.message}")
         except AuthApiError as e:
             logging.error(f"Supabase Auth Error fetching rental records: {e}")
             self.error_occurred.emit(f"Authentication Error: {e.message}")
         except Exception as exc:
             logging.error(f"An unexpected error occurred fetching rental records: {exc}", exc_info=True)
-            self.error_occurred.emit(f"An unexpected error occurred: {exc}")
+            # Detect if it's a paused project
+            error_type = SupabaseErrorHandler.detect_error_type(exc)
+            logging.info(f"[DEBUG] Detected error type: {error_type} for exception: {str(exc)[:100]}")
+            if error_type == "paused_project":
+                logging.info("[DEBUG] Emitting PAUSED_PROJECT marker")
+                self.error_occurred.emit("PAUSED_PROJECT")  # Special marker
+            else:
+                logging.info(f"[DEBUG] Emitting generic error: {str(exc)[:100]}")
+                self.error_occurred.emit(f"An unexpected error occurred: {exc}")
 
 
 class FetchImageWorker(QThread):
@@ -95,6 +109,12 @@ class FetchMultipleImagesWorker(QThread):
     This worker uses the OptimizedImageFetcher to download multiple images
     concurrently, which is 3-4x faster than sequential downloads.
     
+    Features:
+    - Parallel downloads (3-4x faster than sequential)
+    - Automatic thumbnail generation for UI display
+    - Full-resolution images for PDF generation
+    - Disk caching for instant loading
+    
     Example:
         Sequential (old): 4 images × 2s each = 8s total
         Parallel (new):   4 images × 2s = 2s total (4x faster!)
@@ -109,16 +129,19 @@ class FetchMultipleImagesWorker(QThread):
     progress_updated = pyqtSignal(int, int)  # (current, total)
     error_occurred = pyqtSignal(str)
     
-    def __init__(self, urls: List[str], parent=None):
+    def __init__(self, urls: List[str], for_display: bool = True, parent=None):
         """
         Initialize the parallel image fetcher worker.
         
         Args:
             urls: List of image URLs to fetch
+            for_display: If True, returns thumbnails (200x200) for UI display.
+                        If False, returns full-resolution images (for PDF).
             parent: Parent QObject
         """
         super().__init__(parent)
         self._urls = urls
+        self._for_display = for_display
     
     def run(self):
         """Execute parallel image fetch in background thread."""
@@ -135,13 +158,14 @@ class FetchMultipleImagesWorker(QThread):
                 self.images_fetched.emit({})
                 return
             
-            logging.info(f"⚡ Starting parallel fetch of {len(valid_urls)} images...")
+            image_type = "thumbnails" if self._for_display else "full-resolution images"
+            logging.info(f"⚡ Starting parallel fetch of {len(valid_urls)} {image_type}...")
             
             # Get the global optimized fetcher
             fetcher = get_global_fetcher()
             
-            # Fetch all images in parallel
-            results = fetcher.fetch_multiple_parallel(valid_urls)
+            # Fetch all images in parallel (with thumbnail generation if for_display=True)
+            results = fetcher.fetch_multiple_parallel(valid_urls, for_display=self._for_display)
             
             # Emit results
             self.images_fetched.emit(results)

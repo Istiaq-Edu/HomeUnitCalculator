@@ -967,13 +967,13 @@ class RentalRecordDialog(ResponsiveDialog):
         """
         import logging
         
-        # Show loading placeholders
+        # Show simple loading placeholders (no spinners for dialog view)
         for img_type, (url, label, placeholder_text) in network_urls.items():
             self._current_image_urls[img_type] = url
             try:
-                label._show_placeholder(f"Loading {img_type.replace('_', ' ').title()}...")
+                label._show_placeholder(f"Loading...")
             except Exception:
-                label.setText(f"Loading {img_type.replace('_', ' ').title()}...")
+                label.setText(f"Loading...")
         
         # Collect URLs to fetch
         urls_to_fetch = []
@@ -994,10 +994,10 @@ class RentalRecordDialog(ResponsiveDialog):
             logging.info("✓ All images loaded from cache (instant!)")
             return
         
-        # Start parallel fetch worker
-        logging.info(f"⚡ Starting parallel fetch of {len(urls_to_fetch)} images...")
+        # Start parallel fetch worker with thumbnail mode for display
+        logging.info(f"⚡ Starting parallel fetch of {len(urls_to_fetch)} thumbnails...")
         
-        worker = FetchMultipleImagesWorker(urls_to_fetch, parent=self)
+        worker = FetchMultipleImagesWorker(urls_to_fetch, for_display=True, parent=self)
         
         def on_images_fetched(results):
             """Handle fetched images"""
@@ -1015,9 +1015,9 @@ class RentalRecordDialog(ResponsiveDialog):
                             self._image_cache.pop(next(iter(self._image_cache)))
                         self._image_cache[url] = data
                         
-                        # Display the image
+                        # Display the image (thumbnail)
                         label.setImageData(data, placeholder_text)
-                        logging.info(f"✓ Loaded {img_type}")
+                        logging.info(f"✓ Loaded {img_type} thumbnail")
                     else:
                         label._show_placeholder(placeholder_text)
                         logging.warning(f"✗ Failed to load {img_type}")

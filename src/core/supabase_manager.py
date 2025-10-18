@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 # Apply compatibility patch before importing supabase
 try:
     from src.core.supabase_patch import *
@@ -9,12 +10,14 @@ from supabase import create_client, Client
 from postgrest.exceptions import APIError
 from gotrue.errors import AuthApiError
 from src.core.db_manager import DBManager # To get Supabase URL and Key
+from src.core.supabase_error_handler import SupabaseErrorHandler
 from datetime import datetime
 
 class SupabaseManager:
     def __init__(self):
         self.supabase: Client = None
         self.db_manager = DBManager() # Use DBManager to get Supabase config
+        self.supabase_url = None  # Store URL for error messages
         self._initialize_supabase_client()
 
     def _initialize_supabase_client(self):
@@ -25,15 +28,22 @@ class SupabaseManager:
 
         if not (supabase_url and supabase_key):
             self.supabase = None
-            print("Supabase URL/Key not found in local DB. Supabase features disabled.")
+            self.supabase_url = None
+            logging.info("Supabase URL/Key not found in local DB. Supabase features disabled.")
             return
 
+        # Store URL for error messages
+        self.supabase_url = supabase_url
 
         try:
             self.supabase = create_client(supabase_url, supabase_key)
+            logging.info(f"✓ Supabase client initialized: {supabase_url}")
         except Exception as e:
             self.supabase = None
-            print(f"Failed to initialize Supabase client: {e}")
+            logging.error(f"Failed to initialize Supabase client: {e}")
+            # Detect if it's a paused project
+            if SupabaseErrorHandler.is_paused_project_error(e):
+                logging.warning("⏸️ Supabase project appears to be paused")
 
     def is_client_initialized(self) -> bool:
         """Checks if the Supabase client is initialized and ready for use."""
@@ -284,11 +294,13 @@ class SupabaseManager:
             response = query.order("year", desc=True).order("created_at", desc=True).execute()
             return response.data if response.data else []
         except (APIError, AuthApiError) as e:
-            print(f"Supabase API error retrieving main calculations: {e}")
-            return []
+            logging.error(f"Supabase API error retrieving main calculations: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise
         except Exception as e:
-            print(f"An unexpected error occurred retrieving main calculations: {e}")
-            return []
+            logging.error(f"An unexpected error occurred retrieving main calculations: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise
 
     def get_room_calculations(self, main_calculation_id: int) -> list[dict]:
         """
@@ -316,11 +328,13 @@ class SupabaseManager:
                 ]
             return []
         except (APIError, AuthApiError) as e:
-            print(f"Supabase API error retrieving room calculations: {e}")
-            return []
+            logging.error(f"Supabase API error retrieving room calculations: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise
         except Exception as e:
-            print(f"An unexpected error occurred retrieving room calculations: {e}")
-            return []
+            logging.error(f"An unexpected error occurred retrieving room calculations: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise
 
     def _upload_rental_images(self, image_paths: dict) -> dict:
         """Upload local images and return mapping key->url. Existing URLs are passed through."""
@@ -454,8 +468,10 @@ class SupabaseManager:
             return response.data if response.data else []
 
         except Exception as e:
-            print(f"Supabase API error retrieving rental records: {e}")
-            return []
+            logging.error(f"Supabase API error retrieving rental records: {e}")
+            # Re-raise the exception so the worker can handle it properly
+            # This allows the error handler to detect paused projects and show friendly messages
+            raise
 
     def update_rental_record_archive_status(self, supabase_id: str, is_archived: bool) -> bool:
         """
@@ -523,11 +539,13 @@ class SupabaseManager:
             response = self.supabase.table("main_calculations").select("*").eq("id", record_id).limit(1).execute()
             return response.data[0] if response.data else None
         except (APIError, AuthApiError) as e:
-            print(f"Supabase API error retrieving main calculation by id: {e}")
-            return None
+            logging.error(f"Supabase API error retrieving main calculation by id: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise
         except Exception as e:
-            print(f"Unexpected error retrieving main calculation by id: {e}")
-            return None
+            logging.error(f"Unexpected error retrieving main calculation by id: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise
 
     def delete_calculation_record(self, record_id: int | str) -> bool:
         """Delete a main_calculations record and all associated room_calculations rows."""
@@ -541,8 +559,10 @@ class SupabaseManager:
             main_del_resp = self.supabase.table("main_calculations").delete().eq("id", record_id).execute()
             return bool(main_del_resp.data)
         except (APIError, AuthApiError) as e:
-            print(f"Supabase API error deleting calculation record: {e}")
-            return False
+            logging.error(f"Supabase API error deleting calculation record: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise
         except Exception as e:
-            print(f"Unexpected error deleting calculation record: {e}")
-            return False
+            logging.error(f"Unexpected error deleting calculation record: {e}")
+            # Re-raise so error handler can detect paused projects
+            raise

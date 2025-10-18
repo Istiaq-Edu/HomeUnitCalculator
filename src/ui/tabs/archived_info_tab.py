@@ -411,15 +411,24 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
         self._populate_archived_table(source, records)
 
     def _on_archived_cloud_error(self, message: str):
-        QMessageBox.critical(self, "Cloud DB Error", f"Failed to load archived rental records from Supabase: {message}")
-        # >>> ADD
+        """Handle error from cloud fetch worker with user-friendly messages."""
+        # Check if it's a paused project error
+        if message == "PAUSED_PROJECT":
+            from src.core.supabase_error_handler import SupabaseErrorHandler
+            # Show friendly paused project message
+            supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
+            title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+            QMessageBox.warning(self, title, msg)
+        else:
+            # Show generic error
+            QMessageBox.critical(self, "Cloud DB Error", f"Failed to load archived rental records from Supabase: {message}")
+        
         # Clean up the progress bar on error
         if self._inline_progress_bar is not None:
             self._inline_progress_bar.stop()
             self.table_layout.removeWidget(self._inline_progress_bar)
             self._inline_progress_bar.deleteLater()
             self._inline_progress_bar = None
-        # <<< ADD
 
     def _on_archived_cloud_finished(self):
         self.load_source_combo.setEnabled(True)

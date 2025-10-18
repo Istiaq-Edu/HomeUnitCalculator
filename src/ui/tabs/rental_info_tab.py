@@ -27,7 +27,7 @@ from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGridLayout, QGroupBox, QFormLayout,
     QFileDialog, QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView,
-    QFrame, QAbstractItemView, QSizePolicy, QLineEdit
+    QFrame, QAbstractItemView, QSizePolicy, QLineEdit, QApplication
 )
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
@@ -2939,15 +2939,29 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # No button; infinite scroll will trigger further loads
 
     def _on_cloud_records_error(self, message: str):
-        QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {message}")
-        # >>> ADD
+        """Handle error from cloud fetch worker with user-friendly messages."""
+        import logging
+        logging.info(f"[DEBUG] Received error message: {message}")
+        
+        # Check if it's a paused project error
+        if message == "PAUSED_PROJECT":
+            from src.core.supabase_error_handler import SupabaseErrorHandler
+            # Show friendly paused project message
+            supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
+            logging.info(f"[DEBUG] Showing paused project dialog for URL: {supabase_url}")
+            title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+            QMessageBox.warning(self, title, msg)
+        else:
+            # Show generic error
+            logging.info(f"[DEBUG] Showing generic error dialog")
+            QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {message}")
+        
         # Ensure we tidy up the progress bar even on error
         if self._inline_progress_bar is not None:
             self._inline_progress_bar.stop()
             self.table_layout.removeWidget(self._inline_progress_bar)
             self._inline_progress_bar.deleteLater()
             self._inline_progress_bar = None
-        # <<< ADD
 
     def _on_cloud_records_finished(self):
         """Always called when worker thread ends—success or fail."""
@@ -3316,10 +3330,11 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             return False
 
     def _scale_image(self, image_path, max_width_points, max_height_points):
-        # If the path is a URL, download to temp file first
+        # If the path is a URL, download to temp file first using optimized fetcher
         if image_path and str(image_path).startswith("http"):
             try:
-                import requests, tempfile, urllib.parse, os as _os
+                import tempfile, urllib.parse, os as _os
+                from src.core.optimized_image_fetcher import get_global_fetcher
 
                 # Parse the URL to safely extract the file extension (ignore query params)
                 parsed = urllib.parse.urlparse(image_path)
@@ -3329,11 +3344,13 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 if not ext or any(c in ext for c in "?&#%"):
                     ext = ".jpg"
 
-                # Disable TLS certificate verification to avoid failures in bundled executables
-                r = requests.get(image_path, timeout=10, verify=False)
-                if r.status_code == 200:
+                # Use optimized fetcher with for_display=False to get full-resolution image
+                fetcher = get_global_fetcher()
+                image_data = fetcher.fetch_single(image_path, for_display=False)
+                
+                if image_data:
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-                    tmp.write(r.content)
+                    tmp.write(image_data)
                     tmp.close()
                     image_path = tmp.name
                     # temp files are considered safe
@@ -3399,6 +3416,19 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # If user cancelled the dialog, return None
         if not pdf_path:
             return None
+
+        # Show loading dialog
+        progress_dialog = None
+        try:
+            progress_dialog = FluentProgressDialog(
+                message="Fetching full-resolution images and generating PDF...",
+                parent=self
+            )
+            progress_dialog.show()
+            QApplication.processEvents()  # Force UI update
+        except Exception as dialog_error:
+            print(f"Warning: Could not show progress dialog: {dialog_error}")
+            # Continue without progress dialog
 
         try:
             doc = BaseDocTemplate(pdf_path, pagesize=letter,
@@ -3573,9 +3603,13 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 all_elements.append(Paragraph(f"<i>Police Verification Form: Not provided or file not found/safe.</i>", styles['Normal']))
 
             doc.build(all_elements)
+            if progress_dialog:
+                progress_dialog.close()
             QMessageBox.information(self, "PDF Generated", f"Rental record PDF saved to:\n{pdf_path}")
             return pdf_path
         except Exception as e:
+            if progress_dialog:
+                progress_dialog.close()
             QMessageBox.critical(self, "PDF Generation Error", f"Failed to generate PDF: {e}\n{traceback.format_exc()}")
             return None
 

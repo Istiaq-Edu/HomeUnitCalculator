@@ -3733,8 +3733,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             QMessageBox.critical(self, "Load History Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
 
     def load_history_tables_from_supabase(self, month_filter: str | None, year_filter: int | None):
-        if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():
-            QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
+        if not self.main_window.supabase_manager.is_client_initialized():
+            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in the Supabase Config tab.")
             return
 
         try:
@@ -3936,7 +3936,19 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 self._log_resize_error("Failed to schedule force table resize after Supabase load", timer_error)
 
         except Exception as e:
-            QMessageBox.critical(self, "Load History Error", f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}")
+            # Check if it's a paused project error
+            from src.core.supabase_error_handler import SupabaseErrorHandler
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            
+            if error_type == "paused_project":
+                # Show friendly paused project message
+                supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
+                title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+                QMessageBox.warning(self, title, msg)
+            else:
+                # Show generic error
+                QMessageBox.critical(self, "Load History Error", f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}")
+            
             # Clear tables on error to avoid displaying partial data
             self.calculate_and_display_totals_from_supabase_records([], []) # Clear totals
 
@@ -4302,8 +4314,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             QMessageBox.warning(self, "No Record ID", "Record ID not found for selection.")
 
     def handle_edit_record(self, record_id): # Actual logic for editing
-        if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():
-            QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
+        if not self.main_window.supabase_manager.is_client_initialized():
+            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in the Supabase Config tab.")
             return
         try:
             # Fetch main calculation data using SupabaseManager
@@ -4320,15 +4332,26 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             if dialog.exec_() == QDialog.Accepted:
                 self.load_history() # Refresh the table after changes are saved
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Edit Record Error",
-                f"An unexpected error occurred while editing record: {e}\n{traceback.format_exc()}"
-            )
+            # Check if it's a paused project error
+            from src.core.supabase_error_handler import SupabaseErrorHandler
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            
+            if error_type == "paused_project":
+                # Show friendly paused project message
+                supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
+                title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+                QMessageBox.warning(self, title, msg)
+            else:
+                # Show generic error
+                QMessageBox.critical(
+                    self,
+                    "Edit Record Error",
+                    f"An unexpected error occurred while editing record: {e}\n{traceback.format_exc()}"
+                )
 
     def handle_delete_record(self, record_id): # Actual logic for deleting
-        if not self.main_window.supabase_manager.is_client_initialized() or not self.main_window.check_internet_connectivity():
-            QMessageBox.warning(self, "Error", "Supabase not configured or no internet.")
+        if not self.main_window.supabase_manager.is_client_initialized():
+            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in the Supabase Config tab.")
             return
         reply = QMessageBox.question(self, "Confirm Delete",
                                      "Are you sure you want to delete this record and all associated room data?",
@@ -4342,7 +4365,18 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 else:
                     QMessageBox.critical(self, "Supabase Error", "Failed to delete record from Supabase.")
             except Exception as e:
-                QMessageBox.critical(self, "Delete Error", f"An unexpected error occurred during delete: {e}\n{traceback.format_exc()}")
+                # Check if it's a paused project error
+                from src.core.supabase_error_handler import SupabaseErrorHandler
+                error_type = SupabaseErrorHandler.detect_error_type(e)
+                
+                if error_type == "paused_project":
+                    # Show friendly paused project message
+                    supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
+                    title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+                    QMessageBox.warning(self, title, msg)
+                else:
+                    # Show generic error
+                    QMessageBox.critical(self, "Delete Error", f"An unexpected error occurred during delete: {e}\n{traceback.format_exc()}")
 
     def calculate_and_display_totals(self, room_rows, get_csv_value):
         """Calculate and display totals for house rent, water bill, gas bill, and unit bill"""

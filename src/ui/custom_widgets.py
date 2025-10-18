@@ -1,7 +1,8 @@
 from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer, QSize, QPropertyAnimation, QEasingCurve, pyqtSignal
 from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor, QKeySequence
 from PyQt5.QtWidgets import (
-    QSizePolicy, QDialog, QVBoxLayout, QLabel, QProgressBar, QScrollBar, QAbstractScrollArea, QShortcut
+    QSizePolicy, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QScrollBar, 
+    QAbstractScrollArea, QShortcut, QApplication, QWidget, QDesktopWidget
 )
 from qfluentwidgets import LineEdit, ScrollArea, SpinBox, PushButton, TableWidget, SmoothMode
 
@@ -604,18 +605,17 @@ def style_fluent_table(table) -> None:
     set_intelligent_column_widths(table)
 
 # ===================== Fluent-Widgets Progress Dialog =====================
-try:
-    from qfluentwidgets import IndeterminateProgressBar  # type: ignore
-except ImportError:  # Graceful degradation if library missing
-    IndeterminateProgressBar = None  # type: ignore
-
 
 class FluentProgressDialog(QDialog):
-    """A minimal frameless dialog with an indeterminate Fluent progress bar.
+    """A simple progress dialog with Fluent Design aesthetics.
 
-    It replicates the role of :class:`QProgressDialog` but with Fluent design
-    aesthetics and without any buttons to press. Use it as a context manager
-    or manage its lifecycle manually. Example::
+    Features:
+    - Vertical layout with text and progress bar
+    - Modern purple accent color
+    - Rounded corners
+    - Centered on screen
+
+    Example::
 
         dlg = FluentProgressDialog("Uploading…", parent=self)
         dlg.show()
@@ -625,50 +625,82 @@ class FluentProgressDialog(QDialog):
 
     def __init__(self, message: str = "Please wait…", parent=None):  # noqa: D401
         super().__init__(parent)
-        # Frameless & translucent to feel lighter
+        
+        # Frameless with translucent background for modern look
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint
         )
-        # Keep window opaque so our custom background colour is visible
-        # self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setModal(True)
 
-        # Semi-transparent dark background so the dialog stands out
-
-        # Apply dark styling so the dialog matches global dark theme
-        self.setStyleSheet(
-            """
-            QDialog {
+        # Main container with rounded corners
+        container = QWidget(self)
+        container.setObjectName("progressContainer")
+        container.setStyleSheet("""
+            QWidget#progressContainer {
                 background-color: #2b2b2b;
-                border: 1px solid #444444;
+                border: 2px solid #6C5CE7;
+                border-radius: 8px;
             }
-            QLabel {
-                color: #ffffff;
-            }
-            """
-        )
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(16)
+        """)
+        
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        # Container layout - VERTICAL with centered content
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(30, 20, 30, 20)
+        layout.setSpacing(15)
         layout.setAlignment(Qt.AlignCenter)
 
-        if IndeterminateProgressBar is not None:
-            self._bar = IndeterminateProgressBar(parent=self)
-            self._bar.setFixedWidth(180)
-            # ensure bar starts animating
-            self._bar.start()
-            layout.addWidget(self._bar, 0, Qt.AlignCenter)
-        else:
-            # Fallback: a simple Qt busy bar
-            fallback = QProgressBar(self)
-            fallback.setRange(0, 0)
-            fallback.setFixedWidth(180)
-            layout.addWidget(fallback, 0, Qt.AlignCenter)
-
+        # Message label with modern styling - centered (TEXT ON TOP)
         label = QLabel(message, self)
         label.setAlignment(Qt.AlignCenter)
+        label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 500;
+            }
+        """)
         layout.addWidget(label)
+
+        # Progress bar
+        self._bar = QProgressBar(container)
+        self._bar.setRange(0, 0)  # Indeterminate mode
+        self._bar.setFixedSize(280, 6)
+        self._bar.setTextVisible(False)
+        self._bar.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                border-radius: 3px;
+                background-color: #3d3d3d;
+            }
+            QProgressBar::chunk {
+                background-color: #6C5CE7;
+                border-radius: 3px;
+            }
+        """)
+        layout.addWidget(self._bar, 0, Qt.AlignCenter)
+        
+        # Set minimum width for the container
+        container.setMinimumWidth(350)
+        
+        # Adjust size to content
+        container.adjustSize()
+        self.adjustSize()
+    
+    def showEvent(self, event):
+        """Center the dialog when shown."""
+        super().showEvent(event)
+        # Center on screen
+        screen = QApplication.desktop().screenGeometry()
+        dialog_rect = self.geometry()
+        x = (screen.width() - dialog_rect.width()) // 2
+        y = (screen.height() - dialog_rect.height()) // 2
+        self.move(x, y)
 
     # Allow ``with FluentProgressDialog(...) as dlg:`` usage
     def __enter__(self):  # noqa: D401
