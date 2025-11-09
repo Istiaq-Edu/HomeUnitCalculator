@@ -1130,11 +1130,13 @@ class MeterCalculationApp(FluentWindow):
             elements.append(Spacer(1, 0.1*inch))
             elements.append(create_cell("Owner Unit Bill", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))
             
-            # Calculate owner unit bill: total water bill + total room unit bill - total unit cost
+            # Calculate owner unit bill: total unit cost - (total water bill + total room unit bill)
+            # Owner pays the full electricity bill, tenants pay their portion (electricity + water pump usage)
+            # Owner's portion = Total bill - What tenants pay
             total_unit_cost_text = self.main_tab_instance.total_unit_value_label.text() or '0'
             total_unit_cost = float(total_unit_cost_text.replace('TK', '').strip()) if total_unit_cost_text != 'N/A' else 0.0
             
-            owner_unit_bill = room_bill_totals['total_water_bill'] + room_bill_totals['total_room_unit_bill'] - total_unit_cost
+            owner_unit_bill = total_unit_cost - (room_bill_totals['total_water_bill'] + room_bill_totals['total_room_unit_bill'])
             
             owner_data = [
                 [Paragraph("Owner Unit Bill:", normal_style), Paragraph(f"{owner_unit_bill:.2f} TK", normal_style)],
