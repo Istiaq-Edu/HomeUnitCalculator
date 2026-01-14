@@ -1260,10 +1260,12 @@ class RentalRecordDialog(ResponsiveDialog):
         if not file_path:
             return False
         try:
+            from src.core.utils import get_user_data_dir
             abs_path = os.path.abspath(os.path.realpath(file_path))
             app_dir = os.path.abspath(os.getcwd())
             safe_dirs = [
                 app_dir,
+                str(get_user_data_dir()),
                 os.path.expanduser("~/Documents"),
                 os.path.expanduser("~/Desktop"),
                 os.path.expanduser("~/Downloads")

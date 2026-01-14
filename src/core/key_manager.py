@@ -4,6 +4,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
+from src.core.utils import get_user_data_dir
 
 try:
     import keyring
@@ -12,7 +13,7 @@ except ImportError:
     _KEYRING_INITIAL_AVAILABLE = False
     print("Keyring library not found. Falling back to file-based key storage. This is less secure.")
 
-KEY_FILE_PATH = "supabase_encryption_key.key"
+KEY_FILE_PATH = str(get_user_data_dir() / "supabase_encryption_key.key")
 SERVICE_ID = "HomeUnitCalculator_Supabase_Key"
 USERNAME = "default_user" # A generic username for keyring
 

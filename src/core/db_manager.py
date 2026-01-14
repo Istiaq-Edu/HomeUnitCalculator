@@ -3,10 +3,16 @@ import sqlite3
 import json
 import re
 from src.core.encryption_utils import EncryptionUtil
+from src.core.utils import get_user_data_dir
 
 class DBManager:
     def __init__(self, db_name="app_config.db"):
-        self.db_name = db_name
+        if db_name and not os.path.isabs(db_name) and os.path.dirname(db_name) == "":
+            data_dir = get_user_data_dir()
+            data_dir.mkdir(parents=True, exist_ok=True)
+            self.db_name = str(data_dir / db_name)
+        else:
+            self.db_name = db_name
         self.conn = None
         self.cursor = None
         self.encryption_util = EncryptionUtil()

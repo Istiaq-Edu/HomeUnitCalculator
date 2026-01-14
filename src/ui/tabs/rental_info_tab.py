@@ -35,7 +35,7 @@ from qfluentwidgets import (
     HyperlinkButton, IconWidget, InfoBarIcon, setCustomStyleSheet, DropDownPushButton
 )
 
-from src.core.utils import resource_path, _clear_layout
+from src.core.utils import resource_path, _clear_layout, get_user_data_dir
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgressDialog, SmoothTableWidget
 from src.ui.rental_record_dialog import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
@@ -129,7 +129,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     }
     
     # Define safe and forbidden directories at the class level
-    SAFE_DIRS = [Path.cwd()] + [Path.home() / d for d in ("Documents", "Desktop", "Downloads")]
+    SAFE_DIRS = [get_user_data_dir()] + [Path.home() / d for d in ("Documents", "Desktop", "Downloads")]
     FORBIDDEN = [
         Path(p) for p in (
             "/etc", "/sys", "/proc", "/bin", "/usr",
@@ -137,7 +137,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         )
     ]
     # Define the directory where images will be stored within the application's data folder
-    IMAGE_STORAGE_DIR = Path.cwd() / "data" / "images"
+    IMAGE_STORAGE_DIR = get_user_data_dir() / "data" / "images"
 
     def __init__(self, main_window_ref):
         super().__init__()

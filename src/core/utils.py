@@ -49,6 +49,19 @@ def resource_path(relative_path):
         raise FileNotFoundError(f"Resource not found: {full_path}")
     return full_path
 
+
+def get_user_data_dir(app_name: str = "Home Unit Calculator") -> Path:
+    if not app_name or not str(app_name).strip():
+        raise ValueError("app_name must be a non-empty string")
+
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+    if base:
+        root = Path(base)
+    else:
+        root = Path.home() / "AppData" / "Local"
+
+    return root / app_name
+
 def _clear_layout(layout):
     """
     Recursively clears all widgets and layouts from a given layout.

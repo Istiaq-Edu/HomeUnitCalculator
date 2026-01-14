@@ -41,6 +41,7 @@ from src.core.encryption_utils import EncryptionUtil
 from src.core.key_manager import get_or_create_key
 from src.core.lazy_tab_loader import LazyTabLoader
 from src.core.utils import resource_path
+from src.core.utils import get_user_data_dir
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
 from src.ui.tabs.main_tab import MainTab
 from src.ui.tabs.rooms_tab import RoomsTab
@@ -199,8 +200,7 @@ class MeterCalculationApp(FluentWindow):
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.maxBtn, Qt.AlignVCenter)
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.closeBtn, Qt.AlignVCenter)
         
-        # Ensure the data/images directory exists
-        self.image_storage_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'data', 'images')
+        self.image_storage_dir = str(get_user_data_dir() / "data" / "images")
         os.makedirs(self.image_storage_dir, exist_ok=True)
         
         StartupTimer.checkpoint("Initializing database")
