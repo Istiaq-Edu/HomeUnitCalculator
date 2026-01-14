@@ -43,6 +43,7 @@ from src.core.lazy_tab_loader import LazyTabLoader
 from src.core.utils import resource_path
 from src.core.utils import get_user_data_dir
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
+from src.ui.tabs.dashboard_tab import DashboardTab
 from src.ui.tabs.main_tab import MainTab
 from src.ui.tabs.rooms_tab import RoomsTab
 from src.ui.save_dialog import SaveDialog
@@ -206,6 +207,7 @@ class MeterCalculationApp(FluentWindow):
         StartupTimer.checkpoint("Initializing database")
         self.db_manager = DBManager()
         self.db_manager.bootstrap_rentals_table()
+        self.db_manager.bootstrap_dashboard_cache_tables()
         self.encryption_util = EncryptionUtil()
         self.supabase_manager = None
         self._cloud_features_enabled = False
@@ -226,7 +228,8 @@ class MeterCalculationApp(FluentWindow):
         
         StartupTimer.checkpoint("Creating tabs")
         self.tab_loader = LazyTabLoader(self)
-        self.tab_loader.register_tab("main", lambda: MainTab(self), eager_load=True)
+        self.tab_loader.register_tab("dashboard", lambda: DashboardTab(self), eager_load=True)
+        self.tab_loader.register_tab("main", lambda: MainTab(self))
         self.tab_loader.register_tab("rooms", lambda: RoomsTab(self.main_tab_instance, self))
         self.tab_loader.register_tab("history", self._create_history_tab)
         self.tab_loader.register_tab("rental", self._create_rental_tab)
@@ -234,6 +237,7 @@ class MeterCalculationApp(FluentWindow):
         self.tab_loader.register_tab("supabase", self._create_supabase_config_tab)
 
         self._tab_interfaces = {
+            "main": self.tab_loader.get_placeholder("main"),
             "rooms": self.tab_loader.get_placeholder("rooms"),
             "history": self.tab_loader.get_placeholder("history"),
             "rental": self.tab_loader.get_placeholder("rental"),
@@ -300,8 +304,8 @@ class MeterCalculationApp(FluentWindow):
             
             # Fallback to FluentIcon if custom icon failed
             if icon_to_use is None:
-                icon_to_use = FluentIcon.CALCULATOR.icon()
-                icon_path_used = "FluentIcon.CALCULATOR"
+                icon_to_use = FluentIcon.APPLICATION.icon()
+                icon_path_used = "FluentIcon.APPLICATION"
             
             # Set window icon (for taskbar)
             self.setWindowIcon(icon_to_use)
@@ -434,7 +438,7 @@ class MeterCalculationApp(FluentWindow):
                     return
 
             # Fallback
-            fluent_icon = FluentIcon.CALCULATOR.icon()
+            fluent_icon = FluentIcon.APPLICATION.icon()
             self.setWindowIcon(fluent_icon)
         except Exception as e:
             pass
@@ -858,7 +862,8 @@ class MeterCalculationApp(FluentWindow):
             self.load_info_source_combo.setCurrentText("Load from Cloud")
             
             # Sync the button displays to match the combo box selections
-            self.main_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("main"):
+                self.main_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("history"):
                 self.history_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("rental"):
@@ -874,7 +879,8 @@ class MeterCalculationApp(FluentWindow):
             self.load_info_source_combo.setCurrentText("Load from PC (CSV)")
             
             # Sync the button displays to match the combo box selections
-            self.main_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("main"):
+                self.main_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("history"):
                 self.history_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("rental"):
@@ -899,6 +905,10 @@ class MeterCalculationApp(FluentWindow):
     def _create_supabase_config_tab(self):
         from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
         return SupabaseConfigTab(self)
+
+    @property
+    def dashboard_tab_instance(self):
+        return self.tab_loader.get_tab("dashboard")
 
     @property
     def main_tab_instance(self):
@@ -959,6 +969,10 @@ class MeterCalculationApp(FluentWindow):
             tab_widget.sync_source_button_display()
             return
 
+        if tab_key == "main" and hasattr(tab_widget, "sync_source_button_display"):
+            tab_widget.sync_source_button_display()
+            return
+
         if tab_key in {"rental", "archived"} and hasattr(tab_widget, "load_source_combo"):
             if self._cloud_features_enabled:
                 tab_widget.load_source_combo.setCurrentText("Cloud (Supabase)")
@@ -997,7 +1011,8 @@ class MeterCalculationApp(FluentWindow):
 
 
     def init_navigation(self):
-        self.main_tab_instance.setObjectName("MainId")
+        self.dashboard_tab_instance.setObjectName("DashboardId")
+        self._tab_interfaces["main"].setObjectName("CalculatorId")
         self._tab_interfaces["rooms"].setObjectName("RoomsId")
         self._tab_interfaces["history"].setObjectName("HistoryId")
         self._tab_interfaces["rental"].setObjectName("RentalId")
@@ -1005,6 +1020,7 @@ class MeterCalculationApp(FluentWindow):
         self._tab_interfaces["supabase"].setObjectName("SupabaseId")
 
         self._route_to_tab = {
+            "CalculatorId": "main",
             "RoomsId": "rooms",
             "HistoryId": "history",
             "RentalId": "rental",
@@ -1019,7 +1035,8 @@ class MeterCalculationApp(FluentWindow):
         # Enable scroll policy for navigation interface content
         self.navigationInterface.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
-        self.addSubInterface(self.main_tab_instance, FluentIcon.HOME, 'Home')
+        self.addSubInterface(self.dashboard_tab_instance, FluentIcon.HOME, 'Dashboard')
+        self.addSubInterface(self._tab_interfaces["main"], FluentIcon.EDIT, 'Calculator')
         self.addSubInterface(self._tab_interfaces["rooms"], FluentIcon.APPLICATION, 'Room Calculations')
         self.addSubInterface(self._tab_interfaces["history"], FluentIcon.HISTORY, 'Calculation History')
         self.addSubInterface(self._tab_interfaces["rental"], FluentIcon.PEOPLE, 'Rental Info')
@@ -1030,7 +1047,7 @@ class MeterCalculationApp(FluentWindow):
         self._setup_navigation_scroll_area()
         
         self.stackedWidget.currentChanged.connect(self.on_current_interface_changed)
-        self.navigationInterface.setCurrentItem(self.main_tab_instance.objectName())
+        self.navigationInterface.setCurrentItem(self.dashboard_tab_instance.objectName())
 
     def _setup_navigation_scroll_area(self):
         """Set up scroll area for navigation interface when tabs exceed available space."""
@@ -1469,7 +1486,7 @@ class MeterCalculationApp(FluentWindow):
         active_widget = self._get_loaded_widget(interface_widget)
         route_key = interface_widget.objectName() if interface_widget is not None else ""
 
-        if route_key == "MainId":
+        if route_key == "CalculatorId" and self.tab_loader.is_loaded("main"):
             self.main_tab_instance.meter_entries[0].setFocus()
             return
 

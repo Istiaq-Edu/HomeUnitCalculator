@@ -2,6 +2,7 @@ import os
 import sqlite3
 import json
 import re
+from datetime import datetime
 from src.core.encryption_utils import EncryptionUtil
 from src.core.utils import get_user_data_dir
 
@@ -123,6 +124,130 @@ class DBManager:
         except Exception as e:
             print(f"Database Error: Failed to bootstrap rentals table: {e}")
             raise
+
+    def bootstrap_dashboard_cache_tables(self):
+        try:
+            self.create_table("""
+                CREATE TABLE IF NOT EXISTS main_calculations_cache (
+                    source TEXT NOT NULL,
+                    record_id TEXT NOT NULL,
+                    month TEXT,
+                    year INTEGER,
+                    grand_total REAL,
+                    main_data_json TEXT,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    synced_at TEXT NOT NULL,
+                    PRIMARY KEY (source, record_id),
+                    UNIQUE (source, month, year)
+                )
+            """)
+            self.create_table("""
+                CREATE TABLE IF NOT EXISTS sync_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            """)
+        except Exception as e:
+            print(f"Database Error: Failed to bootstrap dashboard cache tables: {e}")
+            raise
+
+    def get_sync_state(self, key: str) -> str | None:
+        row = self.execute_query(
+            "SELECT value FROM sync_state WHERE key = ?",
+            (key,),
+            fetch_one=True,
+        )
+        return row["value"] if row else None
+
+    def set_sync_state(self, key: str, value: str) -> None:
+        self.execute_query(
+            "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+
+    def upsert_main_calculations_cache(self, records: list[dict], source: str = "supabase") -> None:
+        if not records:
+            return
+
+        now_iso = datetime.utcnow().isoformat()
+        for record in records:
+            record_id = record.get("id")
+            if record_id is None:
+                continue
+
+            month = record.get("month")
+            year = record.get("year")
+            main_data = record.get("main_data") or {}
+            grand_total = None
+            try:
+                grand_total = float(main_data.get("grand_total")) if main_data.get("grand_total") is not None else None
+            except Exception:
+                grand_total = None
+
+            created_at = record.get("created_at")
+            updated_at = record.get("updated_at")
+
+            try:
+                main_data_json = json.dumps(main_data, ensure_ascii=False)
+            except Exception:
+                main_data_json = None
+
+            self.execute_query(
+                """
+                INSERT INTO main_calculations_cache
+                    (source, record_id, month, year, grand_total, main_data_json, created_at, updated_at, synced_at)
+                VALUES
+                    (:source, :record_id, :month, :year, :grand_total, :main_data_json, :created_at, :updated_at, :synced_at)
+                ON CONFLICT(source, month, year) DO UPDATE SET
+                    record_id=excluded.record_id,
+                    grand_total=excluded.grand_total,
+                    main_data_json=excluded.main_data_json,
+                    created_at=COALESCE(excluded.created_at, main_calculations_cache.created_at),
+                    updated_at=COALESCE(excluded.updated_at, main_calculations_cache.updated_at),
+                    synced_at=excluded.synced_at
+                """,
+                {
+                    "source": source,
+                    "record_id": str(record_id),
+                    "month": month,
+                    "year": year,
+                    "grand_total": grand_total,
+                    "main_data_json": main_data_json,
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                    "synced_at": now_iso,
+                },
+            )
+
+    def get_cached_years(self, source: str = "supabase") -> list[int]:
+        rows = self.execute_query(
+            "SELECT DISTINCT year FROM main_calculations_cache WHERE source = ? AND year IS NOT NULL ORDER BY year DESC",
+            (source,),
+        )
+        return [int(r["year"]) for r in rows] if rows else []
+
+    def get_cached_monthly_totals(self, year: int, source: str = "supabase") -> dict[str, float]:
+        rows = self.execute_query(
+            """
+            SELECT month, SUM(COALESCE(grand_total, 0)) AS total
+            FROM main_calculations_cache
+            WHERE source = ? AND year = ?
+            GROUP BY month
+            """,
+            (source, year),
+        )
+        out: dict[str, float] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                try:
+                    out[str(m)] = float(r["total"] or 0.0)
+                except Exception:
+                    out[str(m)] = 0.0
+        return out
 
     def execute_query(
         self,

@@ -335,6 +335,60 @@ class SupabaseManager:
             # Re-raise so error handler can detect paused projects
             raise
 
+    def get_available_years(self) -> list[int]:
+        if not self.is_client_initialized():
+            return []
+        try:
+            response = self.supabase.table("main_calculations").select("year").execute()
+            years = []
+            if response.data:
+                for row in response.data:
+                    y = row.get("year")
+                    if y is None:
+                        continue
+                    try:
+                        years.append(int(y))
+                    except Exception:
+                        continue
+            return sorted(set(years), reverse=True)
+        except Exception:
+            return []
+
+    def get_main_calculations_for_year_delta(
+        self,
+        year: int,
+        since: str | None = None,
+        since_field: str | None = None,
+    ) -> tuple[list[dict], str | None]:
+        if not self.is_client_initialized():
+            return [], None
+
+        select_with_timestamps = "id, month, year, main_data, created_at, updated_at"
+        select_without_timestamps = "id, month, year, main_data"
+
+        last_field_used = None
+
+        def _run(select_str: str) -> list[dict]:
+            query = self.supabase.table("main_calculations").select(select_str).eq("year", year)
+            if since and since_field:
+                query = query.gt(since_field, since)
+            return (query.order("year", desc=True).order("created_at", desc=True).execute().data) or []
+
+        try:
+            data = _run(select_with_timestamps)
+            if data:
+                if data[0].get("updated_at") is not None:
+                    last_field_used = "updated_at"
+                elif data[0].get("created_at") is not None:
+                    last_field_used = "created_at"
+            return data, last_field_used
+        except APIError as e:
+            msg = str(e)
+            if "updated_at" in msg or "created_at" in msg:
+                data = _run(select_without_timestamps)
+                return data, None
+            raise
+
     def get_room_calculations(self, main_calculation_id: int) -> list[dict]:
         """
         Retrieves room calculation data for a given main calculation ID.

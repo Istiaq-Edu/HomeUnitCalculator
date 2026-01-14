@@ -71,6 +71,116 @@ class FetchSupabaseRentalRecordsWorker(QThread):
                 self.error_occurred.emit(f"An unexpected error occurred: {exc}")
 
 
+class FetchSupabaseAvailableYearsWorker(QThread):
+    years_fetched = pyqtSignal(list)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, supabase_manager, parent=None):
+        super().__init__(parent)
+        self._supabase_manager = supabase_manager
+
+    def run(self):
+        try:
+            if not self._supabase_manager or not self._supabase_manager.is_client_initialized():
+                self.error_occurred.emit("Supabase client not initialized.")
+                return
+            years = self._supabase_manager.get_available_years()
+            self.years_fetched.emit(years or [])
+        except APIError as e:
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"API Error: {getattr(e, 'message', str(e))}")
+        except Exception as exc:
+            error_type = SupabaseErrorHandler.detect_error_type(exc)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"An unexpected error occurred: {exc}")
+
+
+class SyncSupabaseMainCalculationsYearWorker(QThread):
+    sync_finished = pyqtSignal(int)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, supabase_manager, db_path: str, year: int, parent=None):
+        super().__init__(parent)
+        self._supabase_manager = supabase_manager
+        self._db_path = db_path
+        self._year = int(year)
+
+    def run(self):
+        try:
+            if not self._supabase_manager or not self._supabase_manager.is_client_initialized():
+                self.error_occurred.emit("Supabase client not initialized.")
+                return
+            if not self._db_path:
+                self.error_occurred.emit("Database not available.")
+                return
+
+            from src.core.db_manager import DBManager
+            local_db = DBManager(self._db_path)
+            local_db.bootstrap_dashboard_cache_tables()
+            try:
+                key_updated = f"supabase_main_calculations_year_{self._year}_updated_at"
+                key_created = f"supabase_main_calculations_year_{self._year}_created_at"
+
+                since = None
+                since_field = None
+
+                last_updated = local_db.get_sync_state(key_updated)
+                if last_updated:
+                    since = last_updated
+                    since_field = "updated_at"
+                else:
+                    last_created = local_db.get_sync_state(key_created)
+                    if last_created:
+                        since = last_created
+                        since_field = "created_at"
+
+                records, field_used = self._supabase_manager.get_main_calculations_for_year_delta(
+                    year=self._year,
+                    since=since,
+                    since_field=since_field,
+                )
+
+                if field_used != "updated_at":
+                    records = self._supabase_manager.get_main_calculations(year=self._year) or records
+                    field_used = None
+
+                if records:
+                    local_db.upsert_main_calculations_cache(records, source="supabase")
+                    if field_used in ("updated_at", "created_at"):
+                        max_val = None
+                        for r in records:
+                            v = r.get(field_used)
+                            if not v:
+                                continue
+                            if max_val is None or str(v) > str(max_val):
+                                max_val = v
+                        if max_val:
+                            if field_used == "updated_at":
+                                local_db.set_sync_state(key_updated, str(max_val))
+                            else:
+                                local_db.set_sync_state(key_created, str(max_val))
+            finally:
+                local_db.close()
+            self.sync_finished.emit(self._year)
+        except APIError as e:
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"API Error: {getattr(e, 'message', str(e))}")
+        except Exception as exc:
+            error_type = SupabaseErrorHandler.detect_error_type(exc)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"An unexpected error occurred: {exc}")
+
+
 class FetchImageWorker(QThread):
     """
     Background worker to fetch an image from a URL without blocking the UI.
