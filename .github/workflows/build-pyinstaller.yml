@@ -1,4 +1,4 @@
-name: Build • PyInstaller
+name: Build • PyInstaller (Fast Startup)
 
 on:
   # Manual trigger only
@@ -22,12 +22,17 @@ jobs:
           pip install -r requirements.txt
           # Build-only tools
           pip install pyinstaller pillow
+      
+      - name: Build one-directory executable (optimized for fast startup)
+        run: pyinstaller --noconsole --onedir --icon=icons/icon.png --add-data "icons;icons" src/core/HomeUnitCalculator.py
 
-      - name: Build one-file executable
-        run: pyinstaller --noconsole --onefile --icon=icons/icon.png --add-data "icons;icons" src/core/HomeUnitCalculator.py
-
-      - name: Upload artifact (single EXE)
+      - name: Create portable zip
+        run: |
+          Compress-Archive -Path "dist\\HomeUnitCalculator\\*" -DestinationPath "dist\\HomeUnitCalculator-Portable.zip"
+        shell: pwsh
+      
+      - name: Upload artifact (portable directory)
         uses: actions/upload-artifact@v4
         with:
-          name: HomeUnitCalculator-PyInstaller-${{ runner.os }}
-          path: dist/HomeUnitCalculator.exe 
+          name: HomeUnitCalculator-PyInstaller-Portable-${{ runner.os }}
+          path: dist/HomeUnitCalculator-Portable.zip

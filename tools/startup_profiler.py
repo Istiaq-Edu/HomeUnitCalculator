@@ -6,6 +6,7 @@ Measures initialization time for each component
 import time
 import sys
 import os
+import argparse
 from contextlib import contextmanager
 
 # Add project root to path
@@ -50,8 +51,26 @@ class StartupProfiler:
         print(f"{'TOTAL STARTUP TIME':40s} {total:6.3f}s")
         print("="*60)
 
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Profile startup time for HomeUnitCalculator")
+    parser.add_argument(
+        "--event-loop-ms",
+        type=int,
+        default=800,
+        help="Run Qt event loop for N ms to include first paint/layout cost (default: 800). Use 0 to skip.",
+    )
+    parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="Do not show the window (still constructs it).",
+    )
+    return parser.parse_args()
+
+
 def profile_startup():
     """Profile the application startup"""
+    args = _parse_args()
     profiler = StartupProfiler()
     
     print("Starting Home Unit Calculator with profiling...\n")
@@ -59,21 +78,12 @@ def profile_startup():
     # Measure imports
     with profiler.measure("Import PyQt5"):
         from PyQt5.QtWidgets import QApplication
-        from PyQt5.QtCore import Qt
+        from PyQt5.QtCore import QTimer
     
     with profiler.measure("Import QFluentWidgets"):
         from qfluentwidgets import FluentWindow, setTheme, Theme
-    
-    with profiler.measure("Import reportlab"):
-        from reportlab.lib.pagesizes import letter
-    
-    with profiler.measure("Import PIL"):
-        from PIL import Image
-    
-    with profiler.measure("Import supabase"):
-        from supabase import create_client
-    
-    with profiler.measure("Import application modules"):
+
+    with profiler.measure("Import application (core.HomeUnitCalculator)"):
         from src.core.HomeUnitCalculator import MeterCalculationApp
     
     # Create QApplication
@@ -85,8 +95,16 @@ def profile_startup():
         window = MeterCalculationApp()
     
     # Show window
-    with profiler.measure("Show window"):
-        window.show()
+    if not args.no_show:
+        with profiler.measure("Show window"):
+            window.show()
+    else:
+        window.hide()
+
+    if args.event_loop_ms > 0:
+        with profiler.measure(f"Run event loop ({args.event_loop_ms}ms)"):
+            QTimer.singleShot(args.event_loop_ms, app.quit)
+            app.exec_()
     
     # Print summary
     profiler.print_summary()

@@ -17,12 +17,6 @@ from PyQt5.QtWidgets import (
     QFileDialog, QTableWidgetItem, QHeaderView, QAbstractItemView, QProgressDialog, QFrame,
     QTableWidget
 )
-from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak, BaseDocTemplate, PageTemplate, Frame, NextPageTemplate
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
 from qfluentwidgets import (
     CardWidget, ComboBox, TableWidget, TitleLabel, FluentIcon, setCustomStyleSheet,
     DropDownPushButton, Action, RoundMenu, ToolButton

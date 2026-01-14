@@ -39,15 +39,11 @@ from datetime import datetime
 from src.core.db_manager import DBManager
 from src.core.encryption_utils import EncryptionUtil
 from src.core.key_manager import get_or_create_key
-from src.core.supabase_manager import SupabaseManager # New import
+from src.core.lazy_tab_loader import LazyTabLoader
 from src.core.utils import resource_path
 from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
 from src.ui.tabs.main_tab import MainTab
 from src.ui.tabs.rooms_tab import RoomsTab
-from src.ui.tabs.history_tab import HistoryTab, EditRecordDialog # EditRecordDialog is imported from history_tab
-from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
-from src.ui.tabs.rental_info_tab import RentalInfoTab
-from src.ui.tabs.archived_info_tab import ArchivedInfoTab
 from src.ui.save_dialog import SaveDialog
 from qfluentwidgets import (
     InfoBar, InfoBarPosition,
@@ -211,7 +207,8 @@ class MeterCalculationApp(FluentWindow):
         self.db_manager = DBManager()
         self.db_manager.bootstrap_rentals_table()
         self.encryption_util = EncryptionUtil()
-        self.supabase_manager = SupabaseManager() # Initialize SupabaseManager
+        self.supabase_manager = None
+        self._cloud_features_enabled = False
         
         StartupTimer.checkpoint("Creating UI components")
         self.load_info_source_combo = ComboBox()
@@ -228,25 +225,31 @@ class MeterCalculationApp(FluentWindow):
         self.load_history_source_combo.setIconSize(QSize(16, 16))
         
         StartupTimer.checkpoint("Creating tabs")
-        self.main_tab_instance = MainTab(self)
-        self.rooms_tab_instance = RoomsTab(self.main_tab_instance, self)
-        self.history_tab_instance = HistoryTab(self)
-        self.supabase_config_tab_instance = SupabaseConfigTab(self)
-        self.rental_info_tab_instance = RentalInfoTab(self)
-        self.archived_info_tab_instance = ArchivedInfoTab(self)
+        self.tab_loader = LazyTabLoader(self)
+        self.tab_loader.register_tab("main", lambda: MainTab(self), eager_load=True)
+        self.tab_loader.register_tab("rooms", lambda: RoomsTab(self.main_tab_instance, self))
+        self.tab_loader.register_tab("history", self._create_history_tab)
+        self.tab_loader.register_tab("rental", self._create_rental_tab)
+        self.tab_loader.register_tab("archived", self._create_archived_tab)
+        self.tab_loader.register_tab("supabase", self._create_supabase_config_tab)
+
+        self._tab_interfaces = {
+            "rooms": self.tab_loader.get_placeholder("rooms"),
+            "history": self.tab_loader.get_placeholder("history"),
+            "rental": self.tab_loader.get_placeholder("rental"),
+            "archived": self.tab_loader.get_placeholder("archived"),
+            "supabase": self.tab_loader.get_placeholder("supabase"),
+        }
+        self._route_to_tab = {}
         
         # Table layout stabilization is now handled directly in the tab files
-
-        self._initialize_supabase_client()
-        
-        # Sync the history tab button display after Supabase initialization
-        self.history_tab_instance.sync_source_button_display()
 
         StartupTimer.checkpoint("Setting up navigation")
         self.init_navigation()
         self.setup_navigation()
         self.center_window()
         self.refresh_all_rental_tabs()
+        QTimer.singleShot(500, self._initialize_supabase_client)
         
         # Set title bar icon after everything is initialized
         self._set_title_bar_icon()
@@ -844,40 +847,170 @@ class MeterCalculationApp(FluentWindow):
         # internally. This avoids calling its protected methods directly and
         # keeps the encapsulation boundary intact.
 
+        from src.core.supabase_manager import SupabaseManager
+
         self.supabase_manager = SupabaseManager()
-        
-        if self.supabase_manager.is_client_initialized():
+        self._cloud_features_enabled = bool(self.supabase_manager.is_client_initialized())
+
+        if self._cloud_features_enabled:
             # Set default load source to Cloud if Supabase is configured for all tabs
             self.load_history_source_combo.setCurrentText("Load from Cloud")
             self.load_info_source_combo.setCurrentText("Load from Cloud")
-            self.rental_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
-            self.archived_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
             
             # Sync the button displays to match the combo box selections
             self.main_tab_instance.sync_source_button_display()
-            self.rental_info_tab_instance.sync_source_button_display()
-            self.archived_info_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("history"):
+                self.history_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("rental"):
+                self.rental_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
+                self.rental_info_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("archived"):
+                self.archived_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
+                self.archived_info_tab_instance.sync_source_button_display()
         else:
             print("Supabase client not initialized. Cloud features disabled.")
             # If Supabase fails to initialize, ensure source is PC (CSV) / Local DB
             self.load_history_source_combo.setCurrentText("Load from PC (CSV)")
             self.load_info_source_combo.setCurrentText("Load from PC (CSV)")
-            self.rental_info_tab_instance.load_source_combo.setCurrentText("Local DB")
-            self.archived_info_tab_instance.load_source_combo.setCurrentText("Local DB")
             
             # Sync the button displays to match the combo box selections
             self.main_tab_instance.sync_source_button_display()
-            self.rental_info_tab_instance.sync_source_button_display()
-            self.archived_info_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("history"):
+                self.history_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("rental"):
+                self.rental_info_tab_instance.load_source_combo.setCurrentText("Local DB")
+                self.rental_info_tab_instance.sync_source_button_display()
+            if self.tab_loader.is_loaded("archived"):
+                self.archived_info_tab_instance.load_source_combo.setCurrentText("Local DB")
+                self.archived_info_tab_instance.sync_source_button_display()
+
+    def _create_history_tab(self):
+        from src.ui.tabs.history_tab import HistoryTab
+        return HistoryTab(self)
+
+    def _create_rental_tab(self):
+        from src.ui.tabs.rental_info_tab import RentalInfoTab
+        return RentalInfoTab(self)
+
+    def _create_archived_tab(self):
+        from src.ui.tabs.archived_info_tab import ArchivedInfoTab
+        return ArchivedInfoTab(self)
+
+    def _create_supabase_config_tab(self):
+        from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
+        return SupabaseConfigTab(self)
+
+    @property
+    def main_tab_instance(self):
+        return self.tab_loader.get_tab("main")
+
+    @property
+    def rooms_tab_instance(self):
+        return self.tab_loader.get_tab("rooms")
+
+    @property
+    def history_tab_instance(self):
+        return self.tab_loader.get_tab("history")
+
+    @property
+    def rental_info_tab_instance(self):
+        return self.tab_loader.get_tab("rental")
+
+    @property
+    def archived_info_tab_instance(self):
+        return self.tab_loader.get_tab("archived")
+
+    @property
+    def supabase_config_tab_instance(self):
+        return self.tab_loader.get_tab("supabase")
+
+    def _get_loaded_widget(self, interface_widget):
+        if interface_widget is None:
+            return None
+        loaded = getattr(interface_widget, "_hmc_loaded_widget", None)
+        return loaded or interface_widget
+
+    def _mount_lazy_tab(self, tab_key: str, interface_widget):
+        if tab_key in {"history", "rental", "archived", "supabase"} and self.supabase_manager is None:
+            self._initialize_supabase_client()
+
+        tab_widget = self.tab_loader.get_tab(tab_key)
+        tab_widget.setObjectName(interface_widget.objectName())
+
+        layout = interface_widget.layout()
+        if layout is None:
+            layout = QVBoxLayout(interface_widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+        else:
+            while layout.count():
+                item = layout.takeAt(0)
+                w = item.widget()
+                if w is not None:
+                    w.setParent(None)
+
+        layout.addWidget(tab_widget)
+        interface_widget._hmc_loaded_widget = tab_widget
+        self._apply_cloud_defaults_to_tab(tab_key, tab_widget)
+        return tab_widget
+
+    def _apply_cloud_defaults_to_tab(self, tab_key: str, tab_widget):
+        if tab_key == "history" and hasattr(tab_widget, "sync_source_button_display"):
+            tab_widget.sync_source_button_display()
+            return
+
+        if tab_key in {"rental", "archived"} and hasattr(tab_widget, "load_source_combo"):
+            if self._cloud_features_enabled:
+                tab_widget.load_source_combo.setCurrentText("Cloud (Supabase)")
+            else:
+                tab_widget.load_source_combo.setCurrentText("Local DB")
+
+            if hasattr(tab_widget, "sync_source_button_display"):
+                tab_widget.sync_source_button_display()
+
+    def _ensure_interface_loaded(self, interface_widget):
+        if interface_widget is None:
+            return None
+
+        route_key = interface_widget.objectName()
+        tab_key = self._route_to_tab.get(route_key)
+        if not tab_key:
+            return self._get_loaded_widget(interface_widget)
+
+        if getattr(interface_widget, "_hmc_loaded_widget", None) is not None:
+            return interface_widget._hmc_loaded_widget
+
+        if getattr(interface_widget, "_hmc_loading", False):
+            return interface_widget
+
+        interface_widget._hmc_loading = True
+
+        def _load():
+            try:
+                self._mount_lazy_tab(tab_key, interface_widget)
+            finally:
+                interface_widget._hmc_loading = False
+                self.set_focus_on_tab_change(self.stackedWidget.currentIndex())
+
+        QTimer.singleShot(0, _load)
+        return interface_widget
 
 
     def init_navigation(self):
         self.main_tab_instance.setObjectName("MainId")
-        self.rooms_tab_instance.setObjectName("RoomsId")
-        self.history_tab_instance.setObjectName("HistoryId")
-        self.rental_info_tab_instance.setObjectName("RentalId")
-        self.archived_info_tab_instance.setObjectName("ArchivedId")
-        self.supabase_config_tab_instance.setObjectName("SupabaseId")
+        self._tab_interfaces["rooms"].setObjectName("RoomsId")
+        self._tab_interfaces["history"].setObjectName("HistoryId")
+        self._tab_interfaces["rental"].setObjectName("RentalId")
+        self._tab_interfaces["archived"].setObjectName("ArchivedId")
+        self._tab_interfaces["supabase"].setObjectName("SupabaseId")
+
+        self._route_to_tab = {
+            "RoomsId": "rooms",
+            "HistoryId": "history",
+            "RentalId": "rental",
+            "ArchivedId": "archived",
+            "SupabaseId": "supabase",
+        }
 
         # Set minimum and maximum width for navigation panel to prevent collapse and enable responsive behavior
         self.navigationInterface.setMinimumWidth(200)
@@ -887,11 +1020,11 @@ class MeterCalculationApp(FluentWindow):
         self.navigationInterface.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
         self.addSubInterface(self.main_tab_instance, FluentIcon.HOME, 'Home')
-        self.addSubInterface(self.rooms_tab_instance, FluentIcon.APPLICATION, 'Room Calculations')
-        self.addSubInterface(self.history_tab_instance, FluentIcon.HISTORY, 'Calculation History')
-        self.addSubInterface(self.rental_info_tab_instance, FluentIcon.PEOPLE, 'Rental Info')
-        self.addSubInterface(self.archived_info_tab_instance, FluentIcon.DOCUMENT, 'Archived Info')
-        self.addSubInterface(self.supabase_config_tab_instance, FluentIcon.SETTING, 'Supabase Config', position=NavigationItemPosition.BOTTOM)
+        self.addSubInterface(self._tab_interfaces["rooms"], FluentIcon.APPLICATION, 'Room Calculations')
+        self.addSubInterface(self._tab_interfaces["history"], FluentIcon.HISTORY, 'Calculation History')
+        self.addSubInterface(self._tab_interfaces["rental"], FluentIcon.PEOPLE, 'Rental Info')
+        self.addSubInterface(self._tab_interfaces["archived"], FluentIcon.DOCUMENT, 'Archived Info')
+        self.addSubInterface(self._tab_interfaces["supabase"], FluentIcon.SETTING, 'Supabase Config', position=NavigationItemPosition.BOTTOM)
         
         # Enable scroll area for navigation items if needed
         self._setup_navigation_scroll_area()
@@ -941,12 +1074,14 @@ class MeterCalculationApp(FluentWindow):
     def on_current_interface_changed(self, index):
         """Handle tab change: set focus appropriately."""
         current_widget = self.stackedWidget.widget(index)
-        if hasattr(current_widget, 'set_focus_on_tab_change'):
-            current_widget.set_focus_on_tab_change()
+        resolved_widget = self._ensure_interface_loaded(current_widget)
+        active_widget = self._get_loaded_widget(resolved_widget)
+        if hasattr(active_widget, 'set_focus_on_tab_change'):
+            active_widget.set_focus_on_tab_change()
         
         # Standard tab switching behavior - table stabilization handled in tab files
-        if hasattr(current_widget, 'force_table_resize'):
-            QTimer.singleShot(150, current_widget.force_table_resize)
+        if hasattr(active_widget, 'force_table_resize'):
+            QTimer.singleShot(150, active_widget.force_table_resize)
 
         # QFluentWidgets sometimes resets the TitleBar icon to the current page's FluentIcon
         # (e.g., HOME). Re-apply our app icon right after the page switch.
@@ -1229,7 +1364,7 @@ class MeterCalculationApp(FluentWindow):
             QMessageBox.critical(self, "Save Error", f"Failed to save data to CSV: {e}\n{traceback.format_exc()}")
 
     def save_calculation_to_supabase(self):
-        if not self.supabase_manager.is_client_initialized() or not self.check_internet_connectivity():
+        if not self.supabase_manager or not self.supabase_manager.is_client_initialized() or not self.check_internet_connectivity():
             QMessageBox.warning(self, "Supabase Not Configured", "Please configure Supabase client in settings or check internet connection.")
             return
         
@@ -1330,20 +1465,41 @@ class MeterCalculationApp(FluentWindow):
         self.set_focus_on_tab_change(self.stackedWidget.currentIndex())
 
     def set_focus_on_tab_change(self, index):
-        current_tab = self.stackedWidget.widget(index)
-        if isinstance(current_tab, MainTab):
+        interface_widget = self.stackedWidget.widget(index)
+        active_widget = self._get_loaded_widget(interface_widget)
+        route_key = interface_widget.objectName() if interface_widget is not None else ""
+
+        if route_key == "MainId":
             self.main_tab_instance.meter_entries[0].setFocus()
-        elif isinstance(current_tab, RoomsTab):
-            if self.rooms_tab_instance.room_entries:
+            return
+
+        if route_key == "RoomsId" and self.tab_loader.is_loaded("rooms"):
+            if getattr(self.rooms_tab_instance, "room_entries", None):
                 self.rooms_tab_instance.room_entries[0]['present_entry'].setFocus()
-        elif isinstance(current_tab, HistoryTab):
-            self.history_tab_instance.main_history_table.setFocus()
-        elif isinstance(current_tab, SupabaseConfigTab):
-            self.supabase_config_tab_instance.supabase_url_input.setFocus()
-        elif isinstance(current_tab, RentalInfoTab):
-            self.rental_info_tab_instance.rental_records_table.setFocus()
-        elif isinstance(current_tab, ArchivedInfoTab):
-            self.archived_info_tab_instance.archived_records_table.setFocus()
+            return
+
+        if route_key == "HistoryId" and self.tab_loader.is_loaded("history"):
+            if hasattr(self.history_tab_instance, "main_history_table"):
+                self.history_tab_instance.main_history_table.setFocus()
+            return
+
+        if route_key == "SupabaseId" and self.tab_loader.is_loaded("supabase"):
+            if hasattr(self.supabase_config_tab_instance, "supabase_url_input"):
+                self.supabase_config_tab_instance.supabase_url_input.setFocus()
+            return
+
+        if route_key == "RentalId" and self.tab_loader.is_loaded("rental"):
+            if hasattr(self.rental_info_tab_instance, "rental_records_table"):
+                self.rental_info_tab_instance.rental_records_table.setFocus()
+            return
+
+        if route_key == "ArchivedId" and self.tab_loader.is_loaded("archived"):
+            if hasattr(self.archived_info_tab_instance, "archived_records_table"):
+                self.archived_info_tab_instance.archived_records_table.setFocus()
+            return
+
+        if hasattr(active_widget, "setFocus"):
+            active_widget.setFocus()
 
     def center_window(self):
         qr = self.frameGeometry()
@@ -1398,7 +1554,7 @@ class MeterCalculationApp(FluentWindow):
     
     def get_current_tab(self):
         """Get the currently active tab widget"""
-        return self.stackedWidget.currentWidget()
+        return self._get_loaded_widget(self.stackedWidget.currentWidget())
     
     def notify_tabs_of_resize(self):
         """Notify current tab about resize events with comprehensive error handling"""
@@ -1421,11 +1577,12 @@ class MeterCalculationApp(FluentWindow):
     def refresh_all_rental_tabs(self):
         """Refresh all rental-related tabs to show updated records."""
         try:
-            print("Refreshing rental tabs...")
-            if hasattr(self, 'rental_info_tab_instance') and self.rental_info_tab_instance:
+            if self.tab_loader.is_loaded("rental"):
+                print("Refreshing rental tabs...")
                 self.rental_info_tab_instance.load_rental_records(force_refresh=True)
                 print("[OK] Rental Info Tab refreshed")
-            if hasattr(self, 'archived_info_tab_instance') and self.archived_info_tab_instance:
+            if self.tab_loader.is_loaded("archived"):
+                print("Refreshing rental tabs...")
                 self.archived_info_tab_instance.load_archived_records()
                 print("[OK] Archived Info Tab refreshed")
         except Exception as e:

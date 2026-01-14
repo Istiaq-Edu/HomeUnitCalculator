@@ -11,7 +11,6 @@ import shutil # Import shutil for file operations
 import uuid # Import uuid for generating unique filenames
 import urllib.parse
 import re
-import requests  # Used for downloading remote images
 
 # Suppress SSL certificate warnings when verify=False is used in requests
 try:
@@ -23,19 +22,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer, QSize
 from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap, QPainter, QColor, QFont, QFontMetrics # Keep QPixmap for _validate_image_file
-from reportlab.lib.utils import ImageReader # Added ImageReader
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGridLayout, QGroupBox, QFormLayout,
     QFileDialog, QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView,
     QFrame, QAbstractItemView, QSizePolicy, QLineEdit, QApplication
 )
-from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import Table, TableStyle, Paragraph, Spacer, Image, PageBreak, NextPageTemplate, BaseDocTemplate, PageTemplate, Frame, FrameBreak # Re-import FrameBreak
-from reportlab.platypus.flowables import KeepTogether
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
 from qfluentwidgets import (
     CardWidget, ComboBox, CheckBox, PrimaryPushButton, PushButton,
     LineEdit, TableWidget, FluentIcon, TitleLabel, GroupHeaderCardWidget,
@@ -3364,6 +3355,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         if not image_path or ('safe_bypass' not in locals() and not self._is_safe_path(image_path)) or not os.path.exists(image_path):
             return None, 0, 0
         try:
+            from reportlab.lib.utils import ImageReader
             # Use ReportLab's ImageReader to get original dimensions in points
             img_reader = ImageReader(image_path)
             original_width_points, original_height_points = img_reader.getSize()
@@ -3431,6 +3423,24 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             # Continue without progress dialog
 
         try:
+            from reportlab.lib.units import inch
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import (
+                BaseDocTemplate,
+                Frame,
+                Image,
+                NextPageTemplate,
+                PageBreak,
+                PageTemplate,
+                Paragraph,
+                Spacer,
+                Table,
+                TableStyle,
+            )
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors
+            from reportlab.lib.enums import TA_CENTER
+
             doc = BaseDocTemplate(pdf_path, pagesize=letter,
                                   leftMargin=0.1 * inch, rightMargin=0.1 * inch,
                                   topMargin=0.1 * inch, bottomMargin=0.1 * inch)
@@ -3631,6 +3641,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             dest = self.IMAGE_STORAGE_DIR / local_name
 
             if not dest.exists():
+                import requests
                 resp = requests.get(path_str, timeout=15, verify=False)
                 resp.raise_for_status()
                 dest.write_bytes(resp.content)
