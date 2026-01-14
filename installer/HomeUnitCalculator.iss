@@ -2,6 +2,7 @@
 #define MyAppExeName "HomeUnitCalculator.exe"
 #define MyAppPublisher "Home Unit Calculator"
 #define MyAppId "{{F3D62E60-7E4D-4B6F-8D54-33A17DCB9BA2}}"
+#define RepoRoot ".."
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
@@ -19,8 +20,8 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 OutputBaseFilename=HomeUnitCalculator-Setup-{#MyAppVersion}
-OutputDir=dist\installer
-SetupIconFile=icons\icon.ico
+OutputDir={#RepoRoot}\dist\installer
+SetupIconFile={#RepoRoot}\icons\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2
 SolidCompression=yes
@@ -36,7 +37,7 @@ VersionInfoTextVersion={#MyAppVersion}
 Name: "desktopicon"; Description: "Create a desktop icon"; GroupDescription: "Additional icons:"
 
 [Files]
-Source: "dist\HomeUnitCalculator\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#RepoRoot}\dist\HomeUnitCalculator\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -100,4 +101,3 @@ begin
       Exec(UninstallExe, '/VERYSILENT /NORESTART', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
-
