@@ -3,6 +3,11 @@ name: Build • PyInstaller (Fast Startup)
 on:
   # Manual trigger only
   workflow_dispatch:
+    inputs:
+      version:
+        description: "App version (display). Example: 1.2.3"
+        required: false
+        type: string
 
 jobs:
   build:
@@ -22,13 +27,37 @@ jobs:
           pip install -r requirements.txt
           # Build-only tools
           pip install pyinstaller pillow
+
+      - name: Generate icon.ico (for EXE + installer)
+        run: python tools/make_icon_ico.py
+
+      - name: Set build version
+        run: |
+          $version = '${{ github.event.inputs.version }}'
+          if ([string]::IsNullOrWhiteSpace($version)) { $version = "1.0.${{ github.run_number }}" }
+          $parts = $version.Split('.')
+          if ($parts.Count -lt 3) { $version = "$version.0" }
+          $versionInfo = "$version.0"
+          Add-Content $env:GITHUB_ENV "APP_VERSION=$version"
+          Add-Content $env:GITHUB_ENV "APP_VERSION_INFO=$versionInfo"
+        shell: pwsh
       
       - name: Build one-directory executable (optimized for fast startup)
-        run: pyinstaller --noconsole --onedir --icon=icons/icon.png --add-data "icons;icons" src/core/HomeUnitCalculator.py
+        run: pyinstaller --noconsole --onedir --icon=icons/icon.ico --add-data "icons;icons" src/core/HomeUnitCalculator.py
 
       - name: Create portable zip
         run: |
           Compress-Archive -Path "dist\\HomeUnitCalculator\\*" -DestinationPath "dist\\HomeUnitCalculator-Portable.zip"
+        shell: pwsh
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+        shell: pwsh
+
+      - name: Build installer (Setup.exe)
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist\\installer" | Out-Null
+          iscc "installer\\HomeUnitCalculator.iss" /DMyAppVersion="$env:APP_VERSION" /DMyAppVersionInfo="$env:APP_VERSION_INFO"
         shell: pwsh
       
       - name: Upload artifact (portable directory)
@@ -36,3 +65,9 @@ jobs:
         with:
           name: HomeUnitCalculator-PyInstaller-Portable-${{ runner.os }}
           path: dist/HomeUnitCalculator-Portable.zip
+
+      - name: Upload artifact (installer)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeUnitCalculator-Installer-${{ runner.os }}
+          path: dist/installer/*.exe
