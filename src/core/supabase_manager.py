@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 # Apply compatibility patch before importing supabase
 try:
     from src.core.supabase_patch import *
@@ -324,15 +325,27 @@ class SupabaseManager:
             if year is not None:
                 query = query.eq("year", year)
             
-            response = query.order("year", desc=True).order("created_at", desc=True).execute()
-            return response.data if response.data else []
+            attempts = 0
+            while True:
+                try:
+                    response = query.order("year", desc=True).order("created_at", desc=True).execute()
+                    return response.data if response.data else []
+                except Exception as e:
+                    error_type = SupabaseErrorHandler.detect_error_type(e)
+                    if error_type in ("network_error", "connection_timeout") and attempts < 2:
+                        attempts += 1
+                        time.sleep(0.6 * (attempts + 1))
+                        continue
+                    raise
         except (APIError, AuthApiError) as e:
             logging.error(f"Supabase API error retrieving main calculations: {e}")
-            # Re-raise so error handler can detect paused projects
             raise
         except Exception as e:
-            logging.error(f"An unexpected error occurred retrieving main calculations: {e}")
-            # Re-raise so error handler can detect paused projects
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type in ("network_error", "connection_timeout"):
+                logging.warning(f"Supabase network error retrieving main calculations: {e}")
+            else:
+                logging.error(f"An unexpected error occurred retrieving main calculations: {e}")
             raise
 
     def get_available_years(self) -> list[int]:
@@ -399,7 +412,19 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot retrieve room calculations.")
             return []
         try:
-            response = self.supabase.table("room_calculations").select("id, room_data, photo_url, nid_front_url, nid_back_url, police_form_url").eq("main_calculation_id", main_calculation_id).execute()
+            base = self.supabase.table("room_calculations").select("id, room_data, photo_url, nid_front_url, nid_back_url, police_form_url").eq("main_calculation_id", main_calculation_id)
+            attempts = 0
+            while True:
+                try:
+                    response = base.execute()
+                    break
+                except Exception as e:
+                    error_type = SupabaseErrorHandler.detect_error_type(e)
+                    if error_type in ("network_error", "connection_timeout") and attempts < 2:
+                        attempts += 1
+                        time.sleep(0.6 * (attempts + 1))
+                        continue
+                    raise
             if response.data:
                 # Keep room_data nested so that UI code can access it consistently
                 return [
@@ -419,8 +444,11 @@ class SupabaseManager:
             # Re-raise so error handler can detect paused projects
             raise
         except Exception as e:
-            logging.error(f"An unexpected error occurred retrieving room calculations: {e}")
-            # Re-raise so error handler can detect paused projects
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type in ("network_error", "connection_timeout"):
+                logging.warning(f"Supabase network error retrieving room calculations: {e}")
+            else:
+                logging.error(f"An unexpected error occurred retrieving room calculations: {e}")
             raise
 
     def _upload_rental_images(self, image_paths: dict) -> dict:
@@ -470,6 +498,10 @@ class SupabaseManager:
                 "nid_back_url": image_urls.get("nid_back"),
                 "police_form_url": image_urls.get("police_form"),
                 "is_archived": is_archived_val,
+                "start_year": record_data.get("start_year"),
+                "start_month": record_data.get("start_month"),
+                "end_year": record_data.get("end_year"),
+                "end_month": record_data.get("end_month"),
                 "updated_at": datetime.now().isoformat()
             }
 
@@ -477,23 +509,32 @@ class SupabaseManager:
             if not record_data.get("id"):
                 record_to_save["created_at"] = datetime.now().isoformat()
 
-            # Step 3: Insert or Update the record
-            if record_data.get("supabase_id"):
-                # Update existing record using its UUID supabase_id (more stable across environments)
-                response = (
+            def _write(payload: dict):
+                if record_data.get("supabase_id"):
+                    return (
+                        self.supabase
+                            .table("rental_records")
+                            .update(payload, returning="representation")
+                            .eq("supabase_id", record_data["supabase_id"]).execute()
+                    )
+                return (
                     self.supabase
                         .table("rental_records")
-                        .update(record_to_save, returning="representation")
-                        .eq("supabase_id", record_data["supabase_id"]).execute()
-                )
-            else:
-                # Insert new record
-                response = (
-                    self.supabase
-                        .table("rental_records")
-                        .insert(record_to_save, returning="representation")
+                        .insert(payload, returning="representation")
                         .execute()
                 )
+
+            try:
+                response = _write(record_to_save)
+            except Exception as write_exc:
+                msg = str(write_exc)
+                if any(k in msg for k in ("start_year", "start_month", "end_year", "end_month")):
+                    safe_payload = record_to_save.copy()
+                    for k in ("start_year", "start_month", "end_year", "end_month"):
+                        safe_payload.pop(k, None)
+                    response = _write(safe_payload)
+                else:
+                    raise
 
             if response.data and isinstance(response.data, list) and len(response.data) > 0:
                 return f"Successfully saved record for {record_data.get('tenant_name')}. (Cloud)"
@@ -571,7 +612,8 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot update archive status.")
             return False
         try:
-            response = self.supabase.table("rental_records").update({"is_archived": is_archived}).eq("supabase_id", supabase_id).execute()
+            payload = {"is_archived": is_archived, "updated_at": datetime.now().isoformat()}
+            response = self.supabase.table("rental_records").update(payload).eq("supabase_id", supabase_id).execute()
             if response.data:
                 print(f"Rental record supabase_id {supabase_id} archive status updated to {is_archived}.")
                 return True

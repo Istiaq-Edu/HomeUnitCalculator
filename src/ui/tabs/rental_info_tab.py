@@ -194,16 +194,26 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.load_rental_records() # Initial load will be from default source
 
     def init_ui(self):
-        # Use a direct layout approach without scroll area for better theming
-        # Set the main layout for the tab
         tab_layout = QVBoxLayout(self)
-        tab_layout.setContentsMargins(12, 12, 12, 12)  # Reduced margins for more compact layout
-        tab_layout.setSpacing(12)  # Reduced spacing from 20 to 12
-        
-        # Create the main horizontal layout directly on the tab
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.setSpacing(0)
+
+        scroll = AutoScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        tab_layout.addWidget(scroll, 1)
+
+        page = QWidget()
+        scroll.setWidget(page)
+
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(12, 12, 12, 12)
+        page_layout.setSpacing(12)
+
         main_horizontal_layout = QHBoxLayout()
         main_horizontal_layout.setSpacing(20)
-        tab_layout.addLayout(main_horizontal_layout)
+        page_layout.addLayout(main_horizontal_layout)
 
         # Left Column Layout (Input Form + Image Uploads + Save/Clear)
         left_column_layout = QVBoxLayout()
@@ -264,6 +274,10 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         rental_details_layout.addWidget(self.room_number_input)
         rental_details_layout.addWidget(advanced_paid_label)
         rental_details_layout.addWidget(self.advanced_paid_input)
+
+        stay_hint = CaptionLabel("Stay period is inferred from Created At → Archived date")
+        stay_hint.setStyleSheet("color: #9f9f9f;")
+        rental_details_layout.addWidget(stay_hint)
 
         # Add the layout to the card
         self.rental_details_card.viewLayout.addLayout(rental_details_layout)
@@ -2630,6 +2644,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             tenant_name = self.tenant_name_input.text().strip()
             room_number = self.room_number_input.text().strip()
             advanced_paid_str = self.advanced_paid_input.text().strip()
+
             
             # Ensure legacy labels exist and get file paths safely
             try:
@@ -2893,12 +2908,14 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.load_source_combo.setEnabled(False)
 
         # Start the background worker with pagination params
+        select_clause = (
+            "id, supabase_id, tenant_name, room_number, advanced_paid, photo_url, nid_front_url, nid_back_url, police_form_url, "
+            "is_archived, created_at, updated_at"
+        )
         self._fetch_worker = FetchSupabaseRentalRecordsWorker(
             self.main_window.supabase_manager,
             is_archived=False,
-            select=(
-                "id, supabase_id, tenant_name, room_number, advanced_paid, photo_url, nid_front_url, nid_back_url, police_form_url, is_archived, created_at, updated_at"
-            ),
+            select=select_clause,
             limit=self._cloud_page_size,
             offset=self._cloud_offset,
             parent=self,
@@ -2945,6 +2962,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         else:
             # Show generic error
             logging.info(f"[DEBUG] Showing generic error dialog")
+            msg_lower = str(message or "").lower()
             QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {message}")
         
         # Ensure we tidy up the progress bar even on error
@@ -3147,7 +3165,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 "nid_back_path": record_data[8],
                 "police_form_path": record_data[9],
                 "is_archived": bool(record_data[10]),
-                "supabase_id": record_data[11]
+                "supabase_id": record_data[11],
             }
         else: # Cloud (Supabase) - already a flattened dict
             record_dict = record_data
@@ -3185,6 +3203,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.tenant_name_input.setText(record_data.get("tenant_name", ""))
         self.room_number_input.setText(record_data.get("room_number", ""))
         self.advanced_paid_input.setText(str(record_data.get("advanced_paid", 0.0)))
+
 
         # Update file upload widgets with existing file paths/URLs
         self._update_upload_widget_for_edit("photo", record_data.get("photo_path") or record_data.get("photo_url"))

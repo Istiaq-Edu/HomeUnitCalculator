@@ -1169,8 +1169,11 @@ class RentalRecordDialog(ResponsiveDialog):
             action_text = "archived" if new_archive_status else "unarchived"
             
             if self.current_source == "Local DB":
-                update_query = "UPDATE rentals SET is_archived = ? WHERE id = ?"
-                self.db_manager.execute_query(update_query, (1 if new_archive_status else 0, self.record_data.id))
+                update_query = "UPDATE rentals SET is_archived = ?, updated_at = ? WHERE id = ?"
+                self.db_manager.execute_query(
+                    update_query,
+                    (1 if new_archive_status else 0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), self.record_data.id),
+                )
                 QMessageBox.information(self, "Success", f"Record has been {action_text} in local database.")
             elif self.current_source == "Cloud (Supabase)":
                 if self.supabase_manager and self.supabase_manager.is_client_initialized():

@@ -106,7 +106,13 @@ class SupabaseErrorHandler:
             return SupabaseErrorType.RATE_LIMIT
         
         # Check for general network error
-        if "network" in error_str or "connection" in error_str:
+        if (
+            "network" in error_str
+            or "connection" in error_str
+            or "server disconnected" in error_str
+            or "disconnected" in error_str
+            or "connection reset" in error_str
+        ):
             return SupabaseErrorType.NETWORK_ERROR
         
         return SupabaseErrorType.UNKNOWN

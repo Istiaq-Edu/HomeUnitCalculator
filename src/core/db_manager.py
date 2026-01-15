@@ -73,7 +73,7 @@ class DBManager:
                     created_at TEXT,
                     updated_at TEXT,
                     is_archived INTEGER DEFAULT 0,
-                    supabase_id TEXT UNIQUE -- New column for Supabase ID
+                    supabase_id TEXT UNIQUE
                 )
             """)
             # Add is_archived column if it doesn't exist (for backward compatibility)
@@ -104,7 +104,7 @@ class DBManager:
                 except sqlite3.OperationalError as e:
                     if "duplicate column name" not in str(e):
                         raise # Re-raise other operational errors
-            
+
             # Now, create a unique index on the column.
             # This is the recommended way to add a unique constraint to an existing table in SQLite.
             try:
@@ -134,12 +134,55 @@ class DBManager:
                     month TEXT,
                     year INTEGER,
                     grand_total REAL,
+                    added_amount REAL,
                     main_data_json TEXT,
                     created_at TEXT,
                     updated_at TEXT,
                     synced_at TEXT NOT NULL,
                     PRIMARY KEY (source, record_id),
                     UNIQUE (source, month, year)
+                )
+            """)
+            cols = self.execute_query("PRAGMA table_info(main_calculations_cache);")
+            col_names = [c[1] for c in cols] if cols else []
+            if "added_amount" not in col_names:
+                try:
+                    self.execute_query("ALTER TABLE main_calculations_cache ADD COLUMN added_amount REAL;")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e):
+                        raise
+
+            self.create_table("""
+                CREATE TABLE IF NOT EXISTS room_calculations_cache (
+                    source TEXT NOT NULL,
+                    main_record_id TEXT NOT NULL,
+                    room_record_id TEXT NOT NULL,
+                    month TEXT,
+                    year INTEGER,
+                    room_name TEXT,
+                    grand_total REAL,
+                    room_data_json TEXT,
+                    synced_at TEXT NOT NULL,
+                    PRIMARY KEY (source, room_record_id),
+                    UNIQUE (source, year, month, room_name)
+                )
+            """)
+            self.create_table("""
+                CREATE TABLE IF NOT EXISTS rental_records_cache (
+                    source TEXT NOT NULL,
+                    supabase_id TEXT,
+                    tenant_name TEXT,
+                    room_number TEXT,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    start_year INTEGER,
+                    start_month INTEGER,
+                    end_year INTEGER,
+                    end_month INTEGER,
+                    is_archived INTEGER DEFAULT 0,
+                    synced_at TEXT NOT NULL,
+                    PRIMARY KEY (source, supabase_id),
+                    UNIQUE (source, room_number, tenant_name, created_at)
                 )
             """)
             self.create_table("""
@@ -180,10 +223,15 @@ class DBManager:
             year = record.get("year")
             main_data = record.get("main_data") or {}
             grand_total = None
+            added_amount = None
             try:
                 grand_total = float(main_data.get("grand_total")) if main_data.get("grand_total") is not None else None
             except Exception:
                 grand_total = None
+            try:
+                added_amount = float(main_data.get("added_amount")) if main_data.get("added_amount") is not None else None
+            except Exception:
+                added_amount = None
 
             created_at = record.get("created_at")
             updated_at = record.get("updated_at")
@@ -196,12 +244,13 @@ class DBManager:
             self.execute_query(
                 """
                 INSERT INTO main_calculations_cache
-                    (source, record_id, month, year, grand_total, main_data_json, created_at, updated_at, synced_at)
+                    (source, record_id, month, year, grand_total, added_amount, main_data_json, created_at, updated_at, synced_at)
                 VALUES
-                    (:source, :record_id, :month, :year, :grand_total, :main_data_json, :created_at, :updated_at, :synced_at)
+                    (:source, :record_id, :month, :year, :grand_total, :added_amount, :main_data_json, :created_at, :updated_at, :synced_at)
                 ON CONFLICT(source, month, year) DO UPDATE SET
                     record_id=excluded.record_id,
                     grand_total=excluded.grand_total,
+                    added_amount=excluded.added_amount,
                     main_data_json=excluded.main_data_json,
                     created_at=COALESCE(excluded.created_at, main_calculations_cache.created_at),
                     updated_at=COALESCE(excluded.updated_at, main_calculations_cache.updated_at),
@@ -213,12 +262,347 @@ class DBManager:
                     "month": month,
                     "year": year,
                     "grand_total": grand_total,
+                    "added_amount": added_amount,
                     "main_data_json": main_data_json,
                     "created_at": created_at,
                     "updated_at": updated_at,
                     "synced_at": now_iso,
                 },
             )
+
+    def upsert_room_calculations_cache(self, entries: list[dict], source: str = "supabase") -> None:
+        if not entries:
+            return
+
+        now_iso = datetime.utcnow().isoformat()
+        for e in entries:
+            room_record_id = e.get("room_record_id")
+            main_record_id = e.get("main_record_id")
+            if room_record_id is None or main_record_id is None:
+                continue
+
+            month = e.get("month")
+            year = e.get("year")
+            room_name = e.get("room_name")
+            grand_total = e.get("grand_total")
+            room_data = e.get("room_data") or {}
+
+            try:
+                room_data_json = json.dumps(room_data, ensure_ascii=False)
+            except Exception:
+                room_data_json = None
+
+            try:
+                grand_total_val = float(grand_total) if grand_total is not None else None
+            except Exception:
+                grand_total_val = None
+
+            self.execute_query(
+                """
+                INSERT INTO room_calculations_cache
+                    (source, main_record_id, room_record_id, month, year, room_name, grand_total, room_data_json, synced_at)
+                VALUES
+                    (:source, :main_record_id, :room_record_id, :month, :year, :room_name, :grand_total, :room_data_json, :synced_at)
+                ON CONFLICT(source, year, month, room_name) DO UPDATE SET
+                    main_record_id=excluded.main_record_id,
+                    room_record_id=excluded.room_record_id,
+                    grand_total=excluded.grand_total,
+                    room_data_json=excluded.room_data_json,
+                    synced_at=excluded.synced_at
+                """,
+                {
+                    "source": source,
+                    "main_record_id": str(main_record_id),
+                    "room_record_id": str(room_record_id),
+                    "month": month,
+                    "year": year,
+                    "room_name": room_name,
+                    "grand_total": grand_total_val,
+                    "room_data_json": room_data_json,
+                    "synced_at": now_iso,
+                },
+            )
+
+    def upsert_rental_records_cache(self, records: list[dict], source: str = "supabase") -> None:
+        if not records:
+            return
+
+        now_iso = datetime.utcnow().isoformat()
+        for r in records:
+            supabase_id = r.get("supabase_id") or r.get("id")
+            if not supabase_id:
+                continue
+
+            self.execute_query(
+                """
+                INSERT INTO rental_records_cache
+                    (source, supabase_id, tenant_name, room_number, created_at, updated_at, start_year, start_month, end_year, end_month, is_archived, synced_at)
+                VALUES
+                    (:source, :supabase_id, :tenant_name, :room_number, :created_at, :updated_at, :start_year, :start_month, :end_year, :end_month, :is_archived, :synced_at)
+                ON CONFLICT(source, supabase_id) DO UPDATE SET
+                    tenant_name=excluded.tenant_name,
+                    room_number=excluded.room_number,
+                    created_at=COALESCE(excluded.created_at, rental_records_cache.created_at),
+                    updated_at=COALESCE(excluded.updated_at, rental_records_cache.updated_at),
+                    start_year=excluded.start_year,
+                    start_month=excluded.start_month,
+                    end_year=excluded.end_year,
+                    end_month=excluded.end_month,
+                    is_archived=excluded.is_archived,
+                    synced_at=excluded.synced_at
+                """,
+                {
+                    "source": source,
+                    "supabase_id": str(supabase_id),
+                    "tenant_name": r.get("tenant_name"),
+                    "room_number": r.get("room_number"),
+                    "created_at": r.get("created_at"),
+                    "updated_at": r.get("updated_at"),
+                    "start_year": r.get("start_year"),
+                    "start_month": r.get("start_month"),
+                    "end_year": r.get("end_year"),
+                    "end_month": r.get("end_month"),
+                    "is_archived": int(r.get("is_archived") or 0),
+                    "synced_at": now_iso,
+                },
+            )
+
+    def get_cached_rooms(self, year: int, source: str = "supabase") -> list[str]:
+        rows = self.execute_query(
+            """
+            SELECT DISTINCT room_name
+            FROM room_calculations_cache
+            WHERE source = ? AND year = ? AND room_name IS NOT NULL
+            ORDER BY room_name
+            """,
+            (source, int(year)),
+        )
+        return [str(r["room_name"]) for r in rows] if rows else []
+
+    def get_cached_monthly_room_totals(self, year: int, room_name: str, source: str = "supabase") -> dict[str, float | None]:
+        rows = self.execute_query(
+            """
+            SELECT month, grand_total
+            FROM room_calculations_cache
+            WHERE source = ? AND year = ? AND room_name = ?
+            """,
+            (source, int(year), str(room_name)),
+        )
+        out: dict[str, float | None] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                v = r["grand_total"]
+                if v is None:
+                    out[str(m)] = None
+                else:
+                    try:
+                        out[str(m)] = float(v)
+                    except Exception:
+                        out[str(m)] = None
+        return out
+
+    def get_cached_monthly_room_unit_bills(self, year: int, room_name: str, source: str = "supabase") -> dict[str, float | None]:
+        rows = self.execute_query(
+            """
+            SELECT month, room_data_json
+            FROM room_calculations_cache
+            WHERE source = ? AND year = ? AND room_name = ?
+            """,
+            (source, int(year), str(room_name)),
+        )
+        out: dict[str, float | None] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                try:
+                    room_data = json.loads(r["room_data_json"] or "{}")
+                except Exception:
+                    room_data = {}
+                v = room_data.get("unit_bill")
+                if v is None:
+                    out[str(m)] = None
+                else:
+                    try:
+                        out[str(m)] = float(v)
+                    except Exception:
+                        out[str(m)] = None
+        return out
+
+    def get_cached_monthly_room_water_bills(self, year: int, room_name: str, source: str = "supabase") -> dict[str, float | None]:
+        rows = self.execute_query(
+            """
+            SELECT month, room_data_json
+            FROM room_calculations_cache
+            WHERE source = ? AND year = ? AND room_name = ?
+            """,
+            (source, int(year), str(room_name)),
+        )
+        out: dict[str, float | None] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                try:
+                    room_data = json.loads(r["room_data_json"] or "{}")
+                except Exception:
+                    room_data = {}
+                v = room_data.get("water_bill")
+                if v is None:
+                    out[str(m)] = None
+                else:
+                    try:
+                        out[str(m)] = float(v)
+                    except Exception:
+                        out[str(m)] = None
+        return out
+
+    def get_cached_monthly_owner_added_amounts(self, year: int, source: str = "supabase") -> dict[str, float | None]:
+        rows = self.execute_query(
+            """
+            SELECT month, added_amount
+            FROM main_calculations_cache
+            WHERE source = ? AND year = ?
+            """,
+            (source, int(year)),
+        )
+        out: dict[str, float | None] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                v = r["added_amount"]
+                if v is None:
+                    out[str(m)] = None
+                else:
+                    try:
+                        out[str(m)] = float(v)
+                    except Exception:
+                        out[str(m)] = None
+        return out
+
+    def get_cached_monthly_owner_unit_bills(self, year: int, source: str = "supabase") -> dict[str, float | None]:
+        main_rows = self.execute_query(
+            """
+            SELECT month, main_data_json
+            FROM main_calculations_cache
+            WHERE source = ? AND year = ?
+            """,
+            (source, int(year)),
+        )
+        main_by_month: dict[str, dict] = {}
+        if main_rows:
+            for r in main_rows:
+                m = r["month"]
+                if not m:
+                    continue
+                try:
+                    main_by_month[str(m)] = json.loads(r["main_data_json"] or "{}")
+                except Exception:
+                    main_by_month[str(m)] = {}
+
+        room_rows = self.execute_query(
+            """
+            SELECT month, room_data_json
+            FROM room_calculations_cache
+            WHERE source = ? AND year = ?
+            """,
+            (source, int(year)),
+        )
+        sums: dict[str, dict[str, float]] = {}
+        if room_rows:
+            for r in room_rows:
+                m = r["month"]
+                if not m:
+                    continue
+                mm = str(m)
+                if mm not in sums:
+                    sums[mm] = {"water": 0.0, "unit": 0.0}
+                try:
+                    room_data = json.loads(r["room_data_json"] or "{}")
+                except Exception:
+                    room_data = {}
+                try:
+                    sums[mm]["water"] += float(room_data.get("water_bill") or 0.0)
+                except Exception:
+                    pass
+                try:
+                    sums[mm]["unit"] += float(room_data.get("unit_bill") or 0.0)
+                except Exception:
+                    pass
+
+        out: dict[str, float | None] = {}
+        for month, main_data in main_by_month.items():
+            try:
+                total_unit_cost = float(main_data.get("total_unit_cost"))
+            except Exception:
+                total_unit_cost = None
+            if total_unit_cost is None:
+                out[month] = None
+                continue
+            month_sums = sums.get(month)
+            if not month_sums:
+                out[month] = None
+                continue
+            out[month] = float(total_unit_cost) - (float(month_sums["water"]) + float(month_sums["unit"]))
+        return out
+
+    def get_cached_monthly_per_unit_cost(self, year: int, source: str = "supabase") -> dict[str, float | None]:
+        rows = self.execute_query(
+            """
+            SELECT month, main_data_json
+            FROM main_calculations_cache
+            WHERE source = ? AND year = ?
+            """,
+            (source, int(year)),
+        )
+        out: dict[str, float | None] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                try:
+                    main_data = json.loads(r["main_data_json"] or "{}")
+                except Exception:
+                    main_data = {}
+                v = main_data.get("per_unit_cost")
+                if v is None:
+                    out[str(m)] = None
+                else:
+                    try:
+                        out[str(m)] = float(v)
+                    except Exception:
+                        out[str(m)] = None
+        return out
+
+    def get_rental_records_for_room(self, room_number: str) -> list[sqlite3.Row]:
+        rows = self.execute_query(
+            """
+            SELECT tenant_name, room_number, created_at, updated_at, is_archived
+            FROM rental_records_cache
+            WHERE room_number = ?
+            ORDER BY created_at
+            """,
+            (str(room_number),),
+        )
+        if rows:
+            return rows
+        return self.execute_query(
+            """
+            SELECT tenant_name, room_number, created_at, updated_at, is_archived
+            FROM rentals
+            WHERE room_number = ?
+            ORDER BY created_at
+            """,
+            (str(room_number),),
+        ) or []
 
     def get_cached_years(self, source: str = "supabase") -> list[int]:
         rows = self.execute_query(
