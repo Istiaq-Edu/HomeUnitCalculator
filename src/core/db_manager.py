@@ -582,6 +582,40 @@ class DBManager:
                         out[str(m)] = None
         return out
 
+    def get_cached_monthly_total_electricity_bills(self, year: int, source: str = "supabase") -> dict[str, float | None]:
+        """Return total electricity (unit) bill for the entire building per month.
+
+        Reads ``total_unit_cost`` from ``main_calculations_cache.main_data_json``.
+        Returns a ``dict`` mapping month-name string → float (or None if missing).
+        """
+        rows = self.execute_query(
+            """
+            SELECT month, main_data_json
+            FROM main_calculations_cache
+            WHERE source = ? AND year = ?
+            """,
+            (source, int(year)),
+        )
+        out: dict[str, float | None] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                try:
+                    main_data = json.loads(r["main_data_json"] or "{}")
+                except Exception:
+                    main_data = {}
+                v = main_data.get("total_unit_cost")
+                if v is None:
+                    out[str(m)] = None
+                else:
+                    try:
+                        out[str(m)] = float(v)
+                    except Exception:
+                        out[str(m)] = None
+        return out
+
     def get_rental_records_for_room(self, room_number: str) -> list[sqlite3.Row]:
         rows = self.execute_query(
             """

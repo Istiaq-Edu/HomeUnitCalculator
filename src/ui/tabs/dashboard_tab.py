@@ -310,6 +310,9 @@ class DashboardTab(QWidget):
         self._rate_chart_view = None
         self._rate_chart_widget = None
         self._rate_qtchart = None
+        self._elec_chart_view = None
+        self._elec_chart_widget = None
+        self._elec_qtchart = None
         self._rate_series = None
         self._rate_axis_y = None
         self._rate_axis_x = None
@@ -323,6 +326,7 @@ class DashboardTab(QWidget):
         self._owner_room_axis_y = None
         self._supabase_poll_tries = 0
         self._supabase_poll_timer = None
+        self._years_fetched_from_supabase_this_session = False
         self._current_values = [0.0] * 12
         self._current_tooltips = [""] * 12
         self._owner_room_values = [0.0] * 12
@@ -394,7 +398,7 @@ class DashboardTab(QWidget):
         self._supabase_poll_timer.start()
 
     def _poll_supabase_years(self):
-        if self.year_combo.isEnabled() and self.year_combo.count() > 0:
+        if self._years_fetched_from_supabase_this_session and self.year_combo.isEnabled() and self.year_combo.count() > 0:
             self._supabase_poll_timer.stop()
             return
 
@@ -541,6 +545,81 @@ class DashboardTab(QWidget):
         rate_layout.addLayout(rate_stats_row, 1)
 
         page_layout.addWidget(rate_card)
+
+        elec_card = StaticCardWidget(self)
+        elec_card.setObjectName("electricityBillCard")
+        elec_card.setStyleSheet("""
+            CardWidget#electricityBillCard {
+                border-radius: 12px;
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+            }
+        """)
+        elec_layout = QVBoxLayout(elec_card)
+        elec_layout.setContentsMargins(6, 6, 6, 6)
+        elec_layout.setSpacing(6)
+
+        elec_top = QHBoxLayout()
+        elec_icon = IconWidget(FluentIcon.SPEED_HIGH)
+        elec_icon.setFixedSize(18, 18)
+        elec_top.addWidget(elec_icon)
+        elec_header = TitleLabel("Total Electricity Bill")
+        elec_header.setStyleSheet("font-size: 22px; font-weight: 800; color: #0078D4;")
+        elec_top.addWidget(elec_header)
+        elec_hint = CaptionLabel("Hover points to see details")
+        elec_hint.setTextColor(QColor(160, 160, 160) if isDarkTheme() else QColor(110, 110, 110))
+        elec_top.addWidget(elec_hint)
+        elec_top.addStretch(1)
+
+        self.elec_year_combo = ComboBox()
+        self.elec_year_combo.setMinimumWidth(110)
+        self.elec_year_combo.currentIndexChanged.connect(self._on_elec_year_changed)
+        self.elec_year_combo.setToolTip("Years are fetched from Supabase and cached locally")
+        elec_top.addWidget(self.elec_year_combo)
+
+        self.elec_refresh_btn = PrimaryPushButton("Refresh")
+        self.elec_refresh_btn.setIcon(FluentIcon.SYNC.icon(color=QColor(255, 255, 255)))
+        self.elec_refresh_btn.setIconSize(QSize(20, 20))
+        self.elec_refresh_btn.setFixedHeight(40)
+        self.elec_refresh_btn.setMinimumHeight(40)
+        self.elec_refresh_btn.setStyleSheet(refresh_css)
+        self.elec_refresh_btn.clicked.connect(self._on_refresh_clicked)
+        self.elec_refresh_btn.setToolTip("Sync from Supabase and update local cache")
+        elec_top.addWidget(self.elec_refresh_btn)
+
+        elec_layout.addLayout(elec_top)
+
+        elec_divider = QFrame()
+        elec_divider.setFixedHeight(2)
+        elec_divider.setStyleSheet("background-color: #0078D4; border: none; margin: 2px 16px;")
+        elec_layout.addWidget(elec_divider)
+
+        elec_meta_row = QHBoxLayout()
+        self.elec_meta_label = CaptionLabel("")
+        self.elec_meta_label.setTextColor(QColor(170, 170, 170) if isDarkTheme() else QColor(110, 110, 110))
+        elec_meta_row.addWidget(self.elec_meta_label)
+        elec_meta_row.addStretch(1)
+        elec_layout.addLayout(elec_meta_row)
+
+        self._elec_chart_widget = self._create_elec_chart_widget()
+        elec_stats_row = QHBoxLayout()
+        elec_stats_row.setSpacing(14)
+        elec_kpi_col = QVBoxLayout()
+        elec_kpi_col.setSpacing(12)
+        self.elec_kpi_current = self._create_kpi_card("Current Month")
+        self.elec_kpi_prev = self._create_kpi_card("Previous Month")
+        self.elec_kpi_high = self._create_kpi_card("Highest Month")
+        self.elec_kpi_low = self._create_kpi_card("Lowest Month")
+        elec_kpi_col.addWidget(self.elec_kpi_current)
+        elec_kpi_col.addWidget(self.elec_kpi_prev)
+        elec_kpi_col.addWidget(self.elec_kpi_high)
+        elec_kpi_col.addWidget(self.elec_kpi_low)
+        elec_kpi_col.addStretch(1)
+        elec_stats_row.addLayout(elec_kpi_col, 0)
+        elec_stats_row.addWidget(self._elec_chart_widget, 1)
+        elec_layout.addLayout(elec_stats_row, 1)
+
+        page_layout.addWidget(elec_card)
 
         card = StaticCardWidget(self)
         card.setObjectName("yearlyBillCard")
@@ -807,6 +886,73 @@ class DashboardTab(QWidget):
         self._rate_series = []
         self._rate_chart_view.setChart(chart)
 
+    def _create_elec_chart_widget(self):
+        try:
+            from PyQt5.QtChart import QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis
+
+            self._elec_qtchart = (QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis)
+            view = QChartView()
+            view.setRenderHint(QPainter.Antialiasing)
+            view.setMinimumHeight(320)
+            view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self._elec_chart_view = view
+            self._init_elec_qtchart()
+            return view
+        except Exception:
+            self._elec_qtchart = None
+            return SimpleLineChartWidget(self)
+
+    def _init_elec_qtchart(self):
+        QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis = self._elec_qtchart
+
+        chart = QChart()
+        chart.legend().setVisible(False)
+        chart.setBackgroundBrush(QColor(43, 43, 43))
+        chart.setMargins(QMargins(20, 4, 12, 34))
+        try:
+            chart.layout().setContentsMargins(20, 4, 12, 34)
+        except Exception:
+            pass
+        chart.setAnimationOptions(QChart.SeriesAnimations)
+        chart.setAnimationDuration(550)
+
+        axis_x = QCategoryAxis()
+        for i, m in enumerate(MONTHS):
+            axis_x.append(m[:3], i + 1)
+        axis_x.setRange(0.0, 13.0)
+        axis_x.setLabelsColor(QColor(220, 220, 220))
+        axis_x.setGridLineVisible(False)
+        axis_x.setLinePen(QPen(QColor(95, 95, 95), 1))
+        axis_x.setLabelsAngle(-35)
+        try:
+            f = axis_x.labelsFont()
+            f.setPointSize(9)
+            axis_x.setLabelsFont(f)
+        except Exception:
+            pass
+
+        axis_y = QValueAxis()
+        axis_y.setLabelsColor(QColor(220, 220, 220))
+        axis_y.setGridLinePen(QPen(QColor(80, 80, 80), 1, Qt.DashLine))
+        axis_y.setMinorGridLineColor(QColor(60, 60, 60))
+        axis_y.setMin(0.0)
+        axis_y.setMax(1.0)
+        axis_y.setLabelFormat("TK %.0f")
+        axis_y.setTickCount(6)
+        try:
+            axis_y.setTitleText("Total Electricity Bill (TK)")
+            axis_y.setTitleBrush(QColor(220, 220, 220))
+        except Exception:
+            pass
+
+        chart.addAxis(axis_x, Qt.AlignBottom)
+        chart.addAxis(axis_y, Qt.AlignLeft)
+
+        self._elec_axis_y = axis_y
+        self._elec_axis_x = axis_x
+        self._elec_series = []
+        self._elec_chart_view.setChart(chart)
+
     def _init_qtchart(self):
         QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis = self._qtchart
 
@@ -1071,32 +1217,77 @@ class DashboardTab(QWidget):
             except Exception:
                 years = []
 
+        current_year_str = str(datetime.now().year)
+
+        self.year_combo.blockSignals(True)
         self.year_combo.clear()
         if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
+            self.rate_year_combo.blockSignals(True)
             self.rate_year_combo.clear()
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            self.elec_year_combo.blockSignals(True)
+            self.elec_year_combo.clear()
+        self.owner_room_year_combo.blockSignals(True)
         self.owner_room_year_combo.clear()
         if years:
             for y in years:
                 self.year_combo.addItem(str(y))
                 if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
                     self.rate_year_combo.addItem(str(y))
+                if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+                    self.elec_year_combo.addItem(str(y))
                 self.owner_room_year_combo.addItem(str(y))
             self.year_combo.setEnabled(True)
             if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
                 self.rate_year_combo.setEnabled(True)
+            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+                self.elec_year_combo.setEnabled(True)
             self.owner_room_year_combo.setEnabled(True)
+            # Default each combo to current year; fall back to most recent (index 0, DESC)
+            if self.year_combo.findText(current_year_str) >= 0:
+                self.year_combo.setCurrentText(current_year_str)
+            else:
+                self.year_combo.setCurrentIndex(0)
+            if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
+                if self.rate_year_combo.findText(current_year_str) >= 0:
+                    self.rate_year_combo.setCurrentText(current_year_str)
+                else:
+                    self.rate_year_combo.setCurrentIndex(0)
+            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+                if self.elec_year_combo.findText(current_year_str) >= 0:
+                    self.elec_year_combo.setCurrentText(current_year_str)
+                else:
+                    self.elec_year_combo.setCurrentIndex(0)
+            if self.owner_room_year_combo.findText(current_year_str) >= 0:
+                self.owner_room_year_combo.setCurrentText(current_year_str)
+            else:
+                self.owner_room_year_combo.setCurrentIndex(0)
         else:
             self.year_combo.addItem("No years")
             self.year_combo.setEnabled(False)
             if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
                 self.rate_year_combo.addItem("No years")
                 self.rate_year_combo.setEnabled(False)
+            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+                self.elec_year_combo.addItem("No years")
+                self.elec_year_combo.setEnabled(False)
             self.owner_room_year_combo.addItem("No years")
             self.owner_room_year_combo.setEnabled(False)
+        self.year_combo.blockSignals(False)
+        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
+            self.rate_year_combo.blockSignals(False)
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            self.elec_year_combo.blockSignals(False)
+        self.owner_room_year_combo.blockSignals(False)
 
         if years:
-            self._render_year_from_cache(years[0])
-            self._render_owner_room_from_cache(years[0])
+            # Render each section from its own combo's selected year
+            bill_year_str = self.year_combo.currentText()
+            bill_year = int(bill_year_str) if bill_year_str.isdigit() else years[0]
+            owner_year_str = self.owner_room_year_combo.currentText()
+            owner_year = int(owner_year_str) if owner_year_str.isdigit() else years[0]
+            self._render_year_from_cache(bill_year)
+            self._render_owner_room_from_cache(owner_year)
         else:
             self._set_status("No cached years yet.")
             self._render_values([0.0] * 12)
@@ -1119,6 +1310,7 @@ class DashboardTab(QWidget):
         self._years_worker.start()
 
     def _on_years_fetched(self, years: list):
+        self._years_fetched_from_supabase_this_session = True
         years_int = []
         for y in years or []:
             try:
@@ -1131,49 +1323,63 @@ class DashboardTab(QWidget):
             self._set_status("No years found in Supabase.")
             return
 
-        current = self.year_combo.currentText()
-        current_rate = self.rate_year_combo.currentText() if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None else ""
-        current_owner_room = self.owner_room_year_combo.currentText()
+        current_year_str = str(datetime.now().year)
+        years_str = [str(y) for y in years_int]
+
         self.year_combo.blockSignals(True)
         self.year_combo.clear()
         if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
             self.rate_year_combo.blockSignals(True)
             self.rate_year_combo.clear()
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            self.elec_year_combo.blockSignals(True)
+            self.elec_year_combo.clear()
         self.owner_room_year_combo.blockSignals(True)
         self.owner_room_year_combo.clear()
         for y in years_int:
             self.year_combo.addItem(str(y))
             if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
                 self.rate_year_combo.addItem(str(y))
+            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+                self.elec_year_combo.addItem(str(y))
             self.owner_room_year_combo.addItem(str(y))
         self.year_combo.setEnabled(True)
         if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
             self.rate_year_combo.setEnabled(True)
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            self.elec_year_combo.setEnabled(True)
         self.owner_room_year_combo.setEnabled(True)
+        # Default each combo to current year; fall back to most recent (index 0, DESC)
+        if current_year_str in years_str:
+            self.year_combo.setCurrentText(current_year_str)
+        else:
+            self.year_combo.setCurrentIndex(0)
+        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
+            if current_year_str in years_str:
+                self.rate_year_combo.setCurrentText(current_year_str)
+            else:
+                self.rate_year_combo.setCurrentIndex(0)
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            if current_year_str in years_str:
+                self.elec_year_combo.setCurrentText(current_year_str)
+            else:
+                self.elec_year_combo.setCurrentIndex(0)
+        if current_year_str in years_str:
+            self.owner_room_year_combo.setCurrentText(current_year_str)
+        else:
+            self.owner_room_year_combo.setCurrentIndex(0)
         self.year_combo.blockSignals(False)
         if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
             self.rate_year_combo.blockSignals(False)
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            self.elec_year_combo.blockSignals(False)
         self.owner_room_year_combo.blockSignals(False)
 
-        if current and current in [str(y) for y in years_int]:
-            self.year_combo.setCurrentText(current)
-            selected_year = int(current)
-        else:
-            self.year_combo.setCurrentIndex(0)
-            selected_year = years_int[0]
-
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            if current_rate and current_rate in [str(y) for y in years_int]:
-                self.rate_year_combo.setCurrentText(current_rate)
-            else:
-                self.rate_year_combo.setCurrentText(str(selected_year))
-
-        if current_owner_room and current_owner_room in [str(y) for y in years_int]:
-            self.owner_room_year_combo.setCurrentText(current_owner_room)
-            selected_owner_room_year = int(current_owner_room)
-        else:
-            self.owner_room_year_combo.setCurrentText(str(selected_year))
-            selected_owner_room_year = selected_year
+        # Determine the selected years from each combo for initial sync
+        bill_year_str = self.year_combo.currentText()
+        selected_year = int(bill_year_str) if bill_year_str.isdigit() else years_int[0]
+        owner_year_str = self.owner_room_year_combo.currentText()
+        selected_owner_room_year = int(owner_year_str) if owner_year_str.isdigit() else years_int[0]
 
         self._set_status("")
         self._sync_year_async(selected_year)
@@ -1186,7 +1392,16 @@ class DashboardTab(QWidget):
             self._set_status(msg)
 
     def _on_refresh_clicked(self):
-        year = self._selected_year()
+        sender = self.sender()
+        # Determine which button triggered the refresh and use that section's year
+        if sender == self.rate_refresh_btn and hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
+            t = self.rate_year_combo.currentText().strip()
+            year = int(t) if t.isdigit() else None
+        elif sender == self.elec_refresh_btn and hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            t = self.elec_year_combo.currentText().strip()
+            year = int(t) if t.isdigit() else None
+        else:
+            year = self._selected_year()
         if year is None:
             self._refresh_years_from_supabase_async()
             return
@@ -1205,12 +1420,7 @@ class DashboardTab(QWidget):
         year = self._selected_year()
         if year is None:
             return
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            t = self.year_combo.currentText().strip()
-            if t and self.rate_year_combo.currentText().strip() != t:
-                self.rate_year_combo.blockSignals(True)
-                self.rate_year_combo.setCurrentText(t)
-                self.rate_year_combo.blockSignals(False)
+        # Only render the yearly total bill section (no cross-combo sync)
         self._render_year_from_cache(year)
         self._sync_year_async(year)
 
@@ -1220,15 +1430,26 @@ class DashboardTab(QWidget):
         t = self.rate_year_combo.currentText().strip()
         if not t or t == "No years":
             return
-        if hasattr(self, "year_combo") and self.year_combo is not None:
-            if self.year_combo.currentText().strip() != t:
-                self.year_combo.blockSignals(True)
-                self.year_combo.setCurrentText(t)
-                self.year_combo.blockSignals(False)
-        year = self._selected_year()
-        if year is None:
+        try:
+            year = int(t)
+        except Exception:
             return
-        self._render_year_from_cache(year)
+        # Only render the rate section (no cross-combo sync)
+        self._render_rate_from_cache(year)
+        self._sync_year_async(year)
+
+    def _on_elec_year_changed(self, index: int):
+        if not hasattr(self, "elec_year_combo") or self.elec_year_combo is None:
+            return
+        t = self.elec_year_combo.currentText().strip()
+        if not t or t == "No years":
+            return
+        try:
+            year = int(t)
+        except Exception:
+            return
+        # Only render the electricity section (no cross-combo sync)
+        self._render_elec_from_cache(year)
         self._sync_year_async(year)
 
     def _sync_year_async(self, year: int):
@@ -1248,6 +1469,7 @@ class DashboardTab(QWidget):
 
     def _on_sync_finished(self, year: int):
         self._set_status("")
+        # Refresh all sections using their own combo's selected year
         self._render_year_from_cache(year)
 
     def _on_sync_error(self, msg: str):
@@ -1269,7 +1491,17 @@ class DashboardTab(QWidget):
             values.append(float(totals.get(m, 0.0) or 0.0))
         self._update_meta(year)
         self._render_values(values)
-        self._render_rate_from_cache(year)
+        # When called during global refresh, render rate/elec using their own combo years
+        # Read rate combo year
+        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
+            rate_year_str = self.rate_year_combo.currentText()
+            rate_year = int(rate_year_str) if rate_year_str.isdigit() else year
+            self._render_rate_from_cache(rate_year)
+        # Read elec combo year
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            elec_year_str = self.elec_year_combo.currentText()
+            elec_year = int(elec_year_str) if elec_year_str.isdigit() else year
+            self._render_elec_from_cache(elec_year)
 
     def _render_values(self, values: list[float]):
         values = (values or [])[:12]
@@ -1379,6 +1611,99 @@ class DashboardTab(QWidget):
         if min_idx is not None:
             self.rate_kpi_low.setToolTip(f"Lowest per unit cost in {year}: {MONTHS[min_idx]}")
 
+    def _render_elec_from_cache(self, year: int):
+        bills = {}
+        if self.db_manager and hasattr(self.db_manager, "get_cached_monthly_total_electricity_bills"):
+            try:
+                bills = self.db_manager.get_cached_monthly_total_electricity_bills(year, source="supabase")
+            except Exception:
+                bills = {}
+
+        raw = []
+        vals = []
+        tips = []
+        for i, m in enumerate(MONTHS):
+            v = bills.get(m)
+            if v is None:
+                raw.append(None)
+                vals.append(0.0)
+                tips.append(f"{m}\nTotal Elec. Bill: —")
+            else:
+                try:
+                    fv = float(v)
+                except Exception:
+                    fv = None
+                raw.append(fv)
+                vals.append(float(fv or 0.0))
+                tips.append(f"{m}\nTotal Elec. Bill: TK {fv:,.2f}" if fv is not None else f"{m}\nTotal Elec. Bill: —")
+
+        self._elec_raw_values = raw[:12]
+        self._elec_values = vals[:12]
+        self._elec_tooltips = tips[:12]
+        self._update_elec_kpis(self._elec_raw_values)
+
+        if hasattr(self, "_elec_qtchart") and self._elec_qtchart:
+            self._apply_qt_line_chart(
+                chart_view=self._elec_chart_view,
+                axis_x=self._elec_axis_x,
+                axis_y=self._elec_axis_y,
+                series_attr="_elec_series",
+                raw_values=self._elec_raw_values,
+                tooltips=self._elec_tooltips,
+            )
+            return
+
+        if isinstance(self._elec_chart_widget, SimpleLineChartWidget):
+            self._elec_chart_widget.set_data(MONTHS, self._elec_values, tooltips=self._elec_tooltips)
+
+    def _update_elec_kpis(self, raw_values: list[float | None]):
+        year = int(getattr(self, "_active_year", datetime.now().year))
+        now = datetime.now()
+
+        current_idx = 11
+        prev_idx = 10
+        if year == now.year:
+            current_idx = max(0, min(11, now.month - 1))
+            prev_idx = max(0, current_idx - 1)
+        else:
+            present = [i for i, v in enumerate(raw_values or []) if v is not None]
+            if present:
+                current_idx = present[-1]
+                prev_present = [i for i in present if i < current_idx]
+                prev_idx = prev_present[-1] if prev_present else max(0, current_idx - 1)
+
+        cv = raw_values[current_idx] if 0 <= current_idx < len(raw_values) else None
+        pv = raw_values[prev_idx] if 0 <= prev_idx < len(raw_values) else None
+
+        def _fmt_elec(v: float | None) -> str:
+            if v is None:
+                return "—"
+            try:
+                return f"TK {float(v):,.0f}"
+            except Exception:
+                return "—"
+
+        self.elec_kpi_current._kpi_value_label.setText(f"{MONTHS[current_idx][:3]} · {_fmt_elec(cv)}")
+        self.elec_kpi_prev._kpi_value_label.setText(f"{MONTHS[prev_idx][:3]} · {_fmt_elec(pv)}")
+
+        consider = [i for i, v in enumerate(raw_values or []) if v is not None]
+        max_idx = max(consider, key=lambda i: float(raw_values[i] or 0.0)) if consider else None
+        min_idx = min(consider, key=lambda i: float(raw_values[i] or 0.0)) if consider else None
+
+        self.elec_kpi_high._kpi_value_label.setText(
+            f"{MONTHS[max_idx][:3]} · {_fmt_elec(raw_values[max_idx])}" if max_idx is not None else "—"
+        )
+        self.elec_kpi_low._kpi_value_label.setText(
+            f"{MONTHS[min_idx][:3]} · {_fmt_elec(raw_values[min_idx])}" if min_idx is not None else "—"
+        )
+
+        self.elec_kpi_current.setToolTip(f"Total electricity bill for {MONTHS[current_idx]} {year}")
+        self.elec_kpi_prev.setToolTip(f"Total electricity bill for {MONTHS[prev_idx]} {year}")
+        if max_idx is not None:
+            self.elec_kpi_high.setToolTip(f"Highest total electricity bill in {year}: {MONTHS[max_idx]}")
+        if min_idx is not None:
+            self.elec_kpi_low.setToolTip(f"Lowest total electricity bill in {year}: {MONTHS[min_idx]}")
+
     def _build_tooltips(self, values: list[float]) -> list[str]:
         out = []
         for i, m in enumerate(MONTHS):
@@ -1458,11 +1783,15 @@ class DashboardTab(QWidget):
             self.meta_label.setText(text)
             if hasattr(self, "rate_meta_label"):
                 self.rate_meta_label.setText(text)
+            if hasattr(self, "elec_meta_label"):
+                self.elec_meta_label.setText(text)
         else:
             text = "Source: Supabase Cache"
             self.meta_label.setText(text)
             if hasattr(self, "rate_meta_label"):
                 self.rate_meta_label.setText(text)
+            if hasattr(self, "elec_meta_label"):
+                self.elec_meta_label.setText(text)
 
     def _set_owner_room_status(self, text: str):
         t = (text or "").strip()
