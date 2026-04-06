@@ -2,7 +2,7 @@ import os
 import sqlite3
 import json
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from src.core.encryption_utils import EncryptionUtil
 from src.core.utils import get_user_data_dir
 
@@ -35,7 +35,7 @@ class DBManager:
 
     @staticmethod
     def _utc_now_iso() -> str:
-        return datetime.now(UTC).isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
     def _connect(self):
         """Establishes a connection to the SQLite database."""
