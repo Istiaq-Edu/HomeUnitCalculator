@@ -1495,12 +1495,24 @@ class MeterCalculationApp(FluentWindow):
             default=0,
         )
 
-        # Account for icon space, left/right padding, selection indicator, and margin.
-        target_width = max(148, min(182, max_text_width + 70))
+        # Account for icon space, item padding, selection indicator, and margin,
+        # but keep the rail as compact as possible while fitting the longest label.
+        target_width = max(156, min(176, max_text_width + 58))
 
-        self.navigationInterface.setMinimumWidth(target_width)
-        self.navigationInterface.setMaximumWidth(target_width)
-        self.navigationInterface.resize(target_width, self.navigationInterface.height())
+        if hasattr(self.navigationInterface, "setExpandWidth"):
+            self.navigationInterface.setExpandWidth(target_width)
+        else:
+            self.navigationInterface.setMinimumWidth(target_width)
+            self.navigationInterface.setMaximumWidth(target_width)
+            self.navigationInterface.resize(
+                target_width, self.navigationInterface.height()
+            )
+
+        if hasattr(self.navigationInterface, "setCollapsible"):
+            self.navigationInterface.setCollapsible(False)
+
+        if hasattr(self.navigationInterface, "setMenuButtonVisible"):
+            self.navigationInterface.setMenuButtonVisible(False)
 
     def on_current_interface_changed(self, index):
         """Handle tab change: set focus appropriately."""
