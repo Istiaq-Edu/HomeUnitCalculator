@@ -26,7 +26,7 @@ except ImportError:
 
 import logging
 from PyQt5.QtCore import Qt, QEvent, QSize, QTimer
-from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
+from PyQt5.QtGui import QFont, QFontMetrics, QIcon, QColor, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QWidget,
@@ -1397,14 +1397,18 @@ class MeterCalculationApp(FluentWindow):
             "SupabaseId": "supabase",
         }
 
-        # Keep the nav rail narrower so the main content has more usable width
-        # without introducing a draggable persisted resize path.
-        self.navigationInterface.setMinimumWidth(180)
-        self.navigationInterface.setMaximumWidth(220)
-        self.navigationInterface.resize(220, self.navigationInterface.height())
-
         # Enable scroll policy for navigation interface content
         self.navigationInterface.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
+        navigation_labels = [
+            "Dashboard",
+            "Calculator",
+            "Room Calculations",
+            "Calculation History",
+            "Rental Info",
+            "Archived Info",
+            "Supabase Config",
+        ]
 
         self.addSubInterface(
             self._tab_interfaces["dashboard"], FluentIcon.HOME, "Dashboard"
@@ -1430,6 +1434,8 @@ class MeterCalculationApp(FluentWindow):
             "Supabase Config",
             position=NavigationItemPosition.BOTTOM,
         )
+
+        self._fit_navigation_width(navigation_labels)
 
         # Enable scroll area for navigation items if needed
         self._setup_navigation_scroll_area()
@@ -1481,6 +1487,20 @@ class MeterCalculationApp(FluentWindow):
         except Exception as e:
             # Silently continue if scroll area setup fails
             pass
+
+    def _fit_navigation_width(self, labels: list[str]):
+        metrics = QFontMetrics(self.navigationInterface.font() or self.font())
+        max_text_width = max(
+            (metrics.horizontalAdvance(label) for label in labels),
+            default=0,
+        )
+
+        # Account for icon space, left/right padding, selection indicator, and margin.
+        target_width = max(148, min(182, max_text_width + 70))
+
+        self.navigationInterface.setMinimumWidth(target_width)
+        self.navigationInterface.setMaximumWidth(target_width)
+        self.navigationInterface.resize(target_width, self.navigationInterface.height())
 
     def on_current_interface_changed(self, index):
         """Handle tab change: set focus appropriately."""
