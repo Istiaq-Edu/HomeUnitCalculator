@@ -1,12 +1,39 @@
-from PyQt5.QtCore import Qt, QEvent, QPoint, QTimer, QSize, QPropertyAnimation, QEasingCurve, pyqtSignal
+from PyQt5.QtCore import (
+    Qt,
+    QEvent,
+    QPoint,
+    QTimer,
+    QSize,
+    QPropertyAnimation,
+    QEasingCurve,
+    pyqtSignal,
+)
 from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor, QKeySequence
 from PyQt5.QtWidgets import (
-    QSizePolicy, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QScrollBar, 
-    QAbstractScrollArea, QShortcut, QApplication, QWidget, QDesktopWidget
+    QSizePolicy,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QScrollBar,
+    QAbstractScrollArea,
+    QShortcut,
+    QApplication,
+    QWidget,
+    QDesktopWidget,
 )
-from qfluentwidgets import LineEdit, ScrollArea, SpinBox, PushButton, TableWidget, SmoothMode
+from qfluentwidgets import (
+    LineEdit,
+    ScrollArea,
+    SpinBox,
+    PushButton,
+    TableWidget,
+    SmoothMode,
+)
 
 from src.core.utils import resource_path
+
 
 # Custom QLineEdit class for improved input handling and navigation
 class CustomLineEdit(LineEdit):
@@ -31,7 +58,7 @@ class CustomLineEdit(LineEdit):
         )
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         # Initialize next and previous widget references
-        self.next_widget_on_enter = None # For Enter/Return key
+        self.next_widget_on_enter = None  # For Enter/Return key
         self.up_widget = None
         self.down_widget = None
 
@@ -39,7 +66,9 @@ class CustomLineEdit(LineEdit):
         key = event.key()
 
         if key == Qt.Key_Left or key == Qt.Key_Right:
-            super().keyPressEvent(event) # Default QLineEdit behavior for Left/Right arrows
+            super().keyPressEvent(
+                event
+            )  # Default QLineEdit behavior for Left/Right arrows
             return
 
         target_widget = None
@@ -48,8 +77,10 @@ class CustomLineEdit(LineEdit):
         elif key == Qt.Key_Down:
             target_widget = self.down_widget or self.findNextWidget(forward=True)
         elif key in (Qt.Key_Return, Qt.Key_Enter):
-            target_widget = self.next_widget_on_enter or self.findNextWidget(forward=True)
-        
+            target_widget = self.next_widget_on_enter or self.findNextWidget(
+                forward=True
+            )
+
         if target_widget:
             target_widget.setFocus()
             event.accept()
@@ -59,7 +90,7 @@ class CustomLineEdit(LineEdit):
             # accept the event to prevent default Qt focus changes.
             event.accept()
             return
-        
+
         # For any other keys not handled above (e.g. character input, Tab, etc.)
         super().keyPressEvent(event)
 
@@ -75,7 +106,6 @@ class CustomLineEdit(LineEdit):
         if parent:
             parent.ensureWidgetVisible(self)
 
-
     def moveFocus(self, forward=True):
         current = self.focusWidget()
         if current:
@@ -89,7 +119,7 @@ class CustomLineEdit(LineEdit):
         parent_widget = self.parentWidget()
         if parent_widget is None:
             return None
-        
+
         widgets = []
         w = parent_widget.focusProxy() or parent_widget
         start = w
@@ -99,12 +129,12 @@ class CustomLineEdit(LineEdit):
             w = w.nextInFocusChain()
             if w is start:
                 break
-        
+
         try:
             current_index = widgets.index(self)
         except ValueError:
             return None
-        
+
         if not widgets:
             return None
 
@@ -112,8 +142,9 @@ class CustomLineEdit(LineEdit):
             next_index = (current_index + 1) % len(widgets)
         else:
             next_index = (current_index - 1 + len(widgets)) % len(widgets)
-        
+
         return widgets[next_index]
+
 
 # ------------------------------------------------------------------
 # LeftIconButton - composite widget to display an icon on the left and
@@ -124,6 +155,7 @@ from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
 from qfluentwidgets import PrimaryPushButton, BodyLabel, FluentIcon
 
+
 class LeftIconButton(QWidget):
     """A button that shows a Fluent icon in a fixed 20×20 area on the left
     and text inside a PrimaryPushButton on the right.  Exposes the
@@ -131,7 +163,9 @@ class LeftIconButton(QWidget):
     as a normal button.
     """
 
-    def __init__(self, icon: FluentIcon, text: str, color: str = "#2e7d32", parent=None):
+    def __init__(
+        self, icon: FluentIcon, text: str, color: str = "#2e7d32", parent=None
+    ):
         super().__init__(parent)
         self._icon = icon
         self.button = PrimaryPushButton(text)
@@ -146,13 +180,15 @@ class LeftIconButton(QWidget):
         button_font = self.button.font()
         icon_size = max(16, int(button_font.pointSize() * 1.2))  # Scale with font size
         self._icon_label.setPixmap(self._icon.icon().pixmap(icon_size, icon_size))
-        
+
         # Use proportional sizing instead of fixed size
         self._icon_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._icon_label.setMinimumWidth(icon_size + 6)  # Icon size + padding
         self._icon_label.setAlignment(Qt.AlignCenter)
         self._icon_label.setProperty("color", color)
-        self._icon_label.setStyleSheet(f"background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{{self._lighten(color, 1.1)}}}, stop:1 {{{self._lighten(color, 0.9)}}}); border-top-left-radius:4px;border-bottom-left-radius:4px;")
+        self._icon_label.setStyleSheet(
+            f"background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{{self._lighten(color, 1.1)}}}, stop:1 {{{self._lighten(color, 0.9)}}}); border-top-left-radius:4px;border-bottom-left-radius:4px;"
+        )
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -165,12 +201,15 @@ class LeftIconButton(QWidget):
     def clicked(self):
         """Qt signal of the inner button so you can do myBtn.clicked.connect(...)"""
         return self.button.clicked
+
     def setEnabled(self, enabled: bool):  # noqa: N802
         self.button.setEnabled(enabled)
 
     def setIconSize(self, size: QSize):  # noqa: N802
         # Update stored icon pixmap to requested size
-        self._icon_label.setPixmap(self._icon.icon().pixmap(size.width(), size.height()))
+        self._icon_label.setPixmap(
+            self._icon.icon().pixmap(size.width(), size.height())
+        )
 
     def setStyleSheet(self, style: str):  # noqa: N802
         # Proxy stylesheet to inner button
@@ -214,6 +253,7 @@ class LeftIconButton(QWidget):
                 color: #777;
             }}
         """
+
 
 # ------------------------------------------------------------------
 # Custom QScrollArea class with auto-scrolling functionality
@@ -259,7 +299,10 @@ class AutoScrollArea(ScrollArea):
                 if self._is_mouse_in_margin(QCursor.pos()):
                     if AutoScrollArea._active_scroller is None:
                         AutoScrollArea._active_scroller = self
-                    if AutoScrollArea._active_scroller == self and not self._scroll_timer.isActive():
+                    if (
+                        AutoScrollArea._active_scroller == self
+                        and not self._scroll_timer.isActive()
+                    ):
                         self._scroll_timer.start(self._SCROLL_INTERVAL_MS)
                 elif AutoScrollArea._active_scroller == self:
                     AutoScrollArea._active_scroller = None
@@ -267,23 +310,29 @@ class AutoScrollArea(ScrollArea):
             if AutoScrollArea._active_scroller == self:
                 AutoScrollArea._active_scroller = None
             self._scroll_timer.stop()
-        
+
         return super().eventFilter(obj, event)
 
     def _is_mouse_in_margin(self, global_pos):
         local_pos = self.mapFromGlobal(global_pos)
         rect = self.rect()
-        return (local_pos.y() < self.scroll_margin or
-                local_pos.y() > rect.height() - self.scroll_margin or
-                local_pos.x() < self.scroll_margin or
-                local_pos.x() > rect.width() - self.scroll_margin)
+        return (
+            local_pos.y() < self.scroll_margin
+            or local_pos.y() > rect.height() - self.scroll_margin
+            or local_pos.x() < self.scroll_margin
+            or local_pos.x() > rect.width() - self.scroll_margin
+        )
 
     def _perform_auto_scroll(self):
         if AutoScrollArea._active_scroller != self:
             self._scroll_timer.stop()
             return
 
-        if not self.widget() or not self.isVisible() or not self.window().isActiveWindow():
+        if (
+            not self.widget()
+            or not self.isVisible()
+            or not self.window().isActiveWindow()
+        ):
             self._scroll_timer.stop()
             if AutoScrollArea._active_scroller == self:
                 AutoScrollArea._active_scroller = None
@@ -303,20 +352,35 @@ class AutoScrollArea(ScrollArea):
 
         # Vertical scrolling
         if local_pos.y() < self.scroll_margin:
-            delta = max(1, int((self.scroll_margin - local_pos.y()) * self._SCROLL_SPEED_FACTOR))
+            delta = max(
+                1, int((self.scroll_margin - local_pos.y()) * self._SCROLL_SPEED_FACTOR)
+            )
             v_bar.setValue(v_bar.value() - delta)
         elif local_pos.y() > rect.height() - self.scroll_margin:
-            delta = max(1, int((local_pos.y() - (rect.height() - self.scroll_margin)) * self._SCROLL_SPEED_FACTOR))
+            delta = max(
+                1,
+                int(
+                    (local_pos.y() - (rect.height() - self.scroll_margin))
+                    * self._SCROLL_SPEED_FACTOR
+                ),
+            )
             v_bar.setValue(v_bar.value() + delta)
 
         # Horizontal scrolling
         if local_pos.x() < self.scroll_margin:
-            delta = max(1, int((self.scroll_margin - local_pos.x()) * self._SCROLL_SPEED_FACTOR))
+            delta = max(
+                1, int((self.scroll_margin - local_pos.x()) * self._SCROLL_SPEED_FACTOR)
+            )
             h_bar.setValue(h_bar.value() - delta)
         elif local_pos.x() > rect.width() - self.scroll_margin:
-            delta = max(1, int((local_pos.x() - (rect.width() - self.scroll_margin)) * self._SCROLL_SPEED_FACTOR))
+            delta = max(
+                1,
+                int(
+                    (local_pos.x() - (rect.width() - self.scroll_margin))
+                    * self._SCROLL_SPEED_FACTOR
+                ),
+            )
             h_bar.setValue(h_bar.value() + delta)
-
 
     def wheelEvent(self, event):
         # Handle wheel events for zooming when Ctrl is pressed
@@ -338,11 +402,15 @@ class AutoScrollArea(ScrollArea):
         if self.widget():
             previous_scale = getattr(self, "_previous_scale", 1.0)
             self._current_scale = getattr(self, "_current_scale", 1.0) * factor
-            self._current_scale = max(self._MIN_SCALE, min(self._MAX_SCALE, self._current_scale))
-            
+            self._current_scale = max(
+                self._MIN_SCALE, min(self._MAX_SCALE, self._current_scale)
+            )
+
             # Calculate the relative factor to apply to the current size
             relative_factor = self._current_scale / previous_scale
-            self._previous_scale = self._current_scale # Update previous_scale for the next iteration
+            self._previous_scale = (
+                self._current_scale
+            )  # Update previous_scale for the next iteration
 
             current_size = self.widget().size()
             new_width = int(current_size.width() * relative_factor)
@@ -360,26 +428,31 @@ class AutoScrollArea(ScrollArea):
             target_local = self.widget().mapTo(self, target_global)
 
             # Ensure the target point is visible in the scroll area
-            self.ensureVisible(target_local.x(), target_local.y(),
-            self.viewport().width() // 2, self.viewport().height() // 2)
+            self.ensureVisible(
+                target_local.x(),
+                target_local.y(),
+                self.viewport().width() // 2,
+                self.viewport().height() // 2,
+            )
+
 
 class CustomNavButton(PushButton):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.next_widget_on_enter = None # Renamed from custom_next_widget
+        self.next_widget_on_enter = None  # Renamed from custom_next_widget
 
     def keyPressEvent(self, event):
         key = event.key()
 
         if key in (Qt.Key_Return, Qt.Key_Enter):
             # Allow the button's primary action (click) to occur first.
-            super().keyPressEvent(event) # This should trigger the click.
-            
+            super().keyPressEvent(event)  # This should trigger the click.
+
             # After the click action, if a next_widget_on_enter is defined, navigate to it.
             if self.next_widget_on_enter:
                 self.next_widget_on_enter.setFocus()
             # event.accept() # Focus change should be sufficient.
-            return # Explicitly return after handling Enter/Return
+            return  # Explicitly return after handling Enter/Return
         elif key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right):
             # For arrow keys, accept the event to prevent default Qt spatial navigation
             # if we don't want the button to lose focus to other UI elements.
@@ -389,6 +462,7 @@ class CustomNavButton(PushButton):
 
         # For other keys (like Tab), let the default QPushButton behavior occur.
         super().keyPressEvent(event)
+
 
 # ------------------------------------------------------------------
 # Shared helper functions for QFluentWidgets TableWidget styling
@@ -403,6 +477,7 @@ __all__ = [
     "style_fluent_table",
 ]
 
+
 def apply_center_alignment(table) -> None:
     """Center-align all existing items in *table*."""
     for row in range(table.rowCount()):
@@ -411,22 +486,26 @@ def apply_center_alignment(table) -> None:
             if item is not None:
                 item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
 
+
 def set_intelligent_column_widths(table) -> None:
     """SIMPLIFIED - Force all columns to stretch equally"""
     try:
         if not table or table.columnCount() == 0:
             return
-            
+
         header = table.horizontalHeader()
-        
+
         # SIMPLE: All columns stretch to fill space equally
         for col in range(table.columnCount()):
             header.setSectionResizeMode(col, QHeaderView.Stretch)
-        
+
         _log_resize_debug(f"Set all columns to stretch for {type(table).__name__}")
-        
+
     except Exception as e:
-        _log_resize_error(f"Failed to set stretch columns for {type(table).__name__}", e)
+        _log_resize_error(
+            f"Failed to set stretch columns for {type(table).__name__}", e
+        )
+
 
 def _validate_table_for_resize(table, operation_name: str) -> bool:
     """Validate table state before resize operations"""
@@ -434,28 +513,35 @@ def _validate_table_for_resize(table, operation_name: str) -> bool:
         if table is None:
             _log_resize_error(f"Table is None in {operation_name}", None)
             return False
-            
-        if not hasattr(table, 'columnCount'):
-            _log_resize_error(f"Table does not have columnCount method in {operation_name}", None)
+
+        if not hasattr(table, "columnCount"):
+            _log_resize_error(
+                f"Table does not have columnCount method in {operation_name}", None
+            )
             return False
-            
-        if not hasattr(table, 'isVisible'):
-            _log_resize_error(f"Table does not have isVisible method in {operation_name}", None)
+
+        if not hasattr(table, "isVisible"):
+            _log_resize_error(
+                f"Table does not have isVisible method in {operation_name}", None
+            )
             return False
-            
+
         # Check if table is properly initialized
         try:
             table.columnCount()
             table.isVisible()
         except Exception as e:
-            _log_resize_error(f"Table methods are not accessible in {operation_name}", e)
+            _log_resize_error(
+                f"Table methods are not accessible in {operation_name}", e
+            )
             return False
-            
+
         return True
-        
+
     except Exception as e:
         _log_resize_error(f"Validation failed for table in {operation_name}", e)
         return False
+
 
 def _log_resize_debug(message: str):
     """Log debug information for resize operations"""
@@ -463,6 +549,7 @@ def _log_resize_debug(message: str):
         print(f"[CUSTOM_WIDGETS RESIZE DEBUG] {message}")
     except Exception:
         pass  # Silently ignore logging errors
+
 
 def _log_resize_error(message: str, exception: Exception):
     """Log error information for resize operations with meaningful messages"""
@@ -472,55 +559,68 @@ def _log_resize_error(message: str, exception: Exception):
             # Only print traceback for unexpected errors, not validation failures
             if not isinstance(exception, (AttributeError, TypeError)):
                 import traceback
-                print(f"[CUSTOM_WIDGETS RESIZE ERROR] Traceback: {traceback.format_exc()}")
+
+                print(
+                    f"[CUSTOM_WIDGETS RESIZE ERROR] Traceback: {traceback.format_exc()}"
+                )
         else:
             print(f"[CUSTOM_WIDGETS RESIZE ERROR] {message}")
     except Exception:
         pass  # Silently ignore logging errors
+
 
 def _fallback_table_resize(table) -> bool:
     """Provide graceful fallback when intelligent resize fails"""
     try:
         if not _validate_table_for_resize(table, "_fallback_table_resize"):
             return False
-            
+
         if table.columnCount() == 0:
             return False
-            
+
         # Simple fallback: set all columns to equal width
         header = table.horizontalHeader()
         if not header:
             return False
-            
+
         # Get available width safely
         try:
-            viewport_width = table.viewport().width() if table.viewport() else table.width()
+            viewport_width = (
+                table.viewport().width() if table.viewport() else table.width()
+            )
             if viewport_width <= 0:
                 viewport_width = 800  # Default fallback width
-                
+
             available_width = max(viewport_width - 50, 300)  # Ensure minimum width
             column_count = table.columnCount()
-            
+
             if column_count > 0:
-                equal_width = max(available_width // column_count, 90)  # Minimum 90px per column for readability
-                
+                equal_width = max(
+                    available_width // column_count, 90
+                )  # Minimum 90px per column for readability
+
                 for col in range(column_count):
                     header.setSectionResizeMode(col, QHeaderView.Fixed)
                     table.setColumnWidth(col, equal_width)
-                
+
                 header.setMinimumSectionSize(90)
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-                
-                _log_resize_debug(f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each")
+
+                _log_resize_debug(
+                    f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each"
+                )
                 return True
-                
+
         except Exception as e:
-            _log_resize_error(f"Fallback resize calculation failed for {type(table).__name__}", e)
+            _log_resize_error(
+                f"Fallback resize calculation failed for {type(table).__name__}", e
+            )
             return False
-            
+
     except Exception as e:
         _log_resize_error(f"Fallback table resize failed for {type(table).__name__}", e)
         return False
+
 
 def style_fluent_table(table) -> None:
     """Apply modern Fluent-compatible styling, alternate rows, header tweaks, etc."""
@@ -604,7 +704,9 @@ def style_fluent_table(table) -> None:
     apply_center_alignment(table)
     set_intelligent_column_widths(table)
 
+
 # ===================== Fluent-Widgets Progress Dialog =====================
+
 
 class FluentProgressDialog(QDialog):
     """A simple progress dialog with Fluent Design aesthetics.
@@ -625,7 +727,7 @@ class FluentProgressDialog(QDialog):
 
     def __init__(self, message: str = "Please wait…", parent=None):  # noqa: D401
         super().__init__(parent)
-        
+
         # Frameless with translucent background for modern look
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint
@@ -643,12 +745,12 @@ class FluentProgressDialog(QDialog):
                 border-radius: 8px;
             }
         """)
-        
+
         # Main layout
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
-        
+
         # Container layout - VERTICAL with centered content
         layout = QVBoxLayout(container)
         layout.setContentsMargins(30, 20, 30, 20)
@@ -684,14 +786,14 @@ class FluentProgressDialog(QDialog):
             }
         """)
         layout.addWidget(self._bar, 0, Qt.AlignCenter)
-        
+
         # Set minimum width for the container
         container.setMinimumWidth(350)
-        
+
         # Adjust size to content
         container.adjustSize()
         self.adjustSize()
-    
+
     def showEvent(self, event):
         """Center the dialog when shown."""
         super().showEvent(event)
@@ -716,71 +818,77 @@ class FluentProgressDialog(QDialog):
 
 from qfluentwidgets import SmoothMode
 
+
 class SmoothTableWidget(TableWidget):
     """TableWidget with enhanced smooth scrolling using qfluentwidgets built-in capabilities"""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        
+
         # Configure smooth scrolling using qfluentwidgets built-in functionality
         QTimer.singleShot(50, self._configure_smooth_scrolling)
-        
+
         # Set up keyboard shortcuts for enhanced navigation
         QTimer.singleShot(100, self._setup_keyboard_shortcuts)
-    
+
     def _configure_smooth_scrolling(self):
         """Configure smooth scrolling using qfluentwidgets built-in scroll delegate"""
         try:
             # Configure scroll sensitivity and smoothness
-            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+            if hasattr(self, "scrollDelagate") and hasattr(
+                self.scrollDelagate, "verticalSmoothScroll"
+            ):
                 # Don't disable smooth scrolling - keep it enabled but make it more responsive
                 # self.scrollDelagate.verticalSmoothScroll.setSmoothMode(SmoothMode.NO_SMOOTH)
-                
+
                 # Set balanced animation parameters
-                if hasattr(self.scrollDelagate.verticalSmoothScroll, 'setScrollAnimation'):
+                if hasattr(
+                    self.scrollDelagate.verticalSmoothScroll, "setScrollAnimation"
+                ):
                     # Balanced animation with smooth easing
                     self.scrollDelagate.verticalSmoothScroll.setScrollAnimation(
                         duration=200,  # Balanced animation speed
-                        easing=QEasingCurve.OutQuad  # Smooth easing
+                        easing=QEasingCurve.OutQuad,  # Smooth easing
                     )
-                
+
                 # Configure horizontal smooth scrolling if available
-                if hasattr(self.scrollDelagate, 'horizontalSmoothScroll'):
-                    if hasattr(self.scrollDelagate.horizontalSmoothScroll, 'setScrollAnimation'):
+                if hasattr(self.scrollDelagate, "horizontalSmoothScroll"):
+                    if hasattr(
+                        self.scrollDelagate.horizontalSmoothScroll, "setScrollAnimation"
+                    ):
                         self.scrollDelagate.horizontalSmoothScroll.setScrollAnimation(
-                            duration=150,
-                            easing=QEasingCurve.OutCubic
+                            duration=150, easing=QEasingCurve.OutCubic
                         )
-            
+
             # Configure scroll bar step sizes for better sensitivity
             self._configure_scroll_sensitivity()
-            
+
             # Apply modern scroll bar styling
             self._apply_scroll_bar_styling()
-            
+
         except Exception as e:
             print(f"Warning: Could not configure smooth scrolling: {e}")
             # Fallback to basic smooth scrolling if advanced features aren't available
             self._enable_basic_smooth_scrolling()
-    
+
     def _configure_scroll_sensitivity(self):
         """Configure scroll bar sensitivity for balanced scrolling"""
         try:
             # Set balanced scroll steps
             v_bar = self.verticalScrollBar()
             h_bar = self.horizontalScrollBar()
-            
+
             # Moderate single step for balanced wheel scrolling
             v_bar.setSingleStep(25)  # Balanced step size
             h_bar.setSingleStep(25)
-            
+
             # Set reasonable page step
             v_bar.setPageStep(120)  # Moderate page steps
             h_bar.setPageStep(120)
-            
+
         except Exception as e:
             print(f"Warning: Could not configure scroll sensitivity: {e}")
-    
+
     def _apply_scroll_bar_styling(self):
         """Apply modern styling to scroll bars"""
         scroll_bar_style = """
@@ -838,44 +946,46 @@ class SmoothTableWidget(TableWidget):
                 background: none;
             }
         """
-        
+
         # Apply the styling to the table's scroll bars
         current_style = self.styleSheet()
         self.setStyleSheet(current_style + scroll_bar_style)
-    
+
     def _enable_basic_smooth_scrolling(self):
         """Fallback smooth scrolling implementation with balanced sensitivity"""
         # Set balanced single step for good scrolling
-        if hasattr(self, 'verticalScrollBar'):
+        if hasattr(self, "verticalScrollBar"):
             v_bar = self.verticalScrollBar()
             v_bar.setSingleStep(20)  # Balanced steps
-            v_bar.setPageStep(100)   # Moderate page scrolling
-        
-        if hasattr(self, 'horizontalScrollBar'):
+            v_bar.setPageStep(100)  # Moderate page scrolling
+
+        if hasattr(self, "horizontalScrollBar"):
             h_bar = self.horizontalScrollBar()
             h_bar.setSingleStep(20)  # Balanced steps
-            h_bar.setPageStep(100)   # Moderate page scrolling
-    
+            h_bar.setPageStep(100)  # Moderate page scrolling
+
     def _setup_keyboard_shortcuts(self):
         """Set up keyboard shortcuts for enhanced navigation"""
         # Home/End for smooth scrolling to top/bottom
         home_shortcut = QShortcut(QKeySequence.MoveToStartOfDocument, self)
         home_shortcut.activated.connect(self.smooth_scroll_to_top)
-        
+
         end_shortcut = QShortcut(QKeySequence.MoveToEndOfDocument, self)
         end_shortcut.activated.connect(self.smooth_scroll_to_bottom)
-        
+
         # Page Up/Down for smooth page scrolling
         page_up_shortcut = QShortcut(QKeySequence.MoveToPreviousPage, self)
         page_up_shortcut.activated.connect(self._smooth_page_up)
-        
+
         page_down_shortcut = QShortcut(QKeySequence.MoveToNextPage, self)
         page_down_shortcut.activated.connect(self._smooth_page_down)
-    
+
     def smooth_scroll_to_top(self):
         """Quickly scroll to the top of the content"""
         try:
-            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+            if hasattr(self, "scrollDelagate") and hasattr(
+                self.scrollDelagate, "verticalSmoothScroll"
+            ):
                 # Use qfluentwidgets smooth scrolling
                 self.scrollDelagate.verticalSmoothScroll.scrollTo(0)
             else:
@@ -883,11 +993,13 @@ class SmoothTableWidget(TableWidget):
                 self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
         except Exception:
             self.verticalScrollBar().setValue(self.verticalScrollBar().minimum())
-    
+
     def smooth_scroll_to_bottom(self):
         """Quickly scroll to the bottom of the content"""
         try:
-            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+            if hasattr(self, "scrollDelagate") and hasattr(
+                self.scrollDelagate, "verticalSmoothScroll"
+            ):
                 # Use qfluentwidgets smooth scrolling
                 max_value = self.verticalScrollBar().maximum()
                 self.scrollDelagate.verticalSmoothScroll.scrollTo(max_value)
@@ -896,15 +1008,17 @@ class SmoothTableWidget(TableWidget):
                 self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
         except Exception:
             self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
-    
+
     def _smooth_page_up(self):
         """Quickly scroll up by one page"""
         try:
             v_bar = self.verticalScrollBar()
             page_step = v_bar.pageStep()
             target = max(v_bar.minimum(), v_bar.value() - page_step)
-            
-            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+
+            if hasattr(self, "scrollDelagate") and hasattr(
+                self.scrollDelagate, "verticalSmoothScroll"
+            ):
                 self.scrollDelagate.verticalSmoothScroll.scrollTo(target)
             else:
                 v_bar.setValue(target)
@@ -913,15 +1027,17 @@ class SmoothTableWidget(TableWidget):
             page_step = v_bar.pageStep()
             target = max(v_bar.minimum(), v_bar.value() - page_step)
             v_bar.setValue(target)
-    
+
     def _smooth_page_down(self):
         """Quickly scroll down by one page"""
         try:
             v_bar = self.verticalScrollBar()
             page_step = v_bar.pageStep()
             target = min(v_bar.maximum(), v_bar.value() + page_step)
-            
-            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+
+            if hasattr(self, "scrollDelagate") and hasattr(
+                self.scrollDelagate, "verticalSmoothScroll"
+            ):
                 self.scrollDelagate.verticalSmoothScroll.scrollTo(target)
             else:
                 v_bar.setValue(target)
@@ -930,20 +1046,25 @@ class SmoothTableWidget(TableWidget):
             page_step = v_bar.pageStep()
             target = min(v_bar.maximum(), v_bar.value() + page_step)
             v_bar.setValue(target)
-    
+
     def wheelEvent(self, event):
         """Enhanced wheel event handling for balanced responsive scrolling"""
+        if getattr(self, "_disable_smooth_wheel", False):
+            return super().wheelEvent(event)
+
         # Get the scroll delta
         delta = event.angleDelta().y()
-        
+
         # Calculate balanced scroll amount - not too fast, not too slow
         scroll_multiplier = 1.2  # Balanced sensitivity
-        scroll_amount = int(abs(delta) / 120 * 45 * scroll_multiplier)  # Moderate responsiveness
-        
+        scroll_amount = int(
+            abs(delta) / 120 * 45 * scroll_multiplier
+        )  # Moderate responsiveness
+
         # Get the vertical scroll bar
         v_bar = self.verticalScrollBar()
         current_value = v_bar.value()
-        
+
         # Calculate target value
         if delta > 0:
             # Scroll up
@@ -951,10 +1072,12 @@ class SmoothTableWidget(TableWidget):
         else:
             # Scroll down
             target_value = min(v_bar.maximum(), current_value + scroll_amount)
-        
+
         # Try to use smooth scrolling if available
         try:
-            if hasattr(self, 'scrollDelagate') and hasattr(self.scrollDelagate, 'verticalSmoothScroll'):
+            if hasattr(self, "scrollDelagate") and hasattr(
+                self.scrollDelagate, "verticalSmoothScroll"
+            ):
                 # Use qfluentwidgets smooth scrolling with our target
                 self.scrollDelagate.verticalSmoothScroll.scrollTo(target_value)
             else:
@@ -963,5 +1086,5 @@ class SmoothTableWidget(TableWidget):
         except Exception:
             # Final fallback
             v_bar.setValue(target_value)
-        
+
         event.accept()

@@ -1397,9 +1397,11 @@ class MeterCalculationApp(FluentWindow):
             "SupabaseId": "supabase",
         }
 
-        # Set minimum and maximum width for navigation panel to prevent collapse and enable responsive behavior
-        self.navigationInterface.setMinimumWidth(200)
-        self.navigationInterface.setMaximumWidth(300)
+        # Keep the nav rail narrower so the main content has more usable width
+        # without introducing a draggable persisted resize path.
+        self.navigationInterface.setMinimumWidth(180)
+        self.navigationInterface.setMaximumWidth(220)
+        self.navigationInterface.resize(220, self.navigationInterface.height())
 
         # Enable scroll policy for navigation interface content
         self.navigationInterface.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)

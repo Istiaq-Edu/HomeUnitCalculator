@@ -3122,6 +3122,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.main_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.main_history_table._prefer_internal_vertical_scroll = True
+        self.main_history_table._disable_smooth_wheel = True
 
         # Initially set columns to minimum required, will update dynamically on data load
         self.main_history_table.horizontalHeader().sectionResized.connect(
@@ -3190,6 +3192,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.room_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.room_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.room_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.room_history_table._prefer_internal_vertical_scroll = True
+        self.room_history_table._disable_smooth_wheel = True
         # Set size policy for responsive behavior (same as main table)
         self.room_history_table.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Minimum
@@ -4006,6 +4010,31 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             if not self._validate_table_for_resize(table, "resize_table_to_content"):
                 return
 
+            if getattr(table, "_prefer_internal_vertical_scroll", False):
+                try:
+                    header_height = (
+                        table.horizontalHeader().height()
+                        if table.horizontalHeader()
+                        else 30
+                    )
+                    row_height = table.verticalHeader().defaultSectionSize() or 35
+                    visible_rows = max(6, min(table.rowCount() or 0, 12))
+                    bounded_height = header_height + (row_height * visible_rows) + 12
+                    table.setMinimumHeight(
+                        header_height + (row_height * min(6, visible_rows)) + 12
+                    )
+                    table.setMaximumHeight(bounded_height)
+                    table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+                    self._log_resize_debug(
+                        f"Bounded table {type(table).__name__} to internal-scroll height: {bounded_height}px"
+                    )
+                    return
+                except Exception as bounded_resize_error:
+                    self._log_resize_error(
+                        f"Failed bounded resize for scrollable table {type(table).__name__}",
+                        bounded_resize_error,
+                    )
+
             if table.rowCount() == 0:
                 try:
                     # Set a reasonable minimum height instead of fixed height
@@ -4206,7 +4235,14 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         finally:
             self._reconnect_resize_handlers()
 
-        QTimer.singleShot(75, self.force_table_resize)
+        try:
+            deferred_resize = object.__getattribute__(self, "force_table_resize")
+        except Exception:
+            deferred_resize = None
+        if callable(deferred_resize):
+            QTimer.singleShot(75, deferred_resize)
+        else:
+            QTimer.singleShot(75, self._trigger_debounced_resize)
 
     def load_history(self):
         try:
