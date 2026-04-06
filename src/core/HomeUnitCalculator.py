@@ -46,6 +46,8 @@ import traceback
 from datetime import datetime
 from src.core.db_manager import DBManager
 from src.core.lazy_tab_loader import LazyTabLoader
+from src.core.remote_change_monitor import RemoteChangeMonitor
+from src.core.update_coordinator import UpdateCoordinator
 from src.core.utils import resource_path
 from src.core.utils import get_user_data_dir
 from qfluentwidgets import (
@@ -215,6 +217,16 @@ class MeterCalculationApp(FluentWindow):
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.maxBtn, Qt.AlignVCenter)
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.closeBtn, Qt.AlignVCenter)
 
+        self.update_coordinator = UpdateCoordinator(self)
+        self._setup_global_update_status_area()
+        self.update_coordinator.status_changed.connect(self._apply_global_update_status)
+        self.update_coordinator.local_change_emitted.connect(self._handle_local_change)
+        self.update_coordinator.remote_change_emitted.connect(
+            self._handle_remote_change
+        )
+        self.update_coordinator.set_connection_mode("starting")
+        self.remote_change_monitor = None
+
         self.image_storage_dir = str(get_user_data_dir() / "data" / "images")
         os.makedirs(self.image_storage_dir, exist_ok=True)
 
@@ -261,6 +273,7 @@ class MeterCalculationApp(FluentWindow):
             "supabase": self.tab_loader.get_placeholder("supabase"),
         }
         self._route_to_tab = {}
+        self._pending_tab_refreshes = set()
 
         # Table layout stabilization is now handled directly in the tab files
 
@@ -292,6 +305,241 @@ class MeterCalculationApp(FluentWindow):
             Exception
         ) as nav_exc:  # pragma: no cover – keep UI alive even if navigation fails
             print(f"Keyboard navigation failed to initialise: {nav_exc}")
+
+    def _setup_global_update_status_area(self):
+        self.global_update_status_label = QLabel(self)
+        self.global_update_status_label.setObjectName("globalUpdateStatusLabel")
+        self.global_update_status_label.setAlignment(Qt.AlignCenter)
+        self.global_update_status_label.setSizePolicy(
+            QSizePolicy.Maximum, QSizePolicy.Fixed
+        )
+        self.global_update_status_label.setMinimumWidth(180)
+        self.global_update_status_label.setMaximumWidth(260)
+        self.titleBar.hBoxLayout.insertWidget(
+            2, self.global_update_status_label, 0, Qt.AlignVCenter
+        )
+        self._apply_global_update_status("Updates: starting", "info")
+
+    def _apply_global_update_status(self, text: str, level: str = "muted"):
+        style_map = {
+            "success": (
+                "#163a27",
+                "#4fd38a",
+                "#dff7e8",
+            ),
+            "warning": (
+                "#4a3510",
+                "#e5b94c",
+                "#fff3cf",
+            ),
+            "info": (
+                "#123047",
+                "#4aa8ff",
+                "#e5f2ff",
+            ),
+            "muted": (
+                "#2f3136",
+                "#5b616a",
+                "#d8dde4",
+            ),
+        }
+        background, border, foreground = style_map.get(level, style_map["muted"])
+        self.global_update_status_label.setText(str(text or "Updates: ready"))
+        self.global_update_status_label.setStyleSheet(
+            f"""
+            QLabel#globalUpdateStatusLabel {{
+                background-color: {background};
+                border: 1px solid {border};
+                border-radius: 10px;
+                color: {foreground};
+                font-size: 11px;
+                font-weight: 600;
+                padding: 4px 10px;
+                margin: 4px 8px;
+            }}
+            """
+        )
+
+    def _emit_local_change(self, domain: str, action: str, payload=None):
+        if hasattr(self, "update_coordinator") and self.update_coordinator is not None:
+            self.update_coordinator.emit_local_change(domain, action, payload)
+        if getattr(self, "remote_change_monitor", None) is not None:
+            self.remote_change_monitor.mark_local_change(domain)
+
+    def _handle_local_change(self, domain: str, action: str, payload):
+        domain_key = str(domain or "")
+        if domain_key == "rental":
+            self._handle_local_rental_change(str(action or ""), payload)
+            return
+
+        if domain_key == "main_calculation":
+            self._handle_local_main_calculation_change(str(action or ""), payload)
+
+    def _handle_remote_change(self, domain: str, action: str, payload):
+        domain_key = str(domain or "")
+        if domain_key == "rental":
+            self._handle_remote_rental_change(str(action or ""), payload)
+            return
+
+        if domain_key in {"main_calculation", "room_calculation"}:
+            self._handle_remote_main_calculation_change(str(action or ""), payload)
+
+    def _current_tab_key(self) -> str | None:
+        try:
+            stacked_widget = object.__getattribute__(self, "stackedWidget")
+        except Exception:
+            return None
+        if stacked_widget is None:
+            return None
+        current_widget = stacked_widget.currentWidget()
+        if current_widget is None:
+            return None
+        return self._route_to_tab.get(current_widget.objectName())
+
+    def _run_tab_refresh(self, tab_key: str):
+        if tab_key == "rental" and self.tab_loader.is_loaded("rental"):
+            self.rental_info_tab_instance.load_rental_records(force_refresh=True)
+            return
+
+        if tab_key == "archived" and self.tab_loader.is_loaded("archived"):
+            self.archived_info_tab_instance.load_archived_records()
+            return
+
+        if tab_key == "history" and self.tab_loader.is_loaded("history"):
+            if self.load_history_source_combo.currentText() == "Load from Cloud":
+                self.history_tab_instance.load_history()
+
+    def _refresh_or_queue_tab(self, tab_key: str):
+        if not self.tab_loader.is_loaded(tab_key):
+            return
+
+        current_tab_key = self._current_tab_key()
+        if current_tab_key is None or current_tab_key == tab_key:
+            self._pending_tab_refreshes.discard(tab_key)
+            self._run_tab_refresh(tab_key)
+        else:
+            self._pending_tab_refreshes.add(tab_key)
+
+    def _flush_pending_tab_refresh(self, tab_key: str):
+        if tab_key not in self._pending_tab_refreshes:
+            return
+        self._pending_tab_refreshes.discard(tab_key)
+        self._run_tab_refresh(tab_key)
+
+    def _handle_local_rental_change(self, action: str, payload):
+        try:
+            self._refresh_or_queue_tab("rental")
+        except Exception as exc:
+            logging.error(
+                f"Failed to schedule rental tab refresh after local rental change: {exc}"
+            )
+
+        try:
+            self._refresh_or_queue_tab("archived")
+        except Exception as exc:
+            logging.error(
+                f"Failed to schedule archived tab refresh after local rental change: {exc}"
+            )
+
+        if self.tab_loader.is_loaded("dashboard"):
+            try:
+                self.dashboard_tab_instance._sync_rentals_cache_async()
+            except Exception as exc:
+                logging.error(f"Failed to refresh dashboard rental cache: {exc}")
+
+    def _handle_local_main_calculation_change(self, action: str, payload):
+        payload = payload if isinstance(payload, dict) else {}
+        year = payload.get("year")
+
+        if self.tab_loader.is_loaded("dashboard"):
+            try:
+                if year is not None:
+                    self.dashboard_tab_instance._sync_year_async(int(year))
+                    self.dashboard_tab_instance._sync_owner_room_year_async(int(year))
+                else:
+                    self.dashboard_tab_instance._refresh_years_from_supabase_async()
+            except Exception as exc:
+                logging.error(
+                    f"Failed to refresh dashboard after local calculation change: {exc}"
+                )
+
+        if self.tab_loader.is_loaded("history"):
+            try:
+                self._refresh_or_queue_tab("history")
+            except Exception as exc:
+                logging.error(
+                    f"Failed to refresh history after local calculation change: {exc}"
+                )
+
+    def _handle_remote_rental_change(self, action: str, payload):
+        if self.tab_loader.is_loaded("rental"):
+            try:
+                if (
+                    self.rental_info_tab_instance.load_source_combo.currentText()
+                    == "Cloud (Supabase)"
+                ):
+                    self._refresh_or_queue_tab("rental")
+            except Exception as exc:
+                logging.error(
+                    f"Failed to schedule rental tab refresh after remote rental change: {exc}"
+                )
+
+        if self.tab_loader.is_loaded("archived"):
+            try:
+                if (
+                    self.archived_info_tab_instance.load_source_combo.currentText()
+                    == "Cloud (Supabase)"
+                ):
+                    self._refresh_or_queue_tab("archived")
+            except Exception as exc:
+                logging.error(
+                    f"Failed to schedule archived tab refresh after remote rental change: {exc}"
+                )
+
+        if self.tab_loader.is_loaded("dashboard"):
+            try:
+                self.dashboard_tab_instance._sync_rentals_cache_async()
+            except Exception as exc:
+                logging.error(
+                    f"Failed to refresh dashboard after remote rental change: {exc}"
+                )
+
+    def _handle_remote_main_calculation_change(self, action: str, payload):
+        if self.tab_loader.is_loaded("dashboard"):
+            try:
+                self.dashboard_tab_instance._refresh_years_from_supabase_async()
+                selected_year = self.dashboard_tab_instance._selected_year()
+                if selected_year is not None:
+                    self.dashboard_tab_instance._sync_year_async(selected_year)
+                owner_year = self.dashboard_tab_instance._selected_owner_room_year()
+                if owner_year is not None:
+                    self.dashboard_tab_instance._sync_owner_room_year_async(owner_year)
+            except Exception as exc:
+                logging.error(
+                    f"Failed to refresh dashboard after remote calculation change: {exc}"
+                )
+
+        if self.tab_loader.is_loaded("history"):
+            try:
+                self._refresh_or_queue_tab("history")
+            except Exception as exc:
+                logging.error(
+                    f"Failed to refresh history after remote calculation change: {exc}"
+                )
+
+    def _start_remote_change_monitor(self):
+        if not self._cloud_features_enabled:
+            return
+
+        if self.remote_change_monitor is None:
+            self.remote_change_monitor = RemoteChangeMonitor(
+                self, self.update_coordinator, parent=self
+            )
+        self.remote_change_monitor.start()
+
+    def _stop_remote_change_monitor(self):
+        if self.remote_change_monitor is not None:
+            self.remote_change_monitor.stop()
 
     def _set_title_bar_icon(self):
         """Set a larger title bar icon by directly manipulating the title bar widgets."""
@@ -922,6 +1170,9 @@ class MeterCalculationApp(FluentWindow):
             return False
 
     def _initialize_supabase_client(self):
+        self.update_coordinator.begin_activity(
+            "supabase-init", "Updates: initializing cloud"
+        )
         # Re-create the SupabaseManager so that it (re)initializes its client
         # internally. This avoids calling its protected methods directly and
         # keeps the encapsulation boundary intact.
@@ -934,6 +1185,8 @@ class MeterCalculationApp(FluentWindow):
         )
 
         if self._cloud_features_enabled:
+            self.update_coordinator.set_connection_mode("polling")
+            self._start_remote_change_monitor()
             # Set default load source to Cloud if Supabase is configured for all tabs
             self.load_history_source_combo.setCurrentText("Load from Cloud")
             self.load_info_source_combo.setCurrentText("Load from Cloud")
@@ -954,6 +1207,8 @@ class MeterCalculationApp(FluentWindow):
                 )
                 self.archived_info_tab_instance.sync_source_button_display()
         else:
+            self._stop_remote_change_monitor()
+            self.update_coordinator.set_connection_mode("local")
             print("Supabase client not initialized. Cloud features disabled.")
             # If Supabase fails to initialize, ensure source is PC (CSV) / Local DB
             self.load_history_source_combo.setCurrentText("Load from PC (CSV)")
@@ -974,6 +1229,8 @@ class MeterCalculationApp(FluentWindow):
                     "Local DB"
                 )
                 self.archived_info_tab_instance.sync_source_button_display()
+
+        self.update_coordinator.end_activity("supabase-init")
 
     def _create_history_tab(self):
         from src.ui.tabs.history_tab import HistoryTab
@@ -1226,8 +1483,17 @@ class MeterCalculationApp(FluentWindow):
     def on_current_interface_changed(self, index):
         """Handle tab change: set focus appropriately."""
         current_widget = self.stackedWidget.widget(index)
+        current_tab_key = (
+            self._route_to_tab.get(current_widget.objectName())
+            if current_widget is not None
+            else None
+        )
         resolved_widget = self._ensure_interface_loaded(current_widget)
         active_widget = self._get_loaded_widget(resolved_widget)
+        if current_tab_key is not None:
+            QTimer.singleShot(
+                0, lambda key=current_tab_key: self._flush_pending_tab_refresh(key)
+            )
         if hasattr(active_widget, "set_focus_on_tab_change"):
             active_widget.set_focus_on_tab_change()
 
@@ -2102,6 +2368,11 @@ class MeterCalculationApp(FluentWindow):
                 print("Debug - No room data to save")
 
             print("Debug - About to show success message")
+            self._emit_local_change(
+                "main_calculation",
+                "saved",
+                {"month": month, "year": year, "main_calc_id": main_calc_id},
+            )
             QMessageBox.information(
                 self, "Cloud Save", "Data saved to Supabase successfully."
             )

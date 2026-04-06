@@ -116,6 +116,103 @@ class FetchSupabaseAvailableYearsWorker(QThread):
                 self.error_occurred.emit(f"An unexpected error occurred: {exc}")
 
 
+class FetchSupabaseHistoryWorker(QThread):
+    history_fetched = pyqtSignal(list, dict)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(
+        self,
+        supabase_manager,
+        month_filter: str | None = None,
+        year_filter: int | None = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._supabase_manager = supabase_manager
+        self._month_filter = month_filter
+        self._year_filter = year_filter
+
+    def run(self):
+        try:
+            if (
+                not self._supabase_manager
+                or not self._supabase_manager.is_client_initialized()
+            ):
+                self.error_occurred.emit("Supabase client not initialized.")
+                return
+
+            main_calculations = (
+                self._supabase_manager.get_main_calculations(
+                    month=self._month_filter,
+                    year=self._year_filter,
+                )
+                or []
+            )
+
+            room_records_by_main_id = self._supabase_manager.get_room_calculations_bulk(
+                [
+                    main_calc.get("id")
+                    for main_calc in main_calculations
+                    if main_calc.get("id")
+                ]
+            )
+
+            self.history_fetched.emit(main_calculations, room_records_by_main_id)
+        except APIError as e:
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"API Error: {getattr(e, 'message', str(e))}")
+        except AuthApiError as e:
+            self.error_occurred.emit(f"Authentication Error: {e.message}")
+        except Exception as exc:
+            error_type = SupabaseErrorHandler.detect_error_type(exc)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"An unexpected error occurred: {exc}")
+
+
+class FetchRemoteChangeSnapshotWorker(QThread):
+    snapshot_ready = pyqtSignal(dict)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, supabase_manager, parent=None):
+        super().__init__(parent)
+        self._supabase_manager = supabase_manager
+
+    def run(self):
+        try:
+            if (
+                not self._supabase_manager
+                or not self._supabase_manager.is_client_initialized()
+            ):
+                self.error_occurred.emit("Supabase client not initialized.")
+                return
+
+            snapshot = {
+                "main_calculation": self._supabase_manager.get_main_calculations_signature(),
+                "room_calculation": self._supabase_manager.get_room_calculations_signature(),
+                "rental": self._supabase_manager.get_rental_records_signature(),
+            }
+            self.snapshot_ready.emit(snapshot)
+        except APIError as e:
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"API Error: {getattr(e, 'message', str(e))}")
+        except AuthApiError as e:
+            self.error_occurred.emit(f"Authentication Error: {e.message}")
+        except Exception as exc:
+            error_type = SupabaseErrorHandler.detect_error_type(exc)
+            if error_type == "paused_project":
+                self.error_occurred.emit("PAUSED_PROJECT")
+            else:
+                self.error_occurred.emit(f"An unexpected error occurred: {exc}")
+
+
 class SyncSupabaseMainCalculationsYearWorker(QThread):
     sync_finished = pyqtSignal(int)
     error_occurred = pyqtSignal(str)

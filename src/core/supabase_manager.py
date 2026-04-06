@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import time
+import hashlib
 
 # Apply compatibility patch before importing supabase
 try:
@@ -53,6 +54,105 @@ class SupabaseManager:
     def is_client_initialized(self) -> bool:
         """Checks if the Supabase client is initialized and ready for use."""
         return self.supabase is not None
+
+    @staticmethod
+    def _hash_signature_rows(rows: list[tuple]) -> str:
+        payload = json.dumps(rows, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def get_main_calculations_signature(self) -> str | None:
+        if not self.is_client_initialized():
+            return None
+
+        try:
+            try:
+                rows = (
+                    self.supabase.table("main_calculations")
+                    .select("id, updated_at, created_at")
+                    .order("id")
+                    .execute()
+                    .data
+                ) or []
+                signature_rows = [
+                    (
+                        str(row.get("id")),
+                        str(row.get("updated_at") or row.get("created_at") or ""),
+                    )
+                    for row in rows
+                    if row.get("id") is not None
+                ]
+            except APIError as e:
+                msg = str(e)
+                if "updated_at" in msg or "created_at" in msg:
+                    rows = (
+                        self.supabase.table("main_calculations")
+                        .select("id")
+                        .order("id")
+                        .execute()
+                        .data
+                    ) or []
+                    signature_rows = [
+                        (str(row.get("id")), "")
+                        for row in rows
+                        if row.get("id") is not None
+                    ]
+                else:
+                    raise
+
+            return self._hash_signature_rows(signature_rows)
+        except Exception as e:
+            logging.error(f"Failed to build main calculations signature: {e}")
+            raise
+
+    def get_room_calculations_signature(self) -> str | None:
+        if not self.is_client_initialized():
+            return None
+
+        try:
+            rows = (
+                self.supabase.table("room_calculations")
+                .select("id, main_calculation_id")
+                .order("main_calculation_id")
+                .order("id")
+                .execute()
+                .data
+            ) or []
+            signature_rows = [
+                (str(row.get("main_calculation_id")), str(row.get("id")))
+                for row in rows
+                if row.get("id") is not None
+            ]
+            return self._hash_signature_rows(signature_rows)
+        except Exception as e:
+            logging.error(f"Failed to build room calculations signature: {e}")
+            raise
+
+    def get_rental_records_signature(self) -> str | None:
+        if not self.is_client_initialized():
+            return None
+
+        try:
+            rows = (
+                self.get_rental_records(
+                    is_archived=None,
+                    select="id, supabase_id, is_archived, created_at, updated_at",
+                )
+                or []
+            )
+            signature_rows = [
+                (
+                    str(row.get("supabase_id") or row.get("id")),
+                    str(row.get("is_archived") or 0),
+                    str(row.get("updated_at") or row.get("created_at") or ""),
+                )
+                for row in rows
+                if row.get("supabase_id") or row.get("id")
+            ]
+            signature_rows.sort()
+            return self._hash_signature_rows(signature_rows)
+        except Exception as e:
+            logging.error(f"Failed to build rental records signature: {e}")
+            raise
 
     def upload_image(
         self,

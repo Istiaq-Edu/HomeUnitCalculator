@@ -9,6 +9,10 @@ Primary target: Installed Windows app on a typical mid-range PC
 
 This is the living implementation plan for improving the Home Unit Calculator application without changing its core functionality.
 
+Related follow-on plan:
+
+- `docs/plans/2026-04-06-realtime-ui-responsiveness-plan.md`
+
 This plan is based on:
 
 - direct codebase assessment
@@ -670,3 +674,4 @@ Only unresolved items that materially affect implementation should stay here.
 22. Added full-year cache reconciliation so deleted main and room cloud rows no longer linger indefinitely in local yearly caches.
 23. Closed the remaining delta room-cache stale-child gap for changed parents during incremental syncs.
 24. Tuned SQLite connection behavior and indexes for the app's current cache-heavy hot paths, and cleaned the remaining owned UTC deprecation warnings.
+25. Created a dedicated follow-on plan for realtime data propagation, cross-tab UI consistency, and UI responsiveness under live updates.

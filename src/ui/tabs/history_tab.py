@@ -4131,17 +4131,20 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         return {}
 
     def _prepare_supabase_history_records(
-        self, main_calculations: list[dict]
+        self,
+        main_calculations: list[dict],
+        room_records_by_main_id: dict | None = None,
     ) -> tuple[list[dict], list[dict]]:
-        room_records_by_main_id = (
-            self.main_window.supabase_manager.get_room_calculations_bulk(
-                [
-                    main_calc.get("id")
-                    for main_calc in main_calculations
-                    if main_calc.get("id")
-                ]
+        if room_records_by_main_id is None:
+            room_records_by_main_id = (
+                self.main_window.supabase_manager.get_room_calculations_bulk(
+                    [
+                        main_calc.get("id")
+                        for main_calc in main_calculations
+                        if main_calc.get("id")
+                    ]
+                )
             )
-        )
 
         all_records_with_rooms = []
         all_room_rows = []
@@ -4170,6 +4173,41 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
         return all_records_with_rooms, all_room_rows
 
+    def _reset_month_styling_flags(self):
+        for table in (
+            self.main_history_table,
+            self.room_history_table,
+            self.totals_table,
+        ):
+            if hasattr(table, "_month_styled"):
+                table._month_styled = False
+
+    def _finalize_history_tables_after_load(self, source_label: str):
+        self._disconnect_resize_handlers()
+        try:
+            self.resize_table_to_content(self.main_history_table)
+            self.resize_table_to_content(self.room_history_table)
+            self.resize_table_to_content(self.totals_table)
+
+            resize_success = 0
+            if self._set_intelligent_column_widths(self.main_history_table):
+                resize_success += 1
+            if self._set_intelligent_column_widths(self.room_history_table):
+                resize_success += 1
+            if self._set_intelligent_column_widths(self.totals_table):
+                resize_success += 1
+            self._log_resize_debug(
+                f"{source_label} data load column width application: {resize_success}/3 tables successful"
+            )
+
+            self._reset_month_styling_flags()
+            self._apply_month_column_styling(self.main_history_table)
+            self._apply_month_column_styling(self.room_history_table)
+        finally:
+            self._reconnect_resize_handlers()
+
+        QTimer.singleShot(75, self.force_table_resize)
+
     def load_history(self):
         try:
             selected_month = self.history_month_combo.currentText()
@@ -4193,7 +4231,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 ):
                     month_filter = None if selected_month == "All" else selected_month
                     year_filter = selected_year_val  # already None if "All"
-                    self.load_history_tables_from_supabase(month_filter, year_filter)
+                    self.load_history_tables_from_supabase_async(
+                        month_filter, year_filter
+                    )
                 elif not self.main_window.supabase_manager:
                     QMessageBox.warning(
                         self, "Supabase Not Configured", "Supabase is not configured."
@@ -4208,6 +4248,67 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             QMessageBox.critical(
                 self, "Load History Error", f"Error: {e}\n{traceback.format_exc()}"
             )
+
+    def load_history_tables_from_supabase_async(
+        self, month_filter: str | None, year_filter: int | None
+    ):
+        from src.ui.background_workers import FetchSupabaseHistoryWorker
+
+        if not self.main_window.supabase_manager.is_client_initialized():
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Supabase not configured. Please configure Supabase in the Supabase Config tab.",
+            )
+            return
+
+        if (
+            getattr(self, "_history_load_worker", None)
+            and self._history_load_worker.isRunning()
+        ):
+            return
+
+        coordinator = getattr(self.main_window, "update_coordinator", None)
+        if coordinator is not None:
+            coordinator.begin_activity("history-load", "Updates: loading history")
+
+        self._history_load_worker = FetchSupabaseHistoryWorker(
+            self.main_window.supabase_manager,
+            month_filter=month_filter,
+            year_filter=year_filter,
+            parent=self,
+        )
+        self._history_load_worker.history_fetched.connect(
+            self._on_history_supabase_fetched
+        )
+        self._history_load_worker.error_occurred.connect(
+            self._on_history_supabase_error
+        )
+        self._history_load_worker.start()
+
+    def _on_history_supabase_fetched(
+        self, main_calculations: list, room_records_by_main_id: dict
+    ):
+        coordinator = getattr(self.main_window, "update_coordinator", None)
+        if coordinator is not None:
+            coordinator.end_activity("history-load")
+
+        self.load_history_tables_from_supabase(
+            month_filter=None,
+            year_filter=None,
+            main_calculations=main_calculations,
+            room_records_by_main_id=room_records_by_main_id,
+        )
+
+    def _on_history_supabase_error(self, msg: str):
+        coordinator = getattr(self.main_window, "update_coordinator", None)
+        if coordinator is not None:
+            coordinator.end_activity("history-load")
+
+        if msg == "PAUSED_PROJECT":
+            QMessageBox.warning(self, "Supabase Paused", "Supabase project is paused.")
+        else:
+            QMessageBox.critical(self, "Load History Error", msg)
 
     def load_history_tables_from_csv(self, selected_month, selected_year_val):
         filename = "meter_calculation_history.csv"
@@ -4488,12 +4589,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         self._log_resize_debug(
                             "Applying column widths to room table after CSV room data population"
                         )
-                        # Force immediate resize without timer to ensure it works
                         self._force_room_table_resize("CSV")
-                        # Also schedule a delayed resize as backup
-                        QTimer.singleShot(
-                            100, lambda: self._force_room_table_resize("CSV-delayed")
-                        )
                     except Exception as room_csv_resize_error:
                         self._log_resize_error(
                             "Failed to resize room table after CSV room data population",
@@ -4502,46 +4598,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
                 # Calculate and display totals using the filtered main rows instead of all room rows
                 self.calculate_and_display_totals_from_main_rows(
-                    filtered_main_rows, get_csv_value
+                    filtered_main_rows, get_csv_value, schedule_resize=False
                 )
-
-                # Temporarily disconnect resize handlers to prevent conflicts during setup
-                self._disconnect_resize_handlers()
-
-                try:
-                    # Resize tables to fit content after loading data
-                    self.resize_table_to_content(self.main_history_table)
-                    self.resize_table_to_content(self.room_history_table)
-                    self.resize_table_to_content(self.totals_table)
-
-                    # Re-apply column widths after data load (styling already applied at initialization)
-                    try:
-                        self._log_resize_debug(
-                            "Applying column widths after CSV data load"
-                        )
-                        resize_success = 0
-                        if self._set_intelligent_column_widths(self.main_history_table):
-                            resize_success += 1
-                        if self._set_intelligent_column_widths(self.room_history_table):
-                            resize_success += 1
-                        if self._set_intelligent_column_widths(self.totals_table):
-                            resize_success += 1
-                        self._log_resize_debug(
-                            f"Column width application completed: {resize_success}/3 tables successful"
-                        )
-
-                        # Apply month column styling after data is loaded
-                        self._apply_month_column_styling(self.main_history_table)
-                        self._apply_month_column_styling(self.room_history_table)
-
-                    except Exception as resize_error:
-                        self._log_resize_error(
-                            "Failed to apply column widths after CSV data load",
-                            resize_error,
-                        )
-                finally:
-                    # Reconnect resize handlers
-                    self._reconnect_resize_handlers()
+                self._finalize_history_tables_after_load("CSV")
 
                 if not filtered_main_rows:
                     QMessageBox.information(
@@ -4556,46 +4615,6 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         f"Loaded {len(filtered_main_rows)} main records and {len(all_room_rows_sorted_with_context)} room records from CSV.",
                     )
 
-                # Reset styling flags before applying new styling
-                if hasattr(self.main_history_table, "_month_styled"):
-                    self.main_history_table._month_styled = False
-                if hasattr(self.room_history_table, "_month_styled"):
-                    self.room_history_table._month_styled = False
-                if hasattr(self.totals_table, "_month_styled"):
-                    self.totals_table._month_styled = False
-
-                # Apply responsive column widths after loading data
-                try:
-                    self._log_resize_debug(
-                        "Final column width application after CSV load"
-                    )
-                    final_resize_success = 0
-                    if self._set_intelligent_column_widths(self.main_history_table):
-                        final_resize_success += 1
-                    if self._set_intelligent_column_widths(self.room_history_table):
-                        final_resize_success += 1
-                    if self._set_intelligent_column_widths(self.totals_table):
-                        final_resize_success += 1
-                    self._log_resize_debug(
-                        f"Final column width application completed: {final_resize_success}/3 tables successful"
-                    )
-
-                    # Ensure resize is triggered after CSV data loading completes
-                    QTimer.singleShot(50, self.force_table_resize)
-                except Exception as final_resize_error:
-                    self._log_resize_error(
-                        "Failed final column width application after CSV load",
-                        final_resize_error,
-                    )
-
-                # Force table resize after data is loaded to ensure proper sizing
-                try:
-                    QTimer.singleShot(100, self.force_table_resize)
-                except Exception as timer_error:
-                    self._log_resize_error(
-                        "Failed to schedule force table resize", timer_error
-                    )
-
         except Exception as e:
             QMessageBox.critical(
                 self,
@@ -4604,7 +4623,11 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             )
 
     def load_history_tables_from_supabase(
-        self, month_filter: str | None, year_filter: int | None
+        self,
+        month_filter: str | None,
+        year_filter: int | None,
+        main_calculations: list[dict] | None = None,
+        room_records_by_main_id: dict | None = None,
     ):
         if not self.main_window.supabase_manager.is_client_initialized():
             QMessageBox.warning(
@@ -4626,9 +4649,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             self.room_history_table.setRowCount(0)
             self.totals_table.setRowCount(0)
 
-            main_calculations = self.main_window.supabase_manager.get_main_calculations(
-                month=actual_month_filter, year=actual_year_filter
-            )
+            if main_calculations is None:
+                main_calculations = (
+                    self.main_window.supabase_manager.get_main_calculations(
+                        month=actual_month_filter, year=actual_year_filter
+                    )
+                )
 
             # NEW: Sort the results chronologically so that months appear in natural order
             if main_calculations:
@@ -4639,7 +4665,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     )
                 )
 
-            _, all_room_rows = self._prepare_supabase_history_records(main_calculations)
+            _, all_room_rows = self._prepare_supabase_history_records(
+                main_calculations,
+                room_records_by_main_id=room_records_by_main_id,
+            )
 
             if main_calculations:
                 self.main_history_table.setRowCount(len(main_calculations))
@@ -4802,12 +4831,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     self._log_resize_debug(
                         "Applying column widths to room table after Supabase data population"
                     )
-                    # Force immediate resize without timer to ensure it works
                     self._force_room_table_resize("Supabase")
-                    # Also schedule a delayed resize as backup
-                    QTimer.singleShot(
-                        100, lambda: self._force_room_table_resize("Supabase-delayed")
-                    )
                 except Exception as room_resize_error:
                     self._log_resize_error(
                         "Failed to resize room table after Supabase data population",
@@ -4815,93 +4839,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     )
 
             self.calculate_and_display_totals_from_supabase_records(
-                main_calculations, all_room_rows
+                main_calculations, all_room_rows, schedule_resize=False
             )
-
-            # Temporarily disconnect resize handlers to prevent conflicts during setup
-            self._disconnect_resize_handlers()
-
-            try:
-                # Resize tables to fit content
-                self.resize_table_to_content(self.main_history_table)
-                self.resize_table_to_content(self.room_history_table)
-                self.resize_table_to_content(self.totals_table)
-
-                # Re-apply column widths after data load
-                try:
-                    self._log_resize_debug(
-                        "Re-applying column widths after Supabase data load"
-                    )
-                    supabase_resize_success = 0
-                    if self._set_intelligent_column_widths(self.main_history_table):
-                        supabase_resize_success += 1
-                    if self._set_intelligent_column_widths(self.room_history_table):
-                        supabase_resize_success += 1
-                    if self._set_intelligent_column_widths(self.totals_table):
-                        supabase_resize_success += 1
-                    self._log_resize_debug(
-                        f"Supabase data load column width application: {supabase_resize_success}/3 tables successful"
-                    )
-
-                    # Apply month column styling after Supabase data is loaded
-                    self._apply_month_column_styling(self.main_history_table)
-                    self._apply_month_column_styling(self.room_history_table)
-
-                except Exception as supabase_resize_error:
-                    self._log_resize_error(
-                        "Failed to re-apply column widths after Supabase data load",
-                        supabase_resize_error,
-                    )
-            finally:
-                # Reconnect resize handlers
-                self._reconnect_resize_handlers()
+            self._finalize_history_tables_after_load("Supabase")
 
             QMessageBox.information(
                 self,
                 "Load Successful",
                 f"Loaded {len(main_calculations)} main records and {len(all_room_rows)} room records from Supabase.",
             )
-
-            # Reset styling flags before applying new styling
-            if hasattr(self.main_history_table, "_month_styled"):
-                self.main_history_table._month_styled = False
-            if hasattr(self.room_history_table, "_month_styled"):
-                self.room_history_table._month_styled = False
-            if hasattr(self.totals_table, "_month_styled"):
-                self.totals_table._month_styled = False
-
-            # Apply responsive column widths after loading data
-            try:
-                self._log_resize_debug(
-                    "Final column width application after Supabase load"
-                )
-                final_supabase_resize_success = 0
-                if self._set_intelligent_column_widths(self.main_history_table):
-                    final_supabase_resize_success += 1
-                if self._set_intelligent_column_widths(self.room_history_table):
-                    final_supabase_resize_success += 1
-                if self._set_intelligent_column_widths(self.totals_table):
-                    final_supabase_resize_success += 1
-                self._log_resize_debug(
-                    f"Final Supabase column width application: {final_supabase_resize_success}/3 tables successful"
-                )
-
-                # Ensure resize is triggered after Supabase data loading completes
-                QTimer.singleShot(50, self.force_table_resize)
-            except Exception as final_supabase_resize_error:
-                self._log_resize_error(
-                    "Failed final column width application after Supabase load",
-                    final_supabase_resize_error,
-                )
-
-            # Force table resize after data is loaded to ensure proper sizing
-            try:
-                QTimer.singleShot(100, self.force_table_resize)
-            except Exception as timer_error:
-                self._log_resize_error(
-                    "Failed to schedule force table resize after Supabase load",
-                    timer_error,
-                )
 
         except Exception as e:
             # Check if it's a paused project error
@@ -5191,7 +5137,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             )
 
     def calculate_and_display_totals_from_supabase_records(
-        self, main_calculations: list[dict], all_room_rows: list[dict]
+        self,
+        main_calculations: list[dict],
+        all_room_rows: list[dict],
+        schedule_resize: bool = True,
     ):
         grouped = {}
         for room in all_room_rows:
@@ -5239,14 +5188,14 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 idx, 4, self._create_centered_item(f"{t['unit']:.2f}")
             )
 
-        # Force table resize after totals data is populated
-        try:
-            QTimer.singleShot(100, self.force_table_resize)
-        except Exception as timer_error:
-            self._log_resize_error(
-                "Failed to schedule force table resize after Supabase totals calculation",
-                timer_error,
-            )
+        if schedule_resize:
+            try:
+                QTimer.singleShot(100, self.force_table_resize)
+            except Exception as timer_error:
+                self._log_resize_error(
+                    "Failed to schedule force table resize after Supabase totals calculation",
+                    timer_error,
+                )
 
     def _is_click_inside_history_tables(self, global_pos):
         """Return True if the widget at the given global position is within any of the history tables."""
@@ -5379,8 +5328,21 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             dialog = EditRecordDialog(
                 record_id, main_data, room_data_list, parent=self.main_window
             )
-            if dialog.exec_() == QDialog.Accepted:
-                self.load_history()  # Refresh the table after changes are saved
+            coordinator = getattr(self.main_window, "update_coordinator", None)
+            if coordinator is not None:
+                coordinator.begin_edit_session("main_calculation")
+            try:
+                accepted = dialog.exec_() == QDialog.Accepted
+            finally:
+                if coordinator is not None:
+                    coordinator.end_edit_session("main_calculation")
+
+            if accepted and hasattr(self.main_window, "_emit_local_change"):
+                self.main_window._emit_local_change(
+                    "main_calculation",
+                    "edited",
+                    {"record_id": record_id, "year": main_data.get("year")},
+                )
         except Exception as e:
             # Check if it's a paused project error
             from src.core.supabase_error_handler import SupabaseErrorHandler
@@ -5427,10 +5389,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     )
                 )  # New method needed
                 if delete_success:
+                    if hasattr(self.main_window, "_emit_local_change"):
+                        self.main_window._emit_local_change(
+                            "main_calculation",
+                            "deleted",
+                            {"record_id": record_id},
+                        )
                     QMessageBox.information(
                         self, "Delete Successful", "Record deleted successfully."
                     )
-                    self.load_history()  # Refresh the table
                 else:
                     QMessageBox.critical(
                         self, "Supabase Error", "Failed to delete record from Supabase."
@@ -5517,7 +5484,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             print(f"Error calculating totals: {e}")
 
     def calculate_and_display_totals_from_main_rows(
-        self, filtered_main_rows, get_csv_value
+        self, filtered_main_rows, get_csv_value, schedule_resize: bool = True
     ):
         """Calculate and display totals from filtered main calculation rows"""
         try:
@@ -5580,14 +5547,14 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         row_idx, 4, self._create_centered_item("0.00")
                     )
 
-            # Force table resize after totals data is populated
-            try:
-                QTimer.singleShot(100, self.force_table_resize)
-            except Exception as timer_error:
-                self._log_resize_error(
-                    "Failed to schedule force table resize after main rows totals calculation",
-                    timer_error,
-                )
+            if schedule_resize:
+                try:
+                    QTimer.singleShot(100, self.force_table_resize)
+                except Exception as timer_error:
+                    self._log_resize_error(
+                        "Failed to schedule force table resize after main rows totals calculation",
+                        timer_error,
+                    )
 
         except Exception as e:
             # If there's an error calculating totals, just clear the table

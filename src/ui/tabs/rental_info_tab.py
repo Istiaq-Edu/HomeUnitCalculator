@@ -1,14 +1,14 @@
 import sys
 import traceback
 import os
-import io # Import the io module for in-memory binary streams
+import io  # Import the io module for in-memory binary streams
 import time
 import hashlib
 from datetime import datetime
-from pathlib import Path # Import Path from pathlib
+from pathlib import Path  # Import Path from pathlib
 from typing import List, Dict, Any
-import shutil # Import shutil for file operations
-import uuid # Import uuid for generating unique filenames
+import shutil  # Import shutil for file operations
+import uuid  # Import uuid for generating unique filenames
 import urllib.parse
 import re
 
@@ -21,22 +21,72 @@ except ModuleNotFoundError:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer, QSize
-from PyQt5.QtGui import QIcon, QRegExpValidator, QPixmap, QPainter, QColor, QFont, QFontMetrics # Keep QPixmap for _validate_image_file
+from PyQt5.QtGui import (
+    QIcon,
+    QRegExpValidator,
+    QPixmap,
+    QPainter,
+    QColor,
+    QFont,
+    QFontMetrics,
+)  # Keep QPixmap for _validate_image_file
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGridLayout, QGroupBox, QFormLayout,
-    QFileDialog, QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView,
-    QFrame, QAbstractItemView, QSizePolicy, QLineEdit, QApplication
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QGridLayout,
+    QGroupBox,
+    QFormLayout,
+    QFileDialog,
+    QMessageBox,
+    QSpinBox,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QFrame,
+    QAbstractItemView,
+    QSizePolicy,
+    QLineEdit,
+    QApplication,
 )
 from qfluentwidgets import (
-    CardWidget, ComboBox, CheckBox, PrimaryPushButton, PushButton,
-    LineEdit, TableWidget, FluentIcon, TitleLabel, GroupHeaderCardWidget,
-    HeaderCardWidget, BodyLabel, CaptionLabel, SwitchButton, IndicatorPosition,
-    SearchLineEdit, ToolButton, TransparentToolButton, Action, RoundMenu,
-    HyperlinkButton, IconWidget, InfoBarIcon, setCustomStyleSheet, DropDownPushButton
+    CardWidget,
+    ComboBox,
+    CheckBox,
+    PrimaryPushButton,
+    PushButton,
+    LineEdit,
+    TableWidget,
+    FluentIcon,
+    TitleLabel,
+    GroupHeaderCardWidget,
+    HeaderCardWidget,
+    BodyLabel,
+    CaptionLabel,
+    SwitchButton,
+    IndicatorPosition,
+    SearchLineEdit,
+    ToolButton,
+    TransparentToolButton,
+    Action,
+    RoundMenu,
+    HyperlinkButton,
+    IconWidget,
+    InfoBarIcon,
+    setCustomStyleSheet,
+    DropDownPushButton,
 )
 
 from src.core.utils import resource_path, _clear_layout, get_user_data_dir
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, FluentProgressDialog, SmoothTableWidget
+from src.ui.custom_widgets import (
+    CustomLineEdit,
+    AutoScrollArea,
+    FluentProgressDialog,
+    SmoothTableWidget,
+)
 from src.ui.rental_record_dialog import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
 from src.ui.save_dialog import SaveDialog
@@ -45,14 +95,14 @@ from src.ui.components.table_optimization import (
     DebounceResizeManager,
     TableCacheManager,
     BatchUpdateManager,
-    ResizeDebugManager
+    ResizeDebugManager,
 )
 
 
 # Custom CardWidget without hover effects for rental info tab containers
 class StaticCardWidget(CardWidget):
     """CardWidget that disables hover effects while preserving child component functionality."""
-    
+
     def enterEvent(self, event):
         """Do not invoke base CardWidget hover behavior."""
         return  # No-op to keep static appearance
@@ -96,44 +146,42 @@ class NumericTableWidgetItem(QTableWidgetItem):
 
 class RentalInfoTab(QWidget, EnhancedTableMixin):
     # Define priority columns for rental table
-    PRIORITY_COLUMNS = {
-        'rental_table': ['TENANT NAME', 'ROOM NUMBER', 'ADVANCED PAID']
-    }
-    
+    PRIORITY_COLUMNS = {"rental_table": ["TENANT NAME", "ROOM NUMBER", "ADVANCED PAID"]}
+
     # Define specific column icons for rental table
     COLUMN_ICONS = {
-        'ID': FluentIcon.TAG,
-        'TENANT_NAME': FluentIcon.PEOPLE,
-        'TENANT NAME': FluentIcon.PEOPLE,
-        'ROOM_NUMBER': FluentIcon.HOME,
-        'ROOM NUMBER': FluentIcon.HOME,
-        'ADVANCED_PAID': FluentIcon.ACCEPT_MEDIUM,
-        'ADVANCED PAID': FluentIcon.ACCEPT_MEDIUM,
-        'CREATED_AT': FluentIcon.CALENDAR,
-        'CREATED AT': FluentIcon.CALENDAR,
-        'UPDATED_AT': FluentIcon.CALENDAR,
-        'UPDATED AT': FluentIcon.CALENDAR
+        "ID": FluentIcon.TAG,
+        "TENANT_NAME": FluentIcon.PEOPLE,
+        "TENANT NAME": FluentIcon.PEOPLE,
+        "ROOM_NUMBER": FluentIcon.HOME,
+        "ROOM NUMBER": FluentIcon.HOME,
+        "ADVANCED_PAID": FluentIcon.ACCEPT_MEDIUM,
+        "ADVANCED PAID": FluentIcon.ACCEPT_MEDIUM,
+        "CREATED_AT": FluentIcon.CALENDAR,
+        "CREATED AT": FluentIcon.CALENDAR,
+        "UPDATED_AT": FluentIcon.CALENDAR,
+        "UPDATED AT": FluentIcon.CALENDAR,
     }
-    
+
     # Font configuration matching History tab exactly
-    FONT_SIZES = {
-        'priority_columns': 12,
-        'regular_columns': 10,
-        'headers': 11
-    }
-    
-    FONT_WEIGHTS = {
-        'priority_columns': 600,
-        'regular_columns': 500,
-        'headers': 700
-    }
-    
+    FONT_SIZES = {"priority_columns": 12, "regular_columns": 10, "headers": 11}
+
+    FONT_WEIGHTS = {"priority_columns": 600, "regular_columns": 500, "headers": 700}
+
     # Define safe and forbidden directories at the class level
-    SAFE_DIRS = [get_user_data_dir()] + [Path.home() / d for d in ("Documents", "Desktop", "Downloads")]
+    SAFE_DIRS = [get_user_data_dir()] + [
+        Path.home() / d for d in ("Documents", "Desktop", "Downloads")
+    ]
     FORBIDDEN = [
-        Path(p) for p in (
-            "/etc", "/sys", "/proc", "/bin", "/usr",
-            "C:/Windows", "C:/Windows/System32"
+        Path(p)
+        for p in (
+            "/etc",
+            "/sys",
+            "/proc",
+            "/bin",
+            "/usr",
+            "C:/Windows",
+            "C:/Windows/System32",
         )
     ]
     # Define the directory where images will be stored within the application's data folder
@@ -143,10 +191,10 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         super().__init__()
         self.main_window = main_window_ref
         self.db_manager = self.main_window.db_manager
-        
+
         # Debug configuration flags for production control
         self._resize_debug_enabled = False  # Can be enabled via configuration
-        
+
         # >>> ADD
         # Ensure the image storage directory exists right at start-up so that
         # subsequent save operations don't fail due to a missing folder.
@@ -172,8 +220,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.police_form_path_label.setText("No file selected")
         self.rental_records_table = None
 
-        self.current_rental_id = None  # Local DB primary key (if editing an existing record)
-        self.current_supabase_id = None  # Supabase record UUID (if editing an existing record)
+        self.current_rental_id = (
+            None  # Local DB primary key (if editing an existing record)
+        )
+        self.current_supabase_id = (
+            None  # Supabase record UUID (if editing an existing record)
+        )
         self.current_is_archived = False  # Preserve archive status when editing
 
         # Cloud pagination state
@@ -191,7 +243,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self._setup_optimization_components()
 
         self.init_ui()
-        self.load_rental_records() # Initial load will be from default source
+        self.load_rental_records()  # Initial load will be from default source
 
     def init_ui(self):
         tab_layout = QVBoxLayout(self)
@@ -217,7 +269,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
         # Left Column Layout (Input Form + Image Uploads + Save/Clear)
         left_column_layout = QVBoxLayout()
-        left_column_layout.setSpacing(4)  # Aggressively reduced to give action buttons maximum space
+        left_column_layout.setSpacing(
+            4
+        )  # Aggressively reduced to give action buttons maximum space
 
         # Rental Details Card using HeaderCardWidget
         self.rental_details_card = HeaderCardWidget(self)
@@ -237,7 +291,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.rental_details_card.headerLayout.setContentsMargins(16, 8, 16, 8)
         # Style separator with blue color using palette
         palette = self.rental_details_card.separator.palette()
-        palette.setColor(self.rental_details_card.separator.backgroundRole(), QColor("#0078D4"))
+        palette.setColor(
+            self.rental_details_card.separator.backgroundRole(), QColor("#0078D4")
+        )
         self.rental_details_card.separator.setPalette(palette)
         self.rental_details_card.separator.setAutoFillBackground(True)
 
@@ -252,7 +308,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         tenant_name_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.tenant_name_input = LineEdit()
         self.tenant_name_input.setClearButtonEnabled(True)
-        
+
         # Room Number field
         room_number_label = BodyLabel("Room Number")
         room_number_label.setStyleSheet("font-weight: bold; color: #ffffff;")
@@ -264,7 +320,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         advanced_paid_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         self.advanced_paid_input = LineEdit()
         self.advanced_paid_input.setClearButtonEnabled(True)
-        numeric_validator = QRegExpValidator(QRegExp(r'^\d*\.?\d*$'))
+        numeric_validator = QRegExpValidator(QRegExp(r"^\d*\.?\d*$"))
         self.advanced_paid_input.setValidator(numeric_validator)
 
         # Add labels and input fields to the layout
@@ -275,7 +331,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         rental_details_layout.addWidget(advanced_paid_label)
         rental_details_layout.addWidget(self.advanced_paid_input)
 
-        stay_hint = CaptionLabel("Stay period is inferred from Created At → Archived date")
+        stay_hint = CaptionLabel(
+            "Stay period is inferred from Created At → Archived date"
+        )
         stay_hint.setStyleSheet("color: #9f9f9f;")
         rental_details_layout.addWidget(stay_hint)
 
@@ -288,7 +346,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.input_fields = [
             self.tenant_name_input,
             self.room_number_input,
-            self.advanced_paid_input
+            self.advanced_paid_input,
         ]
 
         # ─── Configure CustomLineEdit navigation (Enter / Up / Down) ───
@@ -296,9 +354,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             next_fld = self.input_fields[(idx + 1) % len(self.input_fields)]
             prev_fld = self.input_fields[(idx - 1) % len(self.input_fields)]
 
-            fld.next_widget_on_enter = next_fld   # Enter → next
-            fld.down_widget = next_fld            # ↓ → next
-            fld.up_widget = prev_fld              # ↑ → previous
+            fld.next_widget_on_enter = next_fld  # Enter → next
+            fld.down_widget = next_fld  # ↓ → next
+            fld.up_widget = prev_fld  # ↑ → previous
 
         # Give initial focus to the first field when the tab opens
         self.tenant_name_input.setFocus()
@@ -307,7 +365,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.document_upload_card = HeaderCardWidget(self)
         self.document_upload_card.setTitle("Document Upload")
         self.document_upload_card.setBorderRadius(8)
-        self.document_upload_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.document_upload_card.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed
+        )
         # Apply blue color styling to match app theme
         self.document_upload_card.headerLabel.setStyleSheet("""
             QLabel {
@@ -321,7 +381,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.document_upload_card.headerLayout.setContentsMargins(16, 8, 16, 8)
         # Style separator with blue color using palette
         palette = self.document_upload_card.separator.palette()
-        palette.setColor(self.document_upload_card.separator.backgroundRole(), QColor("#0078D4"))
+        palette.setColor(
+            self.document_upload_card.separator.backgroundRole(), QColor("#0078D4")
+        )
         self.document_upload_card.separator.setPalette(palette)
         self.document_upload_card.separator.setAutoFillBackground(True)
 
@@ -339,7 +401,10 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
         # NID Front Upload
         self.nid_front_widget = self._create_file_upload_widget(
-            FluentIcon.PEOPLE, "NID Front", "Upload front side of National ID", "nid_front"
+            FluentIcon.PEOPLE,
+            "NID Front",
+            "Upload front side of National ID",
+            "nid_front",
         )
         self.nid_front_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         upload_layout.addWidget(self.nid_front_widget)
@@ -353,7 +418,10 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
         # Police Form Upload
         self.police_form_widget = self._create_file_upload_widget(
-            FluentIcon.DOCUMENT, "Police Form", "Upload police verification form", "police_form"
+            FluentIcon.DOCUMENT,
+            "Police Form",
+            "Upload police verification form",
+            "police_form",
         )
         self.police_form_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         upload_layout.addWidget(self.police_form_widget)
@@ -379,7 +447,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.save_options_card.headerLayout.setContentsMargins(16, 8, 16, 8)
         # Style separator with blue color using palette
         palette = self.save_options_card.separator.palette()
-        palette.setColor(self.save_options_card.separator.backgroundRole(), QColor("#0078D4"))
+        palette.setColor(
+            self.save_options_card.separator.backgroundRole(), QColor("#0078D4")
+        )
         self.save_options_card.separator.setPalette(palette)
         self.save_options_card.separator.setAutoFillBackground(True)
 
@@ -391,7 +461,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Save to PC option - using checkbox
         pc_save_layout = QHBoxLayout()
         pc_save_layout.setSpacing(8)
-        
+
         pc_icon = IconWidget(FluentIcon.SAVE)
         pc_icon.setFixedSize(18, 18)
         self.save_to_pc_checkbox = CheckBox("PC")
@@ -408,14 +478,14 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             }
         """)
         self.save_to_pc_checkbox.setChecked(True)
-        
+
         pc_save_layout.addWidget(pc_icon)
         pc_save_layout.addWidget(self.save_to_pc_checkbox)
-        
+
         # Save to Cloud option - using checkbox
         cloud_save_layout = QHBoxLayout()
         cloud_save_layout.setSpacing(8)
-        
+
         cloud_icon = IconWidget(FluentIcon.CLOUD)
         cloud_icon.setFixedSize(18, 18)
         self.save_to_cloud_checkbox = CheckBox("Cloud")
@@ -432,7 +502,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             }
         """)
         self.save_to_cloud_checkbox.setChecked(True)
-        
+
         cloud_save_layout.addWidget(cloud_icon)
         cloud_save_layout.addWidget(self.save_to_cloud_checkbox)
 
@@ -448,7 +518,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Action Buttons Layout
         action_buttons_layout = QHBoxLayout()
         action_buttons_layout.setSpacing(10)
-        
+
         # Save Record Button
         self.save_record_btn = PrimaryPushButton(FluentIcon.SAVE, "Save Record")
         self.save_record_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -521,9 +591,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             }
         """)
         action_buttons_layout.addWidget(self.clear_form_btn)
-        
+
         left_column_layout.addLayout(action_buttons_layout)
-        
+
         # Add the left column layout directly to the main layout
         # Reduce stretch factor to give records section even more space
         main_horizontal_layout.addLayout(left_column_layout, 0)
@@ -535,12 +605,14 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Records Table Card using StaticCardWidget to match History tab
         self.records_table_card = StaticCardWidget()
         self.records_table_card.setBorderRadius(8)
-        self.records_table_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
+        self.records_table_card.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
+
         records_card_layout = QVBoxLayout(self.records_table_card)
         records_card_layout.setSpacing(8)
         records_card_layout.setContentsMargins(12, 12, 12, 12)
-        
+
         # Create title with emoji icon for consistency
         title_text = TitleLabel("👥 Existing Rental Records")
         title_text.setAlignment(Qt.AlignCenter)
@@ -554,7 +626,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             margin: 8px 0px;
         """)
         records_card_layout.addWidget(title_text)
-        
+
         # Add divider
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
@@ -588,35 +660,59 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         else:
             initial_icon = FluentIcon.SAVE
             initial_label = "Local DB"
-        
+
         self.load_source_button = DropDownPushButton(initial_icon, initial_label)
         self.load_source_button.setFixedHeight(36)
         # Initial stylesheet will be set by _update_source_button_color below
         try:
-            self.load_source_button.setIcon(initial_icon.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setIcon(
+                initial_icon.icon(color=QColor(255, 255, 255))
+            )
         except Exception:
             pass
         self.load_source_button.setIconSize(QSize(20, 20))
         self.load_source_button.setMinimumWidth(200)
         # No maximum width - let it fill the container
         self.load_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        
+
         # Create menu for source selection
         source_menu = RoundMenu(parent=self.load_source_button)
+
         def _set_rental_source(text, icon, label):
             self.load_source_combo.setCurrentText(text)
             try:
-                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+                qicon = (
+                    icon.icon(color=QColor(255, 255, 255))
+                    if hasattr(icon, "icon")
+                    else icon
+                )
             except Exception:
                 qicon = icon
             self.load_source_button.setIcon(qicon)
             self.load_source_button.setText(label)
             # Update button color based on selection
             self._update_source_button_color(label)
-        source_menu.addAction(Action(FluentIcon.SAVE, "Local DB", triggered=lambda: _set_rental_source("Local DB", FluentIcon.SAVE, "Local DB")))
-        source_menu.addAction(Action(FluentIcon.CLOUD, "Cloud (Supabase)", triggered=lambda: _set_rental_source("Cloud (Supabase)", FluentIcon.CLOUD, "Cloud (Supabase)")))
+
+        source_menu.addAction(
+            Action(
+                FluentIcon.SAVE,
+                "Local DB",
+                triggered=lambda: _set_rental_source(
+                    "Local DB", FluentIcon.SAVE, "Local DB"
+                ),
+            )
+        )
+        source_menu.addAction(
+            Action(
+                FluentIcon.CLOUD,
+                "Cloud (Supabase)",
+                triggered=lambda: _set_rental_source(
+                    "Cloud (Supabase)", FluentIcon.CLOUD, "Cloud (Supabase)"
+                ),
+            )
+        )
         self.load_source_button.setMenu(source_menu)
-        
+
         # Set initial color based on actual selection
         self._update_source_button_color(initial_label)
 
@@ -624,7 +720,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.refresh_button = ToolButton(FluentIcon.UPDATE)
         self.refresh_button.setToolTip("Refresh records")
         # Force refresh clears caches and reloads
-        self.refresh_button.clicked.connect(lambda: self.load_rental_records(force_refresh=True))
+        self.refresh_button.clicked.connect(
+            lambda: self.load_rental_records(force_refresh=True)
+        )
         # Set button text color to white
         self.refresh_button.setStyleSheet("""
             ToolButton {
@@ -645,32 +743,44 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             }
         """)
 
-        table_controls_layout.addWidget(self.load_source_button, 1)  # Stretch factor 1 to expand
-        table_controls_layout.addWidget(self.refresh_button, 0)  # No stretch, fixed size
+        table_controls_layout.addWidget(
+            self.load_source_button, 1
+        )  # Stretch factor 1 to expand
+        table_controls_layout.addWidget(
+            self.refresh_button, 0
+        )  # No stretch, fixed size
 
         # Create main table layout
         table_layout = QVBoxLayout()
         table_layout.setSpacing(8)
         table_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Expose the layout so we can insert/remove the progress bar later
         self.table_layout = table_layout
-        
+
         table_layout.addLayout(table_controls_layout)
 
         # Create modern table with History tab styling and smooth scrolling
         self.rental_records_table = SmoothTableWidget()
-        self.rental_records_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
+        self.rental_records_table.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
+
         # Use simple table header creation without icons
-        rental_headers = ["Tenant Name", "Room Number", "Advanced Paid", "Created At", "Updated At"]
+        rental_headers = [
+            "Tenant Name",
+            "Room Number",
+            "Advanced Paid",
+            "Created At",
+            "Updated At",
+        ]
         self.rental_records_table.setColumnCount(len(rental_headers))
         self.rental_records_table.setHorizontalHeaderLabels(rental_headers)
         # self._set_table_headers_with_icons(self.rental_records_table, rental_headers, 'rental_table')  # Disabled - no icons
-        
+
         # Apply History tab's exact table styling
         self._style_table(self.rental_records_table)
-        
+
         # Configure table properties with horizontal scrollbars as needed for stretch mode
         self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.rental_records_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
@@ -680,7 +790,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
         # Infinite scroll: auto-load next page on near-bottom
         try:
-            self.rental_records_table.verticalScrollBar().valueChanged.connect(self._on_table_scroll)
+            self.rental_records_table.verticalScrollBar().valueChanged.connect(
+                self._on_table_scroll
+            )
         except Exception:
             pass
 
@@ -689,11 +801,10 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
         records_card_layout.addLayout(table_layout)
         right_column_layout.addWidget(self.records_table_card)
-        
+
         # Add the right column layout directly to the main layout
         # Set a stretch factor of 2 to give it more space
         main_horizontal_layout.addLayout(right_column_layout, 2)
-
 
     def _create_file_upload_widget(self, icon, title, description, file_type):
         """Create a modern file upload widget with visual feedback"""
@@ -716,12 +827,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         text_layout = QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(2)
-        
+
         title_label = BodyLabel(title)  # Use BodyLabel for better visibility
         title_label.setStyleSheet("font-weight: bold; color: #ffffff;")
         description_label = CaptionLabel(description)
         description_label.setTextColor("#666666", "#9f9f9f")
-        
+
         text_layout.addWidget(title_label)
         text_layout.addWidget(description_label)
         layout.addLayout(text_layout)
@@ -731,22 +842,26 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
-        
+
         # Status label
         status_label = CaptionLabel("No file selected")
         status_label.setTextColor("#999999", "#7f7f7f")
         right_layout.addWidget(status_label)
-        
+
         # Button layout
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, 0, 0, 0)
         button_layout.setSpacing(6)
-        
+
         # Upload button - make it more prominent
-        upload_btn = PrimaryPushButton("Upload")  # Use PrimaryPushButton for better visibility
+        upload_btn = PrimaryPushButton(
+            "Upload"
+        )  # Use PrimaryPushButton for better visibility
         upload_btn.setFixedSize(70, 28)  # Good size for visibility
         upload_btn.setToolTip(f"Upload {title}")
-        upload_btn.clicked.connect(lambda: self._handle_file_upload(file_type, status_label))
+        upload_btn.clicked.connect(
+            lambda: self._handle_file_upload(file_type, status_label)
+        )
         # Set button text color to white
         upload_btn.setStyleSheet("""
             PrimaryPushButton {
@@ -771,12 +886,14 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             }
         """)
         button_layout.addWidget(upload_btn)
-        
+
         # Clear button
         clear_btn = TransparentToolButton(FluentIcon.DELETE)
         clear_btn.setFixedSize(28, 28)  # Proper size
         clear_btn.setToolTip("Remove file")
-        clear_btn.clicked.connect(lambda: self._clear_file_upload(file_type, status_label))
+        clear_btn.clicked.connect(
+            lambda: self._clear_file_upload(file_type, status_label)
+        )
         # Set button text color to white
         clear_btn.setStyleSheet("""
             TransparentToolButton {
@@ -798,7 +915,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             }
         """)
         button_layout.addWidget(clear_btn)
-        
+
         right_layout.addLayout(button_layout)
         layout.addLayout(right_layout)
 
@@ -807,7 +924,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         widget.file_type = file_type
         widget.file_path = None
         widget.upload_btn = upload_btn
-        
+
         return widget
 
     def _style_table(self, table: SmoothTableWidget):
@@ -819,13 +936,13 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setHighlightSections(False)
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from History tab
-        
+
         # Configure scroll behavior and selection with smooth scrolling
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
-        
+
         # Apply History tab's EXACT dark styling for consistent appearance
         light_qss = """
             QTableWidget {
@@ -877,7 +994,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 font-weight: 600;
             }
         """
-        
+
         dark_qss = """
             QTableWidget {
                 background-color: #21262d;
@@ -928,20 +1045,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 font-weight: 600;
             }
         """
-        
+
         setCustomStyleSheet(table, light_qss, dark_qss)
-        
+
         # Configure header alignment and stretching for proper window edge alignment
         header = table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignCenter)
-        header.setStretchLastSection(False)  # Changed: Disable stretch for equal width approach
-        
+        header.setStretchLastSection(
+            False
+        )  # Changed: Disable stretch for equal width approach
+
         # Enable sorting
         table.setSortingEnabled(True)
-        
+
         # Set minimum section size
         header.setMinimumSectionSize(80)
-        
+
         # Apply equal column widths
         self._apply_equal_column_widths(table)
 
@@ -954,29 +1073,31 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             return
 
         column_count = table.columnCount()
-        
+
         # Get available table width
         available_width = table.viewport().width()
         if available_width <= 100:
             available_width = table.width() - 20  # Account for borders
             if available_width <= 100:
                 available_width = 800  # Fallback
-        
+
         # Step 1: Calculate minimum width needed for each column based on content
         column_min_widths = []
         metrics = QFontMetrics(table.font())
-        
+
         for col in range(column_count):
             min_width = 120  # Generous minimum to ensure both headers and content fit
-            
+
             # Check header width with CSS padding accounted for (4px + 12px on each side = 32px total)
             header_item = table.horizontalHeaderItem(col)
             if header_item:
                 header_text = header_item.text()
                 # Account for CSS padding: 12px left + 12px right = 24px, plus generous buffer
-                header_width = metrics.boundingRect(header_text).width() + 24 + 30  # CSS padding + generous buffer
+                header_width = (
+                    metrics.boundingRect(header_text).width() + 24 + 30
+                )  # CSS padding + generous buffer
                 min_width = max(min_width, header_width)
-            
+
             # Check content width (sample first 50 rows for performance)
             sample_rows = min(table.rowCount(), 50)
             for row in range(sample_rows):
@@ -988,114 +1109,152 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                     # Increased padding for content to match header generosity
                     content_width = item_metrics.boundingRect(item.text()).width() + 40
                     min_width = max(min_width, content_width)
-            
+
             column_min_widths.append(min_width)
-        
+
         # Step 2: Calculate total minimum width needed
         total_min_width = sum(column_min_widths)
-        
+
         # Step 3: Distribute available width proportionally
         if total_min_width <= available_width:
             # Content fits - distribute extra space proportionally
             extra_space = available_width - total_min_width
             column_widths = []
-            
+
             for i, min_width in enumerate(column_min_widths):
                 # Give each column its minimum width plus proportional extra space
-                proportion = min_width / total_min_width if total_min_width > 0 else 1.0 / column_count
+                proportion = (
+                    min_width / total_min_width
+                    if total_min_width > 0
+                    else 1.0 / column_count
+                )
                 extra_for_this_col = int(extra_space * proportion)
                 final_width = min_width + extra_for_this_col
                 column_widths.append(final_width)
-            
+
             # Apply calculated widths using Fixed mode for precise control
             for col in range(column_count - 1):
                 header.setSectionResizeMode(col, QHeaderView.Fixed)
                 table.setColumnWidth(col, column_widths[col])
-            
+
             # Last column stretches to fill any remaining pixels
             header.setSectionResizeMode(column_count - 1, QHeaderView.Stretch)
             header.setStretchLastSection(True)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            
+
         else:
             # Content doesn't fit - use minimum widths with horizontal scrolling
             for col in range(column_count):
                 header.setSectionResizeMode(col, QHeaderView.Fixed)
                 table.setColumnWidth(col, column_min_widths[col])
-            
+
             header.setStretchLastSection(False)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
     def _set_intelligent_column_widths(self, table: TableWidget):
         """Set responsive column widths based on content and window size with advanced caching optimization"""
-        print(f"[RENTAL DEBUG] _set_intelligent_column_widths called for table with {table.columnCount()} columns")
-        
+        print(
+            f"[RENTAL DEBUG] _set_intelligent_column_widths called for table with {table.columnCount()} columns"
+        )
+
         # Check if table layout has been stabilized - if so, skip complex resizing
-        if hasattr(table, '_layout_stabilized') and table._layout_stabilized:
+        if hasattr(table, "_layout_stabilized") and table._layout_stabilized:
             print(f"[RENTAL DEBUG] Table layout is stabilized, skipping complex resize")
             return
-        
+
         if table.columnCount() == 0:
             print(f"[RENTAL DEBUG] No columns, returning early")
             return
-        
+
         # Check if table is properly initialized
         available_width = table.viewport().width()
         print(f"[RENTAL DEBUG] Available width: {available_width}px")
-        
+
         if available_width <= 50:  # Minimum reasonable width
-            print(f"[RENTAL DEBUG] Available width too small ({available_width}px), skipping resize")
+            print(
+                f"[RENTAL DEBUG] Available width too small ({available_width}px), skipping resize"
+            )
             return
-        
+
         # Check if table has reasonable size (remove visibility check for headless testing)
         table_width = table.width()
         print(f"[RENTAL DEBUG] Table width: {table_width}px")
-        
+
         if table_width <= 50:
-            print(f"[RENTAL DEBUG] Table width too small ({table_width}px), skipping resize")
+            print(
+                f"[RENTAL DEBUG] Table width too small ({table_width}px), skipping resize"
+            )
             return
-        
+
         # Start timing for performance monitoring
         start_time = time.time() * 1000  # Convert to milliseconds
-        
+
         try:
             # DISABLED: Cache can interfere with column distribution
             # Check for cached widths first using advanced cache manager
-            if False and hasattr(self, '_cache_manager') and self._cache_manager:
+            if False and hasattr(self, "_cache_manager") and self._cache_manager:
                 cache_key = self._cache_manager.generate_table_content_hash(table)
                 cached_data = self._cache_manager.get_cached_content_width(cache_key)
-                
-                if cached_data and len(cached_data['column_widths']) == table.columnCount():
+
+                if (
+                    cached_data
+                    and len(cached_data["column_widths"]) == table.columnCount()
+                ):
                     # Use cached widths if available and valid
-                    self._apply_cached_column_widths(table, cached_data['column_widths'])
-                    
-                    if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
-                        self._debug_manager.log_cache_operation('content_width', 'get_cached_widths', True, 
-                                                              {'cache_key': cache_key[:8], 'column_count': table.columnCount()})
-                    self._log_resize_debug("Cache hit for content widths", {'cache_key': cache_key[:8]})
+                    self._apply_cached_column_widths(
+                        table, cached_data["column_widths"]
+                    )
+
+                    if (
+                        hasattr(self, "_debug_manager")
+                        and self._debug_manager
+                        and self._debug_manager.enabled
+                    ):
+                        self._debug_manager.log_cache_operation(
+                            "content_width",
+                            "get_cached_widths",
+                            True,
+                            {
+                                "cache_key": cache_key[:8],
+                                "column_count": table.columnCount(),
+                            },
+                        )
+                    self._log_resize_debug(
+                        "Cache hit for content widths", {"cache_key": cache_key[:8]}
+                    )
                     return
-                
-                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
-                    self._debug_manager.log_cache_operation('content_width', 'get_cached_widths', False,
-                                                          {'cache_key': cache_key[:8], 'reason': 'cache_miss'})
-                self._log_resize_debug("Cache miss for content widths", {'cache_key': cache_key[:8]})
-        
+
+                if (
+                    hasattr(self, "_debug_manager")
+                    and self._debug_manager
+                    and self._debug_manager.enabled
+                ):
+                    self._debug_manager.log_cache_operation(
+                        "content_width",
+                        "get_cached_widths",
+                        False,
+                        {"cache_key": cache_key[:8], "reason": "cache_miss"},
+                    )
+                self._log_resize_debug(
+                    "Cache miss for content widths", {"cache_key": cache_key[:8]}
+                )
+
         except Exception as e:
             print(f"Advanced cache lookup failed: {e}")
-        
+
         header = table.horizontalHeader()
-        
+
         # Ensure Qt isn't stretching the last section implicitly (from history tab)
         if header:
             header.setStretchLastSection(False)
-        
+
         # Force geometry update first to get accurate measurements (from history tab)
         table.updateGeometry()
-        
+
         # Calculate available width more accurately (from history tab)
         viewport_width = table.viewport().width()
         table_width = table.width()
-        
+
         # Use the most reliable width measurement (from history tab)
         if viewport_width > 50:
             available_width = viewport_width
@@ -1104,40 +1263,51 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         else:
             # Last resort - use parent width
             available_width = table.parent().width() - 50 if table.parent() else 500
-        
+
         column_count = table.columnCount()
-        
+
         # Debug: Print viewport width for troubleshooting
-        self._log_resize_debug("Column width calculation started", {
-            'viewport_width': viewport_width,
-            'table_width': table_width,
-            'available_width': available_width,
-            'column_count': column_count
-        })
-        
+        self._log_resize_debug(
+            "Column width calculation started",
+            {
+                "viewport_width": viewport_width,
+                "table_width": table_width,
+                "available_width": available_width,
+                "column_count": column_count,
+            },
+        )
+
         # Calculate content-based widths for each column with cached font metrics
         content_widths = {}
         total_min_width = 0
-        
+
         for col in range(column_count):
             # Start with header text width
             header_item = table.horizontalHeaderItem(col)
             header_text = header_item.text() if header_item else ""
-            
+
             # Use cached font metrics for performance
-            font_metrics = self._get_cached_font_metrics_for_column(table, col, header_text)
-            header_width = font_metrics.boundingRect(header_text).width() + 8  # Minimal padding
-            
+            font_metrics = self._get_cached_font_metrics_for_column(
+                table, col, header_text
+            )
+            header_width = (
+                font_metrics.boundingRect(header_text).width() + 8
+            )  # Minimal padding
+
             # Check content width for sample rows (for performance)
             max_content_width = header_width
-            sample_size = min(table.rowCount(), 100)  # Increased sample size but still limited
+            sample_size = min(
+                table.rowCount(), 100
+            )  # Increased sample size but still limited
             for row in range(sample_size):
                 item = table.item(row, col)
                 if item:
                     content_text = item.text()
-                    content_width = font_metrics.boundingRect(content_text).width() + 8  # Minimal padding
+                    content_width = (
+                        font_metrics.boundingRect(content_text).width() + 8
+                    )  # Minimal padding
                     max_content_width = max(max_content_width, content_width)
-            
+
             # Set minimum widths based on column type (inspired by history tab)
             header_lower = header_text.lower()
             if any(keyword in header_lower for keyword in ["tenant", "name"]):
@@ -1147,7 +1317,18 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             elif any(keyword in header_lower for keyword in ["room", "number"]):
                 # Room columns moderate space
                 content_widths[col] = max(max_content_width, 100)
-            elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount", "grand"]):
+            elif any(
+                keyword in header_lower
+                for keyword in [
+                    "advanced",
+                    "paid",
+                    "total",
+                    "cost",
+                    "bill",
+                    "amount",
+                    "grand",
+                ]
+            ):
                 # Financial columns need space for numbers
                 content_widths[col] = max(max_content_width, 120)
             elif any(keyword in header_lower for keyword in ["created", "updated"]):
@@ -1159,65 +1340,81 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             else:
                 # Default column width
                 content_widths[col] = max(max_content_width, 100)
-            
+
             total_min_width += content_widths[col]
-        
+
         # Cache the calculated widths using advanced cache manager (before proportional distribution)
         try:
-            if hasattr(self, '_cache_manager') and self._cache_manager:
+            if hasattr(self, "_cache_manager") and self._cache_manager:
                 cache_key = self._cache_manager.generate_table_content_hash(table)
-                column_widths_list = [content_widths[col] for col in range(column_count)]
-                
+                column_widths_list = [
+                    content_widths[col] for col in range(column_count)
+                ]
+
                 self._cache_manager.cache_content_width(
-                    cache_key, 
-                    column_widths_list, 
-                    total_min_width, 
-                    sample_size
+                    cache_key, column_widths_list, total_min_width, sample_size
                 )
-                
+
                 # Update table content hash tracking
-                self._cache_manager.update_table_content_hash('rental_table', table)
-                
+                self._cache_manager.update_table_content_hash("rental_table", table)
+
         except Exception as e:
             print(f"Failed to cache column widths: {e}")
-        
+
         # HYBRID APPROACH: Stretch when content fits, scroll when it doesn't (like history tab)
         print(f"[RENTAL DEBUG] Available: {available_width}px")
-        print(f"[RENTAL DEBUG] Content widths: {[content_widths[col] for col in range(column_count)]}")
+        print(
+            f"[RENTAL DEBUG] Content widths: {[content_widths[col] for col in range(column_count)]}"
+        )
         print(f"[RENTAL DEBUG] Total min width: {total_min_width}px")
-        
+
         header = table.horizontalHeader()
-        
+
         # Determine if content fits in available space
-        content_fits = total_min_width <= (available_width - 30)  # 30px buffer for scrollbars
-        print(f"[RENTAL DEBUG] Content fits: {content_fits} ({total_min_width} <= {available_width - 30})")
-        
+        content_fits = total_min_width <= (
+            available_width - 30
+        )  # 30px buffer for scrollbars
+        print(
+            f"[RENTAL DEBUG] Content fits: {content_fits} ({total_min_width} <= {available_width - 30})"
+        )
+
         if content_fits and available_width > 200:
             # Content fits - use STRETCH mode for equal distribution
             for col in range(column_count):
                 header.setSectionResizeMode(col, QHeaderView.Stretch)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            print(f"[RENTAL DEBUG] Applied STRETCH mode - content fits in {available_width}px")
+            print(
+                f"[RENTAL DEBUG] Applied STRETCH mode - content fits in {available_width}px"
+            )
         else:
             # Content doesn't fit - use FIXED mode with horizontal scrolling to prevent truncation
             for col in range(column_count):
                 header.setSectionResizeMode(col, QHeaderView.Fixed)
                 table.setColumnWidth(col, content_widths[col])
-            
+
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             # Ensure horizontal scrollbar is visible when needed
-            if hasattr(table, 'horizontalScrollBar') and table.horizontalScrollBar():
+            if hasattr(table, "horizontalScrollBar") and table.horizontalScrollBar():
                 table.horizontalScrollBar().setVisible(True)
-            
-            print(f"[RENTAL DEBUG] Applied FIXED mode with scrolling - total width {total_min_width}px")
-        
+
+            print(
+                f"[RENTAL DEBUG] Applied FIXED mode with scrolling - total width {total_min_width}px"
+            )
+
         # Verify mode was applied
         for col in range(column_count):
             mode = header.sectionResizeMode(col)
-            mode_name = {0: "Interactive", 1: "Fixed", 2: "Stretch", 3: "ResizeToContents"}.get(mode, f"Unknown({mode})")
+            mode_name = {
+                0: "Interactive",
+                1: "Fixed",
+                2: "Stretch",
+                3: "ResizeToContents",
+            }.get(mode, f"Unknown({mode})")
             width = table.columnWidth(col) if mode == 1 else "auto"
-            print(f"[RENTAL DEBUG] Column {col} ({table.horizontalHeaderItem(col).text() if table.horizontalHeaderItem(col) else 'N/A'}): {mode_name}, width: {width}")
-        
+            print(
+                f"[RENTAL DEBUG] Column {col} ({table.horizontalHeaderItem(col).text() if table.horizontalHeaderItem(col) else 'N/A'}): {mode_name}, width: {width}"
+            )
+
         # Ensure table takes full width of its parent
         table.setMinimumWidth(0)
         table.setMaximumWidth(16777215)
@@ -1225,166 +1422,195 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         policy.setHorizontalPolicy(policy.Expanding)
         policy.setVerticalPolicy(policy.Expanding)
         table.setSizePolicy(policy)
-        
+
         # Configure header settings
         if header:
             header.setStretchLastSection(False)  # Disable for consistent behavior
             header.setMinimumSectionSize(80)  # Minimum column width
-        
+
         print(f"[RENTAL DEBUG] Table size policy and header configured")
-        
+
         # Apply special styling to tenant name column
         self._apply_tenant_name_column_styling(table)
-    
+
     def _ensure_stretch_mode(self, table):
         """Ensure stable layout with proportional column distribution and horizontal scrolling"""
         try:
             header = table.horizontalHeader()
             if header and table.columnCount() > 0:
-                print(f"[RENTAL DEBUG] Applying proportional column distribution for {table.columnCount()} columns")
-                
+                print(
+                    f"[RENTAL DEBUG] Applying proportional column distribution for {table.columnCount()} columns"
+                )
+
                 # Define column widths that ensure content visibility
                 column_widths = {
                     0: 200,  # Tenant Name - needs space for full names
-                    1: 100,  # Room Number - compact  
+                    1: 100,  # Room Number - compact
                     2: 120,  # Advanced Paid - currency values
                     3: 180,  # Created At - date/time
                 }
-                
+
                 # Set minimum section size globally
                 header.setMinimumSectionSize(80)
-                
+
                 # Use Fixed mode for content columns, Stretch for last column
                 for col in range(table.columnCount()):
                     if col in column_widths:
                         # Fixed width for predictable content display
                         header.setSectionResizeMode(col, QHeaderView.Fixed)
                         table.setColumnWidth(col, column_widths[col])
-                        print(f"[RENTAL DEBUG] Column {col}: fixed width {column_widths[col]}px")
+                        print(
+                            f"[RENTAL DEBUG] Column {col}: fixed width {column_widths[col]}px"
+                        )
                     else:
                         # Last column stretches to fill remaining space
                         header.setSectionResizeMode(col, QHeaderView.Stretch)
                         print(f"[RENTAL DEBUG] Column {col}: stretch mode")
-                
+
                 # Enable stretch last section for proper edge alignment
                 header.setStretchLastSection(True)
-                
+
                 # Enable horizontal scrollbar when total width exceeds available space
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-                
+
                 # Prevent policy changes by marking as stabilized
-                if not hasattr(table, '_layout_stabilized'):
+                if not hasattr(table, "_layout_stabilized"):
                     table._layout_stabilized = True
-                
+
                 # Debug: Check what modes and widths were actually set
                 total_width = 0
                 for col in range(table.columnCount()):
                     mode = header.sectionResizeMode(col)
                     width = table.columnWidth(col)
                     total_width += width
-                    mode_name = {0: "Interactive", 1: "Fixed", 2: "Stretch", 3: "ResizeToContents"}.get(mode, f"Unknown({mode})")
+                    mode_name = {
+                        0: "Interactive",
+                        1: "Fixed",
+                        2: "Stretch",
+                        3: "ResizeToContents",
+                    }.get(mode, f"Unknown({mode})")
                     print(f"[RENTAL DEBUG] Column {col}: {mode_name}, width: {width}px")
-                
-                print(f"[RENTAL DEBUG] Total table width: {total_width}px, Available: {table.viewport().width()}px")
-                    
+
+                print(
+                    f"[RENTAL DEBUG] Total table width: {total_width}px, Available: {table.viewport().width()}px"
+                )
+
         except Exception as e:
             print(f"[RENTAL DEBUG] Failed to apply proportional layout: {e}")
-    
+
     def _force_proportional_distribution(self, table):
         """Force proportional column distribution - called after data is loaded"""
         try:
             header = table.horizontalHeader()
             if not header or table.columnCount() == 0:
                 return
-                
+
             available_width = table.viewport().width()
             if available_width <= 200:
                 return
-                
-            print(f"[RENTAL DEBUG] Forcing proportional distribution with viewport width: {available_width}px")
-            
+
+            print(
+                f"[RENTAL DEBUG] Forcing proportional distribution with viewport width: {available_width}px"
+            )
+
             # Define column weights
             column_weights = {}
             for col in range(table.columnCount()):
                 header_item = table.horizontalHeaderItem(col)
                 header_text = header_item.text() if header_item else ""
                 header_lower = header_text.lower()
-                
+
                 if any(keyword in header_lower for keyword in ["tenant", "name"]):
                     column_weights[col] = 0.30
                 elif any(keyword in header_lower for keyword in ["room", "number"]):
                     column_weights[col] = 0.15
-                elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount"]):
+                elif any(
+                    keyword in header_lower
+                    for keyword in [
+                        "advanced",
+                        "paid",
+                        "total",
+                        "cost",
+                        "bill",
+                        "amount",
+                    ]
+                ):
                     column_weights[col] = 0.15
                 elif any(keyword in header_lower for keyword in ["created", "updated"]):
                     column_weights[col] = 0.20
                 else:
                     column_weights[col] = 0.20
-            
+
             # Normalize weights
             total_weight = sum(column_weights.values())
             if total_weight > 0:
                 for col in column_weights:
                     column_weights[col] = column_weights[col] / total_weight
-            
+
             # First, ensure all columns are in Interactive mode
             for col in range(table.columnCount()):
                 header.setSectionResizeMode(col, QHeaderView.Interactive)
-            
+
             # Disable stretch last section temporarily to allow manual sizing
             header.setStretchLastSection(False)
-            
+
             # Apply proportional widths with more aggressive approach
             print(f"[RENTAL DEBUG] Applying proportional widths:")
             for col in range(table.columnCount()):
                 weight = column_weights.get(col, 1.0 / table.columnCount())
                 proportional_width = int(available_width * weight)
                 min_width = max(60, proportional_width)
-                
+
                 # Get current width for comparison
                 current_width = table.columnWidth(col)
-                
+
                 # Try multiple methods to set the width
                 header.resizeSection(col, min_width)
                 table.setColumnWidth(col, min_width)
-                
+
                 # Verify the width was set
                 new_width = table.columnWidth(col)
                 header_item = table.horizontalHeaderItem(col)
                 header_text = header_item.text() if header_item else f"Col {col}"
-                
-                print(f"[RENTAL DEBUG]   {header_text}: {current_width}px -> {new_width}px (target: {min_width}px, weight: {weight:.2f})")
-            
+
+                print(
+                    f"[RENTAL DEBUG]   {header_text}: {current_width}px -> {new_width}px (target: {min_width}px, weight: {weight:.2f})"
+                )
+
             # Re-enable stretch last section for edge alignment
             header.setStretchLastSection(True)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            
-            print(f"[RENTAL DEBUG] Forced proportional distribution with weights: {column_weights}")
-            
+
+            print(
+                f"[RENTAL DEBUG] Forced proportional distribution with weights: {column_weights}"
+            )
+
         except Exception as e:
             print(f"[RENTAL DEBUG] Failed to force proportional distribution: {e}")
-        
+
         # Performance logging removed from this method since it doesn't have start_time
-    
+
     def _apply_tenant_name_column_styling(self, table: TableWidget):
         """Apply special styling to the tenant name column for better visual distinction (matching month column style)"""
         if table.columnCount() == 0:
             return
-        
+
         # Find the tenant name column
         tenant_col = -1
         for col in range(table.columnCount()):
             header_item = table.horizontalHeaderItem(col)
-            if header_item and any(keyword in header_item.text().lower() for keyword in ["tenant", "name"]):
+            if header_item and any(
+                keyword in header_item.text().lower() for keyword in ["tenant", "name"]
+            ):
                 tenant_col = col
                 break
-        
+
         if tenant_col == -1:
             return  # No tenant name column found
-        
+
         from PyQt5.QtGui import QColor, QBrush, QFont
         from qfluentwidgets import isDarkTheme
-        
+
         # Style the header to match month column
         header_item = table.horizontalHeaderItem(tenant_col)
         if header_item:
@@ -1392,7 +1618,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             font.setBold(True)
             font.setPointSize(13)  # Slightly larger for tenant name header
             header_item.setFont(font)
-        
+
         # Style all tenant name column cells with distinct background (matching month column exactly)
         for row in range(table.rowCount()):
             item = table.item(row, tenant_col)
@@ -1402,14 +1628,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 font.setBold(True)
                 font.setPointSize(11)
                 item.setFont(font)
-                
+
                 # Apply theme-aware background color matching month column exactly
                 if isDarkTheme():
-                    item.setBackground(QBrush(QColor(45, 55, 75)))  # Darker blue background (same as month)
-                    item.setForeground(QBrush(QColor(220, 230, 255)))  # Light blue text (same as month)
+                    item.setBackground(
+                        QBrush(QColor(45, 55, 75))
+                    )  # Darker blue background (same as month)
+                    item.setForeground(
+                        QBrush(QColor(220, 230, 255))
+                    )  # Light blue text (same as month)
                 else:
-                    item.setBackground(QBrush(QColor(230, 240, 255)))  # Light blue background (same as month)
-                    item.setForeground(QBrush(QColor(25, 50, 100)))  # Dark blue text (same as month)
+                    item.setBackground(
+                        QBrush(QColor(230, 240, 255))
+                    )  # Light blue background (same as month)
+                    item.setForeground(
+                        QBrush(QColor(25, 50, 100))
+                    )  # Dark blue text (same as month)
 
     def _on_table_resize(self, table: TableWidget):
         """Handle table resize events - no action needed with stretch mode"""
@@ -1419,16 +1653,21 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         """Handle widget resize events - apply equal column widths"""
         super().resizeEvent(event)
         # Apply equal widths after resize
-        if hasattr(self, 'rental_records_table') and self.rental_records_table:
-            QTimer.singleShot(50, lambda: self._apply_equal_column_widths(self.rental_records_table))
-    
+        if hasattr(self, "rental_records_table") and self.rental_records_table:
+            QTimer.singleShot(
+                50, lambda: self._apply_equal_column_widths(self.rental_records_table)
+            )
+
     def showEvent(self, event):
         """Handle tab becoming visible - apply equal column widths"""
         try:
             super().showEvent(event)
             # Apply equal widths when tab becomes visible
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
-                QTimer.singleShot(100, lambda: self._apply_equal_column_widths(self.rental_records_table))
+            if hasattr(self, "rental_records_table") and self.rental_records_table:
+                QTimer.singleShot(
+                    100,
+                    lambda: self._apply_equal_column_widths(self.rental_records_table),
+                )
         except Exception as e:
             print(f"Error in showEvent: {e}")
 
@@ -1436,7 +1675,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         """Recalculate column widths for all tables using batched updates and caching"""
         try:
             # Use batch update manager for flicker-free recalculation
-            if hasattr(self, '_batch_manager') and self._batch_manager and hasattr(self, 'rental_records_table') and self.rental_records_table:
+            if (
+                hasattr(self, "_batch_manager")
+                and self._batch_manager
+                and hasattr(self, "rental_records_table")
+                and self.rental_records_table
+            ):
                 try:
                     self._batch_manager.begin_batch_update()
                     self._set_intelligent_column_widths(self.rental_records_table)
@@ -1448,7 +1692,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                     self._batch_manager.end_batch_update()
             else:
                 # Fallback to direct method if batch manager not available
-                if hasattr(self, 'rental_records_table') and self.rental_records_table:
+                if hasattr(self, "rental_records_table") and self.rental_records_table:
                     self._set_intelligent_column_widths(self.rental_records_table)
                     return True
         except Exception as e:
@@ -1456,28 +1700,32 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             return False
 
     # ===== OPTIMIZATION METHODS =====
-    
+
     def _setup_optimization_components(self):
         """Initialize optimization components with comprehensive error handling and fallback mechanisms"""
         try:
             # Import the new optimization component manager
-            from src.ui.components.table_optimization import OptimizationComponentManager
-            
+            from src.ui.components.table_optimization import (
+                OptimizationComponentManager,
+            )
+
             # Initialize the comprehensive optimization manager
             self._optimization_manager = OptimizationComponentManager(self)
-            
+
             # Setup table optimization for rental records table
             QTimer.singleShot(100, self._setup_table_optimizations)
-            
+
             # Store references for backward compatibility
             self._debounce_manager = self._optimization_manager.debounce_manager
             self._cache_manager = self._optimization_manager.cache_manager
             self._debug_manager = self._optimization_manager.debug_manager
-            
+
             # Connect debounce signal
             if self._debounce_manager:
-                self._debounce_manager.resize_requested.connect(self._perform_debounced_resize)
-            
+                self._debounce_manager.resize_requested.connect(
+                    self._perform_debounced_resize
+                )
+
         except Exception as e:
             print(f"Warning: Could not initialize optimization components: {e}")
             # Initialize fallback components
@@ -1487,23 +1735,25 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         """Setup basic fallback optimization when advanced components fail"""
         try:
             from src.ui.components.table_optimization import (
-                OptimizationConfig, OptimizationErrorHandler, FallbackResizeManager
+                OptimizationConfig,
+                OptimizationErrorHandler,
+                FallbackResizeManager,
             )
-            
+
             # Create basic configuration and error handler
             self._config = OptimizationConfig()
             self._config.disable_all_optimizations()  # Use fallback mode
             self._error_handler = OptimizationErrorHandler(self._config)
-            
+
             # Create fallback manager
             self._fallback_manager = FallbackResizeManager(self)
-            
+
             # Set components to None to indicate fallback mode
             self._optimization_manager = None
             self._debounce_manager = None
             self._cache_manager = None
             self._debug_manager = None
-            
+
         except Exception as e:
             print(f"Critical: Could not initialize fallback optimization: {e}")
             # Absolute fallback - no optimization components
@@ -1521,20 +1771,19 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             # carefully set STRETCH/FIXED modes for proper column distribution
             print("Table optimization disabled to prevent column width interference")
             return
-            
+
             if not self._optimization_manager:
                 return
-            
+
             # Setup optimization for rental records table
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            if hasattr(self, "rental_records_table") and self.rental_records_table:
                 self._optimization_manager.setup_table_optimization(
-                    self.rental_records_table, 
-                    'rental_table'
+                    self.rental_records_table, "rental_table"
                 )
-            
+
             # Setup resize debouncing
             self._setup_resize_debouncing()
-            
+
         except Exception as e:
             print(f"Warning: Could not setup table optimizations: {e}")
             # Try fallback setup
@@ -1547,16 +1796,16 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 # Use fallback resize setup
                 self._setup_fallback_resize_handling()
                 return
-                
+
             # Consolidate all resize event sources
             self._consolidate_resize_handlers()
-            
+
             # Batch managers are now handled by the optimization manager
             # Store reference for backward compatibility
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            if hasattr(self, "rental_records_table") and self.rental_records_table:
                 batch_managers = self._optimization_manager.batch_managers
-                self._rental_batch_manager = batch_managers.get('rental_table')
-            
+                self._rental_batch_manager = batch_managers.get("rental_table")
+
         except Exception as e:
             print(f"Warning: Could not setup resize debouncing: {e}")
             # Try fallback resize handling
@@ -1565,42 +1814,53 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def _setup_fallback_resize_handling(self):
         """Setup basic resize handling when optimization components fail"""
         try:
-            if hasattr(self, '_fallback_manager') and self._fallback_manager:
+            if hasattr(self, "_fallback_manager") and self._fallback_manager:
                 # Setup basic table properties
-                if hasattr(self, 'rental_records_table') and self.rental_records_table:
-                    self._fallback_manager.perform_basic_table_setup(self.rental_records_table)
-            
+                if hasattr(self, "rental_records_table") and self.rental_records_table:
+                    self._fallback_manager.perform_basic_table_setup(
+                        self.rental_records_table
+                    )
+
         except Exception as e:
             print(f"Warning: Fallback resize setup failed: {e}")
 
     def _setup_fallback_table_optimization(self):
         """Setup fallback table optimization when main optimization fails"""
         try:
-            if hasattr(self, '_fallback_manager') and self._fallback_manager:
-                if hasattr(self, 'rental_records_table') and self.rental_records_table:
-                    self._fallback_manager.perform_basic_table_setup(self.rental_records_table)
-                    
+            if hasattr(self, "_fallback_manager") and self._fallback_manager:
+                if hasattr(self, "rental_records_table") and self.rental_records_table:
+                    self._fallback_manager.perform_basic_table_setup(
+                        self.rental_records_table
+                    )
+
         except Exception as e:
             print(f"Warning: Fallback table optimization failed: {e}")
 
     def _perform_debounced_resize(self):
         """Execute the actual resize operation with comprehensive error handling and fallback mechanisms"""
         try:
-            start_time = time.time() * 1000 if hasattr(self, '_debug_manager') and self._debug_manager else None
-            
+            start_time = (
+                time.time() * 1000
+                if hasattr(self, "_debug_manager") and self._debug_manager
+                else None
+            )
+
             # Check if optimization manager is available
-            if self._optimization_manager and not self._optimization_manager.error_handler.is_fallback_active():
+            if (
+                self._optimization_manager
+                and not self._optimization_manager.error_handler.is_fallback_active()
+            ):
                 # Use optimized resize path
                 self._perform_optimized_resize()
             else:
                 # Use fallback resize path
                 self._perform_fallback_resize()
-                
+
             # Log performance if debug enabled
             if start_time:
                 duration = (time.time() * 1000) - start_time
                 self._log_resize_debug("debounced_resize", {}, duration)
-                
+
         except Exception as e:
             print(f"Error during debounced resize: {e}")
             # Last resort fallback
@@ -1609,17 +1869,16 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def _perform_optimized_resize(self):
         """Perform optimized resize using the optimization manager"""
         try:
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            if hasattr(self, "rental_records_table") and self.rental_records_table:
                 self._optimization_manager.safe_resize_table(
-                    self.rental_records_table, 
-                    'rental_table'
+                    self.rental_records_table, "rental_table"
                 )
-            
+
         except Exception as e:
             # Let optimization manager handle the error
             if self._optimization_manager:
                 should_retry = self._optimization_manager.error_handler.handle_error(
-                    'perform_optimized_resize', e, {'table': 'rental_table'}
+                    "perform_optimized_resize", e, {"table": "rental_table"}
                 )
                 if not should_retry:
                     self._perform_fallback_resize()
@@ -1629,13 +1888,15 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def _perform_fallback_resize(self):
         """Perform fallback resize using basic mechanisms"""
         try:
-            if hasattr(self, '_fallback_manager') and self._fallback_manager:
-                if hasattr(self, 'rental_records_table') and self.rental_records_table:
-                    self._fallback_manager.perform_basic_resize(self.rental_records_table)
+            if hasattr(self, "_fallback_manager") and self._fallback_manager:
+                if hasattr(self, "rental_records_table") and self.rental_records_table:
+                    self._fallback_manager.perform_basic_resize(
+                        self.rental_records_table
+                    )
             else:
                 # Direct fallback to original method
                 self._recalculate_all_table_widths()
-                
+
         except Exception as e:
             print(f"Fallback resize failed: {e}")
             # Try emergency fallback
@@ -1646,37 +1907,44 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         try:
             if not table or table.columnCount() == 0:
                 return
-                
+
             header = table.horizontalHeader()
             available_width = table.viewport().width()
-            
+
             # Simple approach: just force STRETCH mode for equal distribution
             if available_width > 200:
                 print(f"[RENTAL FINAL] Forcing STRETCH mode for equal distribution")
-                
+
                 # Aggressively set STRETCH mode
                 for col in range(table.columnCount()):
                     header.setSectionResizeMode(col, QHeaderView.Stretch)
-                
+
                 # Force header settings
                 header.setStretchLastSection(False)
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-                
+
                 # Force table to take full width
                 table.setMinimumWidth(0)
                 table.setMaximumWidth(16777215)
                 policy = table.sizePolicy()
                 policy.setHorizontalPolicy(policy.Expanding)
                 table.setSizePolicy(policy)
-                
-                print(f"[RENTAL FINAL] Applied STRETCH mode to all {table.columnCount()} columns")
-                
+
+                print(
+                    f"[RENTAL FINAL] Applied STRETCH mode to all {table.columnCount()} columns"
+                )
+
                 # Verify the modes were set
                 for col in range(table.columnCount()):
                     mode = header.sectionResizeMode(col)
-                    mode_name = {0: "Interactive", 1: "Fixed", 2: "Stretch", 3: "ResizeToContents"}.get(mode, f"Unknown({mode})")
+                    mode_name = {
+                        0: "Interactive",
+                        1: "Fixed",
+                        2: "Stretch",
+                        3: "ResizeToContents",
+                    }.get(mode, f"Unknown({mode})")
                     print(f"[RENTAL FINAL] Column {col} mode: {mode_name}")
-            
+
         except Exception as e:
             print(f"Failed to apply final column mode override: {e}")
 
@@ -1685,19 +1953,19 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         try:
             if not table or table.columnCount() == 0:
                 return
-                
+
             header = table.horizontalHeader()
             available_width = table.viewport().width()
-            
+
             # Calculate if content should fit (same logic as main method)
             content_widths = {}
             sample_size = min(5, table.rowCount())
-            
+
             for col in range(table.columnCount()):
                 header_item = table.horizontalHeaderItem(col)
                 header_text = header_item.text() if header_item else ""
                 header_width = len(header_text) * 8 + 20
-                
+
                 max_content_width = header_width
                 for row in range(sample_size):
                     item = table.item(row, col)
@@ -1705,48 +1973,62 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         content_text = item.text()
                         content_width = len(content_text) * 8 + 20
                         max_content_width = max(max_content_width, content_width)
-                
+
                 # Apply same intelligent bounds as main method
                 header_lower = header_text.lower()
                 if any(keyword in header_lower for keyword in ["tenant", "name"]):
                     content_widths[col] = max(120, min(max_content_width, 180))
                 elif any(keyword in header_lower for keyword in ["room", "number"]):
                     content_widths[col] = max(80, min(max_content_width, 100))
-                elif any(keyword in header_lower for keyword in ["advanced", "paid", "total", "cost", "bill", "amount"]):
+                elif any(
+                    keyword in header_lower
+                    for keyword in [
+                        "advanced",
+                        "paid",
+                        "total",
+                        "cost",
+                        "bill",
+                        "amount",
+                    ]
+                ):
                     content_widths[col] = max(100, min(max_content_width, 130))
                 elif any(keyword in header_lower for keyword in ["created", "updated"]):
                     content_widths[col] = max(110, min(max_content_width, 130))
                 else:
                     content_widths[col] = max(80, min(max_content_width, 150))
-            
+
             # Apply hybrid approach
             total_width = sum(content_widths.values())
             content_fits = total_width <= (available_width - 30)
-            
+
             if content_fits and available_width > 200:
                 # Force STRETCH mode
                 for col in range(table.columnCount()):
                     header.setSectionResizeMode(col, QHeaderView.Stretch)
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-                print(f"[RENTAL FORCE] Applied STRETCH mode for {table.columnCount()} columns")
+                print(
+                    f"[RENTAL FORCE] Applied STRETCH mode for {table.columnCount()} columns"
+                )
             else:
                 # Force FIXED mode
                 for col in range(table.columnCount()):
                     header.setSectionResizeMode(col, QHeaderView.Fixed)
                     table.setColumnWidth(col, content_widths[col])
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-                print(f"[RENTAL FORCE] Applied FIXED mode with widths: {list(content_widths.values())}")
-            
+                print(
+                    f"[RENTAL FORCE] Applied FIXED mode with widths: {list(content_widths.values())}"
+                )
+
             # Force header settings
             header.setStretchLastSection(False)
-            
+
         except Exception as e:
             print(f"Failed to force column modes: {e}")
 
     def _emergency_resize_fallback(self):
         """Emergency resize fallback when all other methods fail"""
         try:
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            if hasattr(self, "rental_records_table") and self.rental_records_table:
                 # Use stretch mode for consistent behavior even in emergency fallback
                 header = self.rental_records_table.horizontalHeader()
                 for col in range(self.rental_records_table.columnCount()):
@@ -1754,20 +2036,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         header.setSectionResizeMode(col, QHeaderView.Stretch)
                     except Exception:
                         pass  # Continue with other columns
-                
+
                 # Ensure stretch last section is enabled
                 try:
                     header.setStretchLastSection(True)
-                    self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                    self.rental_records_table.setHorizontalScrollBarPolicy(
+                        Qt.ScrollBarAlwaysOff
+                    )
                 except Exception:
                     pass
-                        
+
         except Exception as e:
             print(f"Emergency resize fallback failed: {e}")
             # At this point, we've exhausted all options
 
     # ===== ERROR HANDLING AND CONFIGURATION METHODS =====
-    
+
     def get_optimization_status(self) -> Dict[str, Any]:
         """Get comprehensive status of optimization components for monitoring and debugging"""
         try:
@@ -1775,17 +2059,15 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 return self._optimization_manager.get_optimization_status()
             else:
                 return {
-                    'status': 'fallback_mode',
-                    'optimization_manager': False,
-                    'fallback_manager': hasattr(self, '_fallback_manager') and self._fallback_manager is not None,
-                    'error': 'Optimization manager not initialized'
+                    "status": "fallback_mode",
+                    "optimization_manager": False,
+                    "fallback_manager": hasattr(self, "_fallback_manager")
+                    and self._fallback_manager is not None,
+                    "error": "Optimization manager not initialized",
                 }
         except Exception as e:
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
-    
+            return {"status": "error", "error": str(e)}
+
     def enable_optimization_safe_mode(self):
         """Enable safe mode with minimal optimizations for troubleshooting"""
         try:
@@ -1793,10 +2075,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 self._optimization_manager.enable_safe_mode()
                 print("[RENTAL TAB] Optimization safe mode enabled")
             else:
-                print("[RENTAL TAB] Cannot enable safe mode - optimization manager not available")
+                print(
+                    "[RENTAL TAB] Cannot enable safe mode - optimization manager not available"
+                )
         except Exception as e:
             print(f"[RENTAL TAB] Failed to enable safe mode: {e}")
-    
+
     def disable_all_optimizations(self):
         """Disable all optimizations and use fallback mode"""
         try:
@@ -1807,7 +2091,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 print("[RENTAL TAB] Optimizations already disabled")
         except Exception as e:
             print(f"[RENTAL TAB] Failed to disable optimizations: {e}")
-    
+
     def reset_optimization_state(self):
         """Reset optimization state and clear errors for recovery"""
         try:
@@ -1820,64 +2104,84 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 print("[RENTAL TAB] Attempted to reinitialize optimization components")
         except Exception as e:
             print(f"[RENTAL TAB] Failed to reset optimization state: {e}")
-    
+
     def print_optimization_report(self):
         """Print detailed optimization performance and error report for debugging"""
         try:
             status = self.get_optimization_status()
-            
+
             print("\n=== RENTAL TAB OPTIMIZATION REPORT ===")
             print(f"Status: {status.get('status', 'unknown')}")
-            
-            if 'config' in status:
-                config = status['config']
-                print(f"Debounced Resize: {'Enabled' if config.get('enable_debounced_resize') else 'Disabled'}")
-                print(f"Caching: {'Enabled' if config.get('enable_caching') else 'Disabled'}")
-                print(f"Batch Updates: {'Enabled' if config.get('enable_batch_updates') else 'Disabled'}")
-                print(f"Debug Logging: {'Enabled' if config.get('enable_debug_logging') else 'Disabled'}")
-            
-            if 'error_summary' in status:
-                error_summary = status['error_summary']
+
+            if "config" in status:
+                config = status["config"]
+                print(
+                    f"Debounced Resize: {'Enabled' if config.get('enable_debounced_resize') else 'Disabled'}"
+                )
+                print(
+                    f"Caching: {'Enabled' if config.get('enable_caching') else 'Disabled'}"
+                )
+                print(
+                    f"Batch Updates: {'Enabled' if config.get('enable_batch_updates') else 'Disabled'}"
+                )
+                print(
+                    f"Debug Logging: {'Enabled' if config.get('enable_debug_logging') else 'Disabled'}"
+                )
+
+            if "error_summary" in status:
+                error_summary = status["error_summary"]
                 print(f"Total Errors: {error_summary.get('total_errors', 0)}")
                 print(f"Fallback Active: {error_summary.get('fallback_active', False)}")
-                
-                if error_summary.get('recent_errors'):
+
+                if error_summary.get("recent_errors"):
                     print("Recent Errors:")
-                    for error in error_summary['recent_errors'][-3:]:  # Last 3 errors
-                        print(f"  - {error.get('operation', 'unknown')}: {error.get('error_message', 'unknown')}")
-            
+                    for error in error_summary["recent_errors"][-3:]:  # Last 3 errors
+                        print(
+                            f"  - {error.get('operation', 'unknown')}: {error.get('error_message', 'unknown')}"
+                        )
+
             print("=" * 45)
-            
+
         except Exception as e:
             print(f"Failed to print optimization report: {e}")
-    
+
     def force_column_width_refresh(self):
         """Force refresh of column widths to ensure they stick to the window"""
         try:
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            if hasattr(self, "rental_records_table") and self.rental_records_table:
                 # Clear any cached widths to force recalculation
-                if hasattr(self, '_cache_manager') and self._cache_manager:
-                    self._cache_manager.invalidate_cache_for_table('rental_table')
-                
+                if hasattr(self, "_cache_manager") and self._cache_manager:
+                    self._cache_manager.invalidate_cache_for_table("rental_table")
+
                 # Force immediate recalculation with multiple attempts
                 def attempt_resize(attempt=1):
                     try:
                         viewport_width = self.rental_records_table.viewport().width()
-                        print(f"[RENTAL FORCE REFRESH] Attempt {attempt}: Viewport width = {viewport_width}px")
-                        
+                        print(
+                            f"[RENTAL FORCE REFRESH] Attempt {attempt}: Viewport width = {viewport_width}px"
+                        )
+
                         if viewport_width > 50:
-                            self._set_intelligent_column_widths(self.rental_records_table)
-                            print(f"[RENTAL FORCE REFRESH] Success on attempt {attempt}")
+                            self._set_intelligent_column_widths(
+                                self.rental_records_table
+                            )
+                            print(
+                                f"[RENTAL FORCE REFRESH] Success on attempt {attempt}"
+                            )
                         elif attempt < 5:
                             # Retry with increasing delay
-                            QTimer.singleShot(attempt * 100, lambda: attempt_resize(attempt + 1))
+                            QTimer.singleShot(
+                                attempt * 100, lambda: attempt_resize(attempt + 1)
+                            )
                         else:
-                            print(f"[RENTAL FORCE REFRESH] Failed after {attempt} attempts")
+                            print(
+                                f"[RENTAL FORCE REFRESH] Failed after {attempt} attempts"
+                            )
                     except Exception as e:
                         print(f"[RENTAL FORCE REFRESH] Error on attempt {attempt}: {e}")
-                
+
                 attempt_resize()
-                
+
         except Exception as e:
             print(f"Failed to force column width refresh: {e}")
             # Fallback to original resize behavior
@@ -1891,43 +2195,45 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         try:
             # Override any existing resize handlers to use debounced system
             # This ensures all resize events (resizeEvent, showEvent, etc.) use the same path
-            
+
             # Store original showEvent if it exists
-            if hasattr(self, 'showEvent'):
+            if hasattr(self, "showEvent"):
                 self._original_showEvent = self.showEvent
-            
+
             # Replace showEvent to trigger debounced resize
             def optimized_showEvent(event):
-                if hasattr(self, '_original_showEvent'):
+                if hasattr(self, "_original_showEvent"):
                     self._original_showEvent(event)
                 else:
                     super(RentalInfoTab, self).showEvent(event)
-                    
+
                 # Trigger optimized initial table sizing
-                if hasattr(self, '_debounce_manager') and self._debounce_manager:
-                    QTimer.singleShot(100, self._debounce_manager.trigger_debounced_resize)
-                    
+                if hasattr(self, "_debounce_manager") and self._debounce_manager:
+                    QTimer.singleShot(
+                        100, self._debounce_manager.trigger_debounced_resize
+                    )
+
             self.showEvent = optimized_showEvent
-            
+
             # Ensure table resize handlers also use debounced system
-            if hasattr(self, 'rental_records_table') and self.rental_records_table:
+            if hasattr(self, "rental_records_table") and self.rental_records_table:
                 # Override any existing table resize handlers
                 def optimized_table_resize():
-                    if hasattr(self, '_debounce_manager') and self._debounce_manager:
+                    if hasattr(self, "_debounce_manager") and self._debounce_manager:
                         self._debounce_manager.trigger_debounced_resize()
-                        
+
                 # Replace any existing table resize connections
                 try:
                     # Disconnect existing connections if any
                     self.rental_records_table.horizontalHeader().sectionResized.disconnect()
                 except:
                     pass
-                    
+
                 # Connect to debounced system
                 self.rental_records_table.horizontalHeader().sectionResized.connect(
                     lambda: QTimer.singleShot(50, optimized_table_resize)
                 )
-                
+
         except Exception as e:
             print(f"Warning: Could not consolidate resize handlers: {e}")
 
@@ -1936,13 +2242,13 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         try:
             # Create a hash based on table structure and sample content
             content_parts = []
-            
+
             # Add column headers
             for col in range(table.columnCount()):
                 header_item = table.horizontalHeaderItem(col)
                 if header_item:
                     content_parts.append(header_item.text())
-            
+
             # Add sample of table content (first few rows)
             sample_rows = min(table.rowCount(), 10)
             for row in range(sample_rows):
@@ -1950,16 +2256,18 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 for col in range(table.columnCount()):
                     item = table.item(row, col)
                     if item:
-                        row_content.append(item.text()[:50])  # Limit text length for hash
-                content_parts.append('|'.join(row_content))
-            
+                        row_content.append(
+                            item.text()[:50]
+                        )  # Limit text length for hash
+                content_parts.append("|".join(row_content))
+
             # Add table dimensions
             content_parts.append(f"{table.rowCount()}x{table.columnCount()}")
-            
+
             # Create hash
-            content_string = '||'.join(content_parts)
+            content_string = "||".join(content_parts)
             return hashlib.md5(content_string.encode()).hexdigest()
-            
+
         except Exception as e:
             print(f"Failed to generate cache key: {e}")
             # Fallback to simple key
@@ -1968,90 +2276,121 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def _get_cached_font_metrics(self, header_item, table):
         """Get cached font metrics or calculate and cache new ones"""
         try:
-            if hasattr(self, '_cache_manager') and self._cache_manager:
+            if hasattr(self, "_cache_manager") and self._cache_manager:
                 # Generate font key
                 if header_item:
                     font = header_item.font()
                 else:
                     font = table.font()
-                    
-                font_key = f"{font.family()}_{font.pointSize()}_{font.weight()}_{font.bold()}"
-                
+
+                font_key = (
+                    f"{font.family()}_{font.pointSize()}_{font.weight()}_{font.bold()}"
+                )
+
                 # Try to get cached metrics
                 cached_metrics = self._cache_manager.get_cached_font_metrics(font_key)
                 if cached_metrics:
-                    if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
-                        self._debug_manager.log_cache_operation('font_metrics', True)
-                    return cached_metrics['metrics']
-                
+                    if (
+                        hasattr(self, "_debug_manager")
+                        and self._debug_manager
+                        and self._debug_manager.enabled
+                    ):
+                        self._debug_manager.log_cache_operation("font_metrics", True)
+                    return cached_metrics["metrics"]
+
                 # Cache miss - calculate and cache
                 from PyQt5.QtGui import QFontMetrics
+
                 metrics = QFontMetrics(font)
                 self._cache_manager.cache_font_metrics(font_key, font, metrics)
-                
-                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
-                    self._debug_manager.log_cache_operation('font_metrics', False)
-                    
+
+                if (
+                    hasattr(self, "_debug_manager")
+                    and self._debug_manager
+                    and self._debug_manager.enabled
+                ):
+                    self._debug_manager.log_cache_operation("font_metrics", False)
+
                 return metrics
             else:
                 # No cache manager - direct calculation
                 from PyQt5.QtGui import QFontMetrics
+
                 if header_item:
                     return QFontMetrics(header_item.font())
                 else:
                     return QFontMetrics(table.font())
-                    
+
         except Exception as e:
             print(f"Font metrics caching failed: {e}")
             # Fallback to direct calculation
             from PyQt5.QtGui import QFontMetrics
+
             if header_item:
                 return QFontMetrics(header_item.font())
             else:
                 return QFontMetrics(table.font())
 
-    def _get_cached_font_metrics_for_column(self, table: TableWidget, col: int, header_text: str):
+    def _get_cached_font_metrics_for_column(
+        self, table: TableWidget, col: int, header_text: str
+    ):
         """Get cached font metrics for a specific column with priority-aware font configuration"""
         try:
             # Determine if this is a priority column
-            is_priority = self._is_priority_column('rental_table', header_text)
-            
+            is_priority = self._is_priority_column("rental_table", header_text)
+
             # Get font configuration based on priority
             if is_priority:
-                font_size = self.FONT_SIZES['priority_columns']
-                font_weight = self.FONT_WEIGHTS['priority_columns']
+                font_size = self.FONT_SIZES["priority_columns"]
+                font_weight = self.FONT_WEIGHTS["priority_columns"]
             else:
-                font_size = self.FONT_SIZES['regular_columns']
-                font_weight = self.FONT_WEIGHTS['regular_columns']
-            
+                font_size = self.FONT_SIZES["regular_columns"]
+                font_weight = self.FONT_WEIGHTS["regular_columns"]
+
             # Generate font cache key
             font_key = f"rental_font_{font_size}_{font_weight}"
-            
+
             # Try to get cached font metrics
-            if hasattr(self, '_cache_manager') and self._cache_manager:
+            if hasattr(self, "_cache_manager") and self._cache_manager:
                 cached_metrics = self._cache_manager.get_cached_font_metrics(font_key)
                 if cached_metrics:
-                    if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
-                        self._debug_manager.log_cache_operation('font_metrics', 'get_cached_metrics', True,
-                                                              {'font_key': font_key, 'column': col})
-                    return cached_metrics['metrics']
-            
+                    if (
+                        hasattr(self, "_debug_manager")
+                        and self._debug_manager
+                        and self._debug_manager.enabled
+                    ):
+                        self._debug_manager.log_cache_operation(
+                            "font_metrics",
+                            "get_cached_metrics",
+                            True,
+                            {"font_key": font_key, "column": col},
+                        )
+                    return cached_metrics["metrics"]
+
             # Cache miss - create new font and metrics
             font = QFont()
             font.setPointSize(font_size)
             font.setWeight(font_weight)
             metrics = QFontMetrics(font)
-            
+
             # Cache the new font metrics
-            if hasattr(self, '_cache_manager') and self._cache_manager:
+            if hasattr(self, "_cache_manager") and self._cache_manager:
                 self._cache_manager.cache_font_metrics(font_key, font, metrics)
-                
-                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
-                    self._debug_manager.log_cache_operation('font_metrics', 'cache_new_metrics', False,
-                                                          {'font_key': font_key, 'column': col})
-            
+
+                if (
+                    hasattr(self, "_debug_manager")
+                    and self._debug_manager
+                    and self._debug_manager.enabled
+                ):
+                    self._debug_manager.log_cache_operation(
+                        "font_metrics",
+                        "cache_new_metrics",
+                        False,
+                        {"font_key": font_key, "column": col},
+                    )
+
             return metrics
-            
+
         except Exception as e:
             print(f"Font metrics caching failed: {e}")
             # Fallback to basic font metrics
@@ -2060,28 +2399,42 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 return QFontMetrics(header_item.font())
             else:
                 return QFontMetrics(table.font())
-    
+
     def _is_priority_column(self, table_type: str, column_name: str) -> bool:
         """Check if a column is priority based on table type and column name"""
         priority_columns = self.PRIORITY_COLUMNS.get(table_type, [])
         return column_name.upper() in [col.upper() for col in priority_columns]
-    
+
     def _invalidate_table_cache_on_data_change(self):
         """Invalidate table cache when data changes - call this after data updates"""
         try:
-            if hasattr(self, '_cache_manager') and self._cache_manager and hasattr(self, 'rental_records_table'):
-                self._cache_manager.invalidate_cache_for_table('rental_table')
-                
-                if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
-                    self._debug_manager.log_cache_operation('cache_invalidation', 'data_change', True,
-                                                          {'table': 'rental_table', 'reason': 'data_update'})
+            if (
+                hasattr(self, "_cache_manager")
+                and self._cache_manager
+                and hasattr(self, "rental_records_table")
+            ):
+                self._cache_manager.invalidate_cache_for_table("rental_table")
+
+                if (
+                    hasattr(self, "_debug_manager")
+                    and self._debug_manager
+                    and self._debug_manager.enabled
+                ):
+                    self._debug_manager.log_cache_operation(
+                        "cache_invalidation",
+                        "data_change",
+                        True,
+                        {"table": "rental_table", "reason": "data_update"},
+                    )
         except Exception as e:
             print(f"Cache invalidation failed: {e}")
-    
-    def _log_resize_debug(self, operation: str, details: Dict[str, Any] = None, duration: float = None):
+
+    def _log_resize_debug(
+        self, operation: str, details: Dict[str, Any] = None, duration: float = None
+    ):
         """
         Log resize debug information with configurable output.
-        
+
         Args:
             operation: Name/description of the resize operation
             details: Optional dictionary of operation details
@@ -2090,32 +2443,40 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Check if debug logging is enabled
         if not self._resize_debug_enabled:
             return
-            
+
         try:
             # Log to debug manager if available
-            if hasattr(self, '_debug_manager') and self._debug_manager and self._debug_manager.enabled:
+            if (
+                hasattr(self, "_debug_manager")
+                and self._debug_manager
+                and self._debug_manager.enabled
+            ):
                 if duration is not None:
-                    self._debug_manager.log_resize_operation(operation, duration, details)
+                    self._debug_manager.log_resize_operation(
+                        operation, duration, details
+                    )
                 else:
                     # Log as general debug info
                     print(f"[RENTAL DEBUG] {operation}")
                     if details:
                         for key, value in details.items():
                             print(f"  {key}: {value}")
-            
+
             # Always log to console if debug enabled (for immediate feedback)
             elif self._resize_debug_enabled:
                 timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
                 if duration is not None:
                     status = "SLOW" if duration > 100 else "OK"
-                    print(f"[{timestamp}] RENTAL RESIZE: {operation} - {duration:.2f}ms [{status}]")
+                    print(
+                        f"[{timestamp}] RENTAL RESIZE: {operation} - {duration:.2f}ms [{status}]"
+                    )
                 else:
                     print(f"[{timestamp}] RENTAL DEBUG: {operation}")
-                
+
                 if details:
                     for key, value in details.items():
                         print(f"  {key}: {value}")
-                        
+
         except Exception as e:
             # Don't let debug logging break the application
             print(f"Debug logging error: {e}")
@@ -2123,87 +2484,98 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def _get_cache_performance_statistics(self) -> Dict[str, Any]:
         """Get cache performance statistics for monitoring"""
         try:
-            if hasattr(self, '_cache_manager') and self._cache_manager:
+            if hasattr(self, "_cache_manager") and self._cache_manager:
                 stats = self._cache_manager.get_cache_statistics()
-                
+
                 # Add table-specific information
-                stats['table_info'] = {
-                    'table_type': 'rental_table',
-                    'current_row_count': self.rental_records_table.rowCount() if hasattr(self, 'rental_records_table') and self.rental_records_table else 0,
-                    'current_column_count': self.rental_records_table.columnCount() if hasattr(self, 'rental_records_table') and self.rental_records_table else 0
+                stats["table_info"] = {
+                    "table_type": "rental_table",
+                    "current_row_count": self.rental_records_table.rowCount()
+                    if hasattr(self, "rental_records_table")
+                    and self.rental_records_table
+                    else 0,
+                    "current_column_count": self.rental_records_table.columnCount()
+                    if hasattr(self, "rental_records_table")
+                    and self.rental_records_table
+                    else 0,
                 }
-                
+
                 return stats
             else:
-                return {'error': 'Cache manager not initialized'}
+                return {"error": "Cache manager not initialized"}
         except Exception as e:
-            return {'error': f'Failed to get cache statistics: {e}'}
-    
+            return {"error": f"Failed to get cache statistics: {e}"}
+
     def print_cache_performance_report(self):
         """Print a detailed cache performance report for debugging"""
         try:
             stats = self._get_cache_performance_statistics()
-            
-            if 'error' in stats:
+
+            if "error" in stats:
                 print(f"Cache Statistics Error: {stats['error']}")
                 return
-            
+
             print("\n=== RENTAL TAB CACHE PERFORMANCE REPORT ===")
             print(f"Table: {stats.get('table_info', {}).get('table_type', 'unknown')}")
             print(f"Rows: {stats.get('table_info', {}).get('current_row_count', 0)}")
-            print(f"Columns: {stats.get('table_info', {}).get('current_column_count', 0)}")
-            
+            print(
+                f"Columns: {stats.get('table_info', {}).get('current_column_count', 0)}"
+            )
+
             # Font metrics cache stats
-            font_stats = stats.get('font_metrics', {})
+            font_stats = stats.get("font_metrics", {})
             print(f"\nFont Metrics Cache:")
             print(f"  Hit Ratio: {font_stats.get('hit_ratio', 0):.2%}")
             print(f"  Hits: {font_stats.get('hits', 0)}")
             print(f"  Misses: {font_stats.get('misses', 0)}")
-            
+
             # Content width cache stats
-            content_stats = stats.get('content_width', {})
+            content_stats = stats.get("content_width", {})
             print(f"\nContent Width Cache:")
             print(f"  Hit Ratio: {content_stats.get('hit_ratio', 0):.2%}")
             print(f"  Hits: {content_stats.get('hits', 0)}")
             print(f"  Misses: {content_stats.get('misses', 0)}")
-            
+
             # Cache sizes
-            cache_sizes = stats.get('cache_sizes', {})
+            cache_sizes = stats.get("cache_sizes", {})
             print(f"\nCache Sizes:")
             print(f"  Font Metrics: {cache_sizes.get('font_metrics', 0)} entries")
             print(f"  Content Width: {cache_sizes.get('content_width', 0)} entries")
             print(f"  Table Hashes: {cache_sizes.get('table_hashes', 0)} entries")
-            
+
             print("=" * 50)
-            
+
         except Exception as e:
             print(f"Failed to print cache performance report: {e}")
-    
+
     def debug_column_width_distribution(self):
         """Debug method to check current column width distribution"""
         try:
-            if not hasattr(self, 'rental_records_table') or not self.rental_records_table:
+            if (
+                not hasattr(self, "rental_records_table")
+                or not self.rental_records_table
+            ):
                 print("No rental records table available for debugging")
                 return
-            
+
             table = self.rental_records_table
             print("\n=== RENTAL TAB COLUMN WIDTH DEBUG ===")
-            
+
             # Get current table info
             viewport_width = table.viewport().width()
             column_count = table.columnCount()
-            
+
             print(f"Viewport width: {viewport_width}px")
             print(f"Column count: {column_count}")
-            
+
             # Get current column widths
             current_widths = [table.columnWidth(col) for col in range(column_count)]
             current_total = sum(current_widths)
-            
+
             print(f"Current column widths: {current_widths}")
             print(f"Current total width: {current_total}px")
-            print(f"Viewport fill ratio: {current_total/viewport_width*100:.1f}%")
-            
+            print(f"Viewport fill ratio: {current_total / viewport_width * 100:.1f}%")
+
             # Get header resize modes
             header = table.horizontalHeader()
             resize_modes = []
@@ -2211,67 +2583,71 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 mode = header.sectionResizeMode(col)
                 mode_name = {
                     0: "Interactive",
-                    1: "Fixed", 
+                    1: "Fixed",
                     2: "Stretch",
-                    3: "ResizeToContents"
+                    3: "ResizeToContents",
                 }.get(mode, f"Unknown({mode})")
                 resize_modes.append(mode_name)
-            
+
             print(f"Resize modes: {resize_modes}")
-            
+
             # Check scrollbar policy
             h_policy = table.horizontalScrollBarPolicy()
-            policy_name = {
-                0: "AsNeeded",
-                1: "AlwaysOff", 
-                2: "AlwaysOn"
-            }.get(h_policy, f"Unknown({h_policy})")
-            
+            policy_name = {0: "AsNeeded", 1: "AlwaysOff", 2: "AlwaysOn"}.get(
+                h_policy, f"Unknown({h_policy})"
+            )
+
             print(f"Horizontal scrollbar policy: {policy_name}")
-            
+
             # Recommendations
             if current_total < viewport_width * 0.95:
-                print("⚠️  Columns don't fill viewport - consider using stretch mode for last column")
+                print(
+                    "⚠️  Columns don't fill viewport - consider using stretch mode for last column"
+                )
             else:
                 print("✅ Columns properly fill the viewport")
-            
+
             print("=" * 50)
-            
+
         except Exception as e:
             print(f"Failed to debug column width distribution: {e}")
 
-    def _apply_cached_column_widths(self, table: QTableWidget, column_widths: List[int]):
+    def _apply_cached_column_widths(
+        self, table: QTableWidget, column_widths: List[int]
+    ):
         """Apply cached column widths to table with improved proportional distribution"""
         try:
             header = table.horizontalHeader()
             available_width = table.viewport().width()
             column_count = len(column_widths)
-            
+
             print(f"[RENTAL DEBUG] Applying cached widths with hybrid approach")
-            
+
             # Use HYBRID approach consistent with main method
             total_cached_width = sum(column_widths)
-            content_fits = total_cached_width <= (available_width - 30)  # 30px buffer for safety
-            
+            content_fits = total_cached_width <= (
+                available_width - 30
+            )  # 30px buffer for safety
+
             if content_fits and available_width > 200:
                 # Content fits: Use STRETCH mode for all columns
                 for col in range(column_count):
                     if col < table.columnCount():
                         header.setSectionResizeMode(col, QHeaderView.Stretch)
-                
+
                 # Disable horizontal scrollbar since content fits
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-                
+
             else:
                 # Content doesn't fit: Use FIXED mode with scrolling
                 for col, width in enumerate(column_widths):
                     if col < table.columnCount():
                         header.setSectionResizeMode(col, QHeaderView.Fixed)
                         table.setColumnWidth(col, width)
-                
+
                 # Enable horizontal scrolling when needed
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-            
+
             # Ensure table takes full width of its parent
             table.setMinimumWidth(0)
             table.setMaximumWidth(16777215)
@@ -2279,118 +2655,139 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             policy.setHorizontalPolicy(policy.Expanding)
             policy.setVerticalPolicy(policy.Expanding)
             table.setSizePolicy(policy)
-            
+
             # Configure stretch last section based on mode
             if content_fits:
-                header.setStretchLastSection(True)   # Enable for stretch mode
+                header.setStretchLastSection(True)  # Enable for stretch mode
             else:
                 header.setStretchLastSection(False)  # Disable for fixed mode
-            
+
             # Apply special styling to tenant name column
             self._apply_tenant_name_column_styling(table)
-            
+
         except Exception as e:
             print(f"Failed to apply cached column widths: {e}")
             # Fallback to recalculation
             self._set_intelligent_column_widths(table)
 
-    def _create_centered_item(self, text: str, column_name: str = "", is_priority: bool = False) -> QTableWidgetItem:
+    def _create_centered_item(
+        self, text: str, column_name: str = "", is_priority: bool = False
+    ) -> QTableWidgetItem:
         """Create a table widget item with center alignment, number formatting, and priority-aware styling"""
         from PyQt5.QtGui import QColor, QBrush, QFont
-        
+
         # Format numbers with thousand separators
-        formatted_text = self._format_number(str(text)) if self._is_numeric_text(str(text)) else str(text)
-        
+        formatted_text = (
+            self._format_number(str(text))
+            if self._is_numeric_text(str(text))
+            else str(text)
+        )
+
         item = QTableWidgetItem(formatted_text)
         item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        
+
         # Apply priority-aware font sizing using class constants
         font = item.font()
         if is_priority:
-            font.setPointSize(self.FONT_SIZES['priority_columns'])
-            font.setWeight(self.FONT_WEIGHTS['priority_columns'])
+            font.setPointSize(self.FONT_SIZES["priority_columns"])
+            font.setWeight(self.FONT_WEIGHTS["priority_columns"])
         else:
-            font.setPointSize(self.FONT_SIZES['regular_columns'])
-            font.setWeight(self.FONT_WEIGHTS['regular_columns'])
-        
+            font.setPointSize(self.FONT_SIZES["regular_columns"])
+            font.setWeight(self.FONT_WEIGHTS["regular_columns"])
+
         # Enhanced styling for numeric content
         if self._is_numeric_text(str(text)):
             if is_priority:
                 font.setWeight(QFont.Bold)  # Bold for priority numbers
             else:
                 font.setWeight(QFont.DemiBold)  # Semi-bold for regular numbers
-        
+
         item.setFont(font)
         return item
 
-    def _create_special_item(self, text: str, column_type: str, column_name: str = "", is_priority: bool = False) -> QTableWidgetItem:
+    def _create_special_item(
+        self,
+        text: str,
+        column_type: str,
+        column_name: str = "",
+        is_priority: bool = False,
+    ) -> QTableWidgetItem:
         """Create a styled item for special columns with priority-aware formatting and enhanced Material Design colors"""
         from PyQt5.QtGui import QColor, QBrush, QFont
         from qfluentwidgets import isDarkTheme
-        
+
         # Format numbers with thousand separators and add currency symbol for money columns
         formatted_text = str(text)
         if self._is_numeric_text(str(text)):
             formatted_text = self._format_number(str(text))
             # Add currency symbol for money-related columns
-            if column_type in ["advanced_paid", "total_amount"] and formatted_text not in ["0.0", "0", ""]:
+            if column_type in [
+                "advanced_paid",
+                "total_amount",
+            ] and formatted_text not in ["0.0", "0", ""]:
                 formatted_text = f"৳{formatted_text}"
-        
+
         # Enhanced color mapping with theme awareness
         if isDarkTheme():
             color_map = {
-                "advanced_paid": "#66BB6A",     # Light Green for dark theme
-                "total_amount": "#FF7043",      # Light Deep Orange 
-                "tenant_name": "#4FC3F7",       # Light Cyan
-                "room_number": "#FFA726",       # Light Orange
+                "advanced_paid": "#66BB6A",  # Light Green for dark theme
+                "total_amount": "#FF7043",  # Light Deep Orange
+                "tenant_name": "#4FC3F7",  # Light Cyan
+                "room_number": "#FFA726",  # Light Orange
             }
         else:
             color_map = {
-                "advanced_paid": "#2E7D32",     # Dark Green for light theme
-                "total_amount": "#D84315",      # Dark Deep Orange 
-                "tenant_name": "#1976D2",       # Material Blue
-                "room_number": "#EF6C00",       # Dark Orange
+                "advanced_paid": "#2E7D32",  # Dark Green for light theme
+                "total_amount": "#D84315",  # Dark Deep Orange
+                "tenant_name": "#1976D2",  # Material Blue
+                "room_number": "#EF6C00",  # Dark Orange
             }
-        
+
         item = QTableWidgetItem(formatted_text)
         item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        
+
         # Apply enhanced styling for special columns
         color = color_map.get(column_type, "#1976D2")  # Default Material Blue
         item.setForeground(QBrush(QColor(color)))
-        
+
         # Priority-aware font sizing and styling
         font = item.font()
         font.setBold(True)
         font.setWeight(QFont.Bold)
-        
+
         if is_priority:
             font.setPointSize(12)  # Priority columns: larger font
         else:
             font.setPointSize(10)  # Regular columns: smaller font
-        
+
         item.setFont(font)
         return item
-    
-    def _create_identifier_item(self, text: str, identifier_type: str) -> QTableWidgetItem:
+
+    def _create_identifier_item(
+        self, text: str, identifier_type: str
+    ) -> QTableWidgetItem:
         """Create a styled item for identifier columns (Tenant Name, Dates) with modern styling"""
         from PyQt5.QtGui import QColor, QBrush, QFont
         from qfluentwidgets import isDarkTheme
-        
+
         item = QTableWidgetItem(str(text))
-        
+
         # Set alignment based on identifier type - tenant names are left-aligned like History tab months
         if identifier_type == "tenant":
             item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         else:
             item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        
+
         # Enhanced styling for identifier columns matching History tab
         if isDarkTheme():
             if identifier_type == "tenant":
                 # Background and text styling matching History tab month column
-                item.setBackground(QBrush(QColor(45, 55, 75)))  # Darker blue background (same as History month)
-                item.setForeground(QBrush(QColor(220, 230, 255)))  # Light blue text (same as History month)
+                item.setBackground(
+                    QBrush(QColor(45, 55, 75))
+                )  # Darker blue background (same as History month)
+                item.setForeground(
+                    QBrush(QColor(220, 230, 255))
+                )  # Light blue text (same as History month)
             elif identifier_type == "date":
                 # Elegant gray for dates in dark theme
                 item.setForeground(QBrush(QColor("#BDBDBD")))  # Light gray
@@ -2400,77 +2797,90 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         else:
             if identifier_type == "tenant":
                 # Background and text styling matching History tab month column
-                item.setBackground(QBrush(QColor(230, 240, 255)))  # Light blue background (same as History month)
-                item.setForeground(QBrush(QColor(25, 50, 100)))  # Dark blue text (same as History month)
+                item.setBackground(
+                    QBrush(QColor(230, 240, 255))
+                )  # Light blue background (same as History month)
+                item.setForeground(
+                    QBrush(QColor(25, 50, 100))
+                )  # Dark blue text (same as History month)
             elif identifier_type == "date":
                 # Subtle gray for dates in light theme
                 item.setForeground(QBrush(QColor("#757575")))  # Medium gray
             elif identifier_type == "room":
                 # Sophisticated teal for room identifiers in light theme
                 item.setForeground(QBrush(QColor("#00796B")))  # Teal
-        
+
         # Modern typography - semi-bold with elegant sizing (matching History tab)
         font = item.font()
         font.setWeight(QFont.DemiBold)
-        font.setPointSizeF(10.5)  # Fixed absolute font size for identifier items (same as History)
+        font.setPointSizeF(
+            10.5
+        )  # Fixed absolute font size for identifier items (same as History)
         item.setFont(font)
-        
+
         return item
 
     def _format_number(self, text: str) -> str:
         """Format numbers with thousand separators and proper decimals"""
-        if not text or text.lower() in ['n/a', '', 'unknown', '0', '0.0']:
+        if not text or text.lower() in ["n/a", "", "unknown", "0", "0.0"]:
             return text
-        
+
         try:
-            cleaned = str(text).replace(',', '').replace('TK', '').replace('৳', '').strip()
+            cleaned = (
+                str(text).replace(",", "").replace("TK", "").replace("৳", "").strip()
+            )
             if not cleaned:
                 return text
-            
+
             num = float(cleaned)
-            
+
             if num == 0:
                 return "0.0"
             elif num == int(num):
                 return f"{int(num):,}.0"
             else:
                 return f"{num:,.2f}"
-                
+
         except (ValueError, TypeError):
             return text
 
     def _is_numeric_text(self, text: str) -> bool:
         """Check if text represents a numeric value"""
-        if not text or text.lower() in ['n/a', '', 'unknown']:
+        if not text or text.lower() in ["n/a", "", "unknown"]:
             return False
         try:
-            cleaned = text.replace(',', '').replace('TK', '').replace('৳', '').strip()
+            cleaned = text.replace(",", "").replace("TK", "").replace("৳", "").strip()
             float(cleaned)
             return True
         except (ValueError, TypeError):
             return False
 
-
     def _handle_file_upload(self, file_type, status_label):
         """Handle file upload with modern feedback"""
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(
-            self, f"Select {file_type.replace('_', ' ').title()} Image", "",
-            "Image Files (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)", 
-            options=options
+            self,
+            f"Select {file_type.replace('_', ' ').title()} Image",
+            "",
+            "Image Files (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)",
+            options=options,
         )
-        
+
         if file_path:
             if not self._is_safe_path(file_path):
-                QMessageBox.warning(self, "Forbidden Path", "The selected location is not permitted.")
+                QMessageBox.warning(
+                    self, "Forbidden Path", "The selected location is not permitted."
+                )
                 return
             if not self._validate_image_file(file_path):
-                QMessageBox.warning(self, "Invalid File", "The selected file is not a valid image.")
+                QMessageBox.warning(
+                    self, "Invalid File", "The selected file is not a valid image."
+                )
                 return
 
             # Store the file (same logic as original upload_image method)
             self.IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-            
+
             try:
                 # Generate unique filename
                 file_extension = Path(file_path).suffix
@@ -2479,7 +2889,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
                 # Copy file
                 shutil.copy2(file_path, destination_path)
-                
+
                 # Update widget state with safety checks
                 try:
                     if status_label is not None:
@@ -2493,28 +2903,40 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                             widget = self.nid_back_widget
                         elif file_type == "police_form":
                             widget = self.police_form_widget
-                        
+
                         if widget is not None:
                             widget.file_path = str(destination_path)
-                            print(f"DEBUG: Set {file_type} file_path to: {destination_path}")
-                        
+                            print(
+                                f"DEBUG: Set {file_type} file_path to: {destination_path}"
+                            )
+
                         # Update status label safely
                         status_label.setText(f"✓ {Path(file_path).name}")
                         status_label.setTextColor("#28a745", "#34d058")
                 except Exception as widget_error:
-                    print(f"Warning: Could not update upload widget UI for {file_type}: {widget_error}")
-                
+                    print(
+                        f"Warning: Could not update upload widget UI for {file_type}: {widget_error}"
+                    )
+
                 # Update the corresponding label for compatibility with existing code
                 try:
                     self._update_legacy_path_labels(file_type, str(destination_path))
                 except Exception as legacy_error:
-                    print(f"Warning: Could not update legacy labels for {file_type}: {legacy_error}")
-                
-                QMessageBox.information(self, "File Uploaded", f"File uploaded successfully: {destination_path.name}")
-                
+                    print(
+                        f"Warning: Could not update legacy labels for {file_type}: {legacy_error}"
+                    )
+
+                QMessageBox.information(
+                    self,
+                    "File Uploaded",
+                    f"File uploaded successfully: {destination_path.name}",
+                )
+
             except Exception as e:
-                QMessageBox.critical(self, "Upload Error", f"Failed to upload file: {e}")
-                
+                QMessageBox.critical(
+                    self, "Upload Error", f"Failed to upload file: {e}"
+                )
+
     def _clear_file_upload(self, file_type, status_label):
         """Clear file upload with visual feedback"""
         try:
@@ -2528,20 +2950,20 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 widget = self.nid_back_widget
             elif file_type == "police_form":
                 widget = self.police_form_widget
-            
-            if widget is not None and hasattr(widget, 'file_path'):
+
+            if widget is not None and hasattr(widget, "file_path"):
                 widget.file_path = None
                 print(f"DEBUG: Cleared {file_type} file_path")
-            
+
             # Update status label safely
             if status_label is not None:
                 status_label.setText("No file selected")
                 status_label.setTextColor("#999999", "#7f7f7f")
-            
+
         except Exception as e:
             # Log the error but don't crash the application
             print(f"Warning: Could not clear file upload for {file_type}: {e}")
-        
+
         # Update legacy labels for compatibility (this should always work)
         try:
             self._update_legacy_path_labels(file_type, "No file selected")
@@ -2550,19 +2972,25 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
     def _ensure_legacy_labels_exist(self):
         """Ensure legacy path labels exist for backward compatibility"""
-        if not hasattr(self, 'photo_path_label') or self.photo_path_label is None:
+        if not hasattr(self, "photo_path_label") or self.photo_path_label is None:
             self.photo_path_label = LineEdit()
             self.photo_path_label.setText("No file selected")
-            
-        if not hasattr(self, 'nid_front_path_label') or self.nid_front_path_label is None:
+
+        if (
+            not hasattr(self, "nid_front_path_label")
+            or self.nid_front_path_label is None
+        ):
             self.nid_front_path_label = LineEdit()
             self.nid_front_path_label.setText("No file selected")
-            
-        if not hasattr(self, 'nid_back_path_label') or self.nid_back_path_label is None:
+
+        if not hasattr(self, "nid_back_path_label") or self.nid_back_path_label is None:
             self.nid_back_path_label = LineEdit()
             self.nid_back_path_label.setText("No file selected")
-            
-        if not hasattr(self, 'police_form_path_label') or self.police_form_path_label is None:
+
+        if (
+            not hasattr(self, "police_form_path_label")
+            or self.police_form_path_label is None
+        ):
             self.police_form_path_label = LineEdit()
             self.police_form_path_label.setText("No file selected")
 
@@ -2570,20 +2998,20 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         """Get file path directly from upload widget"""
         try:
             # Check if widget has file_path attribute and it's not None
-            if hasattr(widget, 'file_path') and widget.file_path is not None:
+            if hasattr(widget, "file_path") and widget.file_path is not None:
                 return widget.file_path
-            
+
             # Fallback to legacy label if widget doesn't have path
             self._ensure_legacy_labels_exist()
-            if file_type == "photo" and hasattr(self, 'photo_path_label'):
+            if file_type == "photo" and hasattr(self, "photo_path_label"):
                 return self.photo_path_label.text()
-            elif file_type == "nid_front" and hasattr(self, 'nid_front_path_label'):
+            elif file_type == "nid_front" and hasattr(self, "nid_front_path_label"):
                 return self.nid_front_path_label.text()
-            elif file_type == "nid_back" and hasattr(self, 'nid_back_path_label'):
+            elif file_type == "nid_back" and hasattr(self, "nid_back_path_label"):
                 return self.nid_back_path_label.text()
-            elif file_type == "police_form" and hasattr(self, 'police_form_path_label'):
+            elif file_type == "police_form" and hasattr(self, "police_form_path_label"):
                 return self.police_form_path_label.text()
-            
+
             return "No file selected"
         except Exception as e:
             print(f"Warning: Could not get file path for {file_type}: {e}")
@@ -2593,7 +3021,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         """Update legacy path labels for backward compatibility"""
         # Ensure labels exist first
         self._ensure_legacy_labels_exist()
-            
+
         if file_type == "photo":
             self.photo_path_label.setText(path)
         elif file_type == "nid_front":
@@ -2616,12 +3044,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 widget = self.nid_back_widget
             elif file_type == "police_form":
                 widget = self.police_form_widget
-            
-            if widget and hasattr(widget, 'status_label'):
+
+            if widget and hasattr(widget, "status_label"):
                 if file_path and file_path != "No file selected":
                     # Store the file path in the widget
                     widget.file_path = file_path
-                    
+
                     # Update status label to show file is loaded
                     if file_path.startswith("http"):
                         widget.status_label.setText("✓ Cloud file")
@@ -2629,7 +3057,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         # Extract filename from path
                         filename = Path(file_path).name if file_path else "Unknown file"
                         widget.status_label.setText(f"✓ {filename}")
-                    
+
                     widget.status_label.setTextColor("#28a745", "#34d058")
                 else:
                     # Clear the widget
@@ -2645,36 +3073,51 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             room_number = self.room_number_input.text().strip()
             advanced_paid_str = self.advanced_paid_input.text().strip()
 
-            
             # Ensure legacy labels exist and get file paths safely
             try:
                 self._ensure_legacy_labels_exist()
-                
+
                 # Get file paths directly from upload widgets (more reliable than legacy labels)
                 photo_path = self._get_file_path_from_widget(self.photo_widget, "photo")
-                nid_front_path = self._get_file_path_from_widget(self.nid_front_widget, "nid_front")
-                nid_back_path = self._get_file_path_from_widget(self.nid_back_widget, "nid_back")
-                police_form_path = self._get_file_path_from_widget(self.police_form_widget, "police_form")
-                
-                print(f"DEBUG: File paths - Photo: {photo_path}, NID Front: {nid_front_path}, NID Back: {nid_back_path}, Police: {police_form_path}")
-                        
+                nid_front_path = self._get_file_path_from_widget(
+                    self.nid_front_widget, "nid_front"
+                )
+                nid_back_path = self._get_file_path_from_widget(
+                    self.nid_back_widget, "nid_back"
+                )
+                police_form_path = self._get_file_path_from_widget(
+                    self.police_form_widget, "police_form"
+                )
+
+                print(
+                    f"DEBUG: File paths - Photo: {photo_path}, NID Front: {nid_front_path}, NID Back: {nid_back_path}, Police: {police_form_path}"
+                )
+
             except Exception as path_error:
-                QMessageBox.critical(self, "Path Error", f"Failed to get file paths: {path_error}")
+                QMessageBox.critical(
+                    self, "Path Error", f"Failed to get file paths: {path_error}"
+                )
                 return
 
             save_to_pc = self.save_to_pc_checkbox.isChecked()
             save_to_cloud = self.save_to_cloud_checkbox.isChecked()
 
             if not tenant_name or not room_number:
-                QMessageBox.warning(self, "Input Error", "Tenant Name and Room Number cannot be empty.")
+                QMessageBox.warning(
+                    self, "Input Error", "Tenant Name and Room Number cannot be empty."
+                )
                 return
 
             if not save_to_pc and not save_to_cloud:
-                QMessageBox.warning(self, "Save Option Error", "Please select at least one destination to save the record (PC or Cloud).")
+                QMessageBox.warning(
+                    self,
+                    "Save Option Error",
+                    "Please select at least one destination to save the record (PC or Cloud).",
+                )
                 return
-            
+
             advanced_paid = float(advanced_paid_str) if advanced_paid_str else 0.0
-            
+
             record_data = {
                 "id": self.current_rental_id,
                 "supabase_id": self.current_supabase_id,
@@ -2682,26 +3125,39 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 "room_number": room_number,
                 "advanced_paid": advanced_paid,
                 "photo_path": photo_path if photo_path != "No file selected" else None,
-                "nid_front_path": nid_front_path if nid_front_path != "No file selected" else None,
-                "nid_back_path": nid_back_path if nid_back_path != "No file selected" else None,
-                "police_form_path": police_form_path if police_form_path != "No file selected" else None,
+                "nid_front_path": nid_front_path
+                if nid_front_path != "No file selected"
+                else None,
+                "nid_back_path": nid_back_path
+                if nid_back_path != "No file selected"
+                else None,
+                "police_form_path": police_form_path
+                if police_form_path != "No file selected"
+                else None,
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "is_archived": 1 if self.current_is_archived else 0
+                "is_archived": 1 if self.current_is_archived else 0,
             }
-            
+
             # If saving to PC, make sure any remote URLs are cached locally so the
             # record remains viewable offline. We keep a separate copy so the cloud
             # upload (if requested) can still reference the original URLs and avoid
             # duplicate uploads.
             local_record_data = record_data.copy()
             if save_to_pc:
-                for key in ("photo_path", "nid_front_path", "nid_back_path", "police_form_path"):
-                    local_record_data[key] = self._ensure_local_copy(local_record_data.get(key))
+                for key in (
+                    "photo_path",
+                    "nid_front_path",
+                    "nid_back_path",
+                    "police_form_path",
+                ):
+                    local_record_data[key] = self._ensure_local_copy(
+                        local_record_data.get(key)
+                    )
 
             local_save_success = True
             cloud_save_success = True
-            
+
             if save_to_pc:
                 try:
                     if self.current_rental_id:
@@ -2717,7 +3173,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         self.db_manager.execute_query(update_query, local_record_data)
                         if self.db_manager.cursor.rowcount == 0:
                             try:
-                                new_id = self.db_manager.insert_rental_record(local_record_data)
+                                new_id = self.db_manager.insert_rental_record(
+                                    local_record_data
+                                )
                                 self.current_rental_id = new_id
                             except Exception as ins_e:
                                 print(f"Local insert fallback failed: {ins_e}")
@@ -2727,8 +3185,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                     print("Record saved to local DB successfully.")
                 except Exception as e:
                     local_save_success = False
-                    QMessageBox.critical(self, "Local DB Error", f"Failed to save record to local DB: {e}")
-            
+                    QMessageBox.critical(
+                        self,
+                        "Local DB Error",
+                        f"Failed to save record to local DB: {e}",
+                    )
+
             if save_to_cloud:
                 if self.main_window.supabase_manager.is_client_initialized():
                     try:
@@ -2738,36 +3200,114 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                             "nid_back": record_data.get("nid_back_path"),
                             "police_form": record_data.get("police_form_path"),
                         }
-                        result = self.main_window.supabase_manager.save_rental_record(record_data, image_paths)
+                        result = self.main_window.supabase_manager.save_rental_record(
+                            record_data, image_paths
+                        )
                         if isinstance(result, str) and "Successfully" in result:
                             print("Record saved to Supabase successfully.")
                         else:
                             cloud_save_success = False
-                            QMessageBox.critical(self, "Supabase Error", f"Failed to save record to Supabase: {result}")
+                            QMessageBox.critical(
+                                self,
+                                "Supabase Error",
+                                f"Failed to save record to Supabase: {result}",
+                            )
                     except Exception as e:
                         cloud_save_success = False
-                        QMessageBox.critical(self, "Supabase Error", f"Failed to save record to Supabase: {e}")
+                        QMessageBox.critical(
+                            self,
+                            "Supabase Error",
+                            f"Failed to save record to Supabase: {e}",
+                        )
                 else:
-                    QMessageBox.warning(self, "Supabase Not Configured", "Supabase client is not initialized. Cannot save to cloud.")
+                    QMessageBox.warning(
+                        self,
+                        "Supabase Not Configured",
+                        "Supabase client is not initialized. Cannot save to cloud.",
+                    )
                     cloud_save_success = False
 
             if local_save_success and cloud_save_success:
-                QMessageBox.information(self, "Success", "Rental record saved successfully.")
+                QMessageBox.information(
+                    self, "Success", "Rental record saved successfully."
+                )
                 self.clear_form()
+                if self.main_window and hasattr(self.main_window, "_emit_local_change"):
+                    self.main_window._emit_local_change(
+                        "rental",
+                        "saved",
+                        {
+                            "room_number": room_number,
+                            "tenant_name": tenant_name,
+                            "supabase_id": self.current_supabase_id,
+                        },
+                    )
                 self.load_rental_records()
             elif local_save_success or cloud_save_success:
-                QMessageBox.information(self, "Partial Success", "Record saved to some destinations. Check error messages above.")
+                QMessageBox.information(
+                    self,
+                    "Partial Success",
+                    "Record saved to some destinations. Check error messages above.",
+                )
+                if self.main_window and hasattr(self.main_window, "_emit_local_change"):
+                    self.main_window._emit_local_change(
+                        "rental",
+                        "saved",
+                        {
+                            "room_number": room_number,
+                            "tenant_name": tenant_name,
+                            "supabase_id": self.current_supabase_id,
+                        },
+                    )
                 self.load_rental_records()
             else:
-                QMessageBox.critical(self, "Save Failed", "Failed to save record to any destination.")
-                
+                QMessageBox.critical(
+                    self, "Save Failed", "Failed to save record to any destination."
+                )
+
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred while saving: {e}")
+            QMessageBox.critical(
+                self, "Save Error", f"An unexpected error occurred while saving: {e}"
+            )
             print(f"Save error traceback: {traceback.format_exc()}")
+
+    def _record_key_from_payload(self, record):
+        if isinstance(record, dict):
+            return record.get("supabase_id") or record.get("id")
+        if isinstance(record, (tuple, list)) and record:
+            if len(record) > 11 and record[11]:
+                return record[11]
+            return record[0]
+        return None
+
+    def _get_selected_record_key(self):
+        try:
+            row = self.rental_records_table.currentRow()
+            if row < 0:
+                return None
+            item = self.rental_records_table.item(row, 0)
+            if not item:
+                return None
+            return self._record_key_from_payload(item.data(Qt.UserRole))
+        except Exception:
+            return None
+
+    def _restore_record_selection(self, record_key):
+        if record_key is None:
+            return
+
+        for row in range(self.rental_records_table.rowCount()):
+            item = self.rental_records_table.item(row, 0)
+            if not item:
+                continue
+            if self._record_key_from_payload(item.data(Qt.UserRole)) == record_key:
+                self.rental_records_table.selectRow(row)
+                self.rental_records_table.setCurrentCell(row, 0)
+                return
 
     def _update_source_button_color(self, source_text):
         """Update button color based on selected data source.
-        
+
         Args:
             source_text: The label text of the selected source ("Cloud (Supabase)" or "Local DB")
         """
@@ -2828,23 +3368,29 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         """Sync the dropdown button display with the combo box selection."""
         current_source = self.load_source_combo.currentText()
         if "Cloud" in current_source:
-            self.load_source_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setIcon(
+                FluentIcon.CLOUD.icon(color=QColor(255, 255, 255))
+            )
             self.load_source_button.setText("Cloud (Supabase)")
             self._update_source_button_color("Cloud (Supabase)")
         else:
-            self.load_source_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+            self.load_source_button.setIcon(
+                FluentIcon.SAVE.icon(color=QColor(255, 255, 255))
+            )
             self.load_source_button.setText("Local DB")
             self._update_source_button_color("Local DB")
 
     def load_rental_records(self, force_refresh: bool = False):
+        selected_record_key = self._get_selected_record_key()
+
         # Clear current table contents first
         self.rental_records_table.clearContents()
         self.rental_records_table.setRowCount(0)
-        
+
         # Invalidate cache when table content is cleared
         try:
-            if hasattr(self, '_cache_manager') and self._cache_manager:
-                self._cache_manager.invalidate_cache_for_table('rental_table')
+            if hasattr(self, "_cache_manager") and self._cache_manager:
+                self._cache_manager.invalidate_cache_for_table("rental_table")
         except Exception as e:
             print(f"Cache invalidation on table clear failed: {e}")
 
@@ -2854,7 +3400,11 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             # Use cache unless forced to refresh
             try:
                 if self._local_records_cache is not None and not force_refresh:
-                    self._populate_rental_table(selected_source, self._local_records_cache)
+                    self._populate_rental_table(
+                        selected_source,
+                        self._local_records_cache,
+                        restore_selection_key=selected_record_key,
+                    )
                     return
 
                 records = self.db_manager.execute_query(
@@ -2864,22 +3414,37 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 self._local_records_cache = records
                 # Records loaded
                 pass
-                self._populate_rental_table(selected_source, records)
+                self._populate_rental_table(
+                    selected_source,
+                    records,
+                    restore_selection_key=selected_record_key,
+                )
             except Exception as e:
-                QMessageBox.critical(self, "Local DB Error", f"Failed to load rental records from local DB: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Local DB Error",
+                    f"Failed to load rental records from local DB: {e}",
+                )
                 traceback.print_exc()
             return
 
         # ---------- Cloud (Supabase) using background thread with pagination ----------
         if not self.main_window.supabase_manager.is_client_initialized():
             QMessageBox.warning(
-                self, "Supabase Not Configured", "Supabase client is not initialized. Cannot load from cloud."
+                self,
+                "Supabase Not Configured",
+                "Supabase client is not initialized. Cannot load from cloud.",
             )
             return
 
         # If we have cached cloud records and not forcing refresh, render from cache and continue infinite scroll
         if self._cloud_records_cache and not force_refresh:
-            self._populate_rental_table(selected_source, self._cloud_records_cache, append=False)
+            self._populate_rental_table(
+                selected_source,
+                self._cloud_records_cache,
+                append=False,
+                restore_selection_key=selected_record_key,
+            )
             # If more to load, let scroll trigger fetch
             return
 
@@ -2949,22 +3514,34 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def _on_cloud_records_error(self, message: str):
         """Handle error from cloud fetch worker with user-friendly messages."""
         import logging
+
         logging.info(f"[DEBUG] Received error message: {message}")
-        
+
         # Check if it's a paused project error
         if message == "PAUSED_PROJECT":
             from src.core.supabase_error_handler import SupabaseErrorHandler
+
             # Show friendly paused project message
-            supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
-            logging.info(f"[DEBUG] Showing paused project dialog for URL: {supabase_url}")
-            title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+            supabase_url = getattr(
+                self.main_window.supabase_manager, "supabase_url", None
+            )
+            logging.info(
+                f"[DEBUG] Showing paused project dialog for URL: {supabase_url}"
+            )
+            title, msg, _ = SupabaseErrorHandler.get_error_message(
+                "paused_project", supabase_url
+            )
             QMessageBox.warning(self, title, msg)
         else:
             # Show generic error
             logging.info(f"[DEBUG] Showing generic error dialog")
             msg_lower = str(message or "").lower()
-            QMessageBox.critical(self, "Cloud DB Error", f"Failed to load rental records from Supabase: {message}")
-        
+            QMessageBox.critical(
+                self,
+                "Cloud DB Error",
+                f"Failed to load rental records from Supabase: {message}",
+            )
+
         # Ensure we tidy up the progress bar even on error
         if self._inline_progress_bar is not None:
             self._inline_progress_bar.stop()
@@ -2997,24 +3574,30 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             pass
 
     # ------------------------------------------------------------------
-    # Helper to populate table (shared between local & cloud paths)  
+    # Helper to populate table (shared between local & cloud paths)
     # ------------------------------------------------------------------
 
-    def _populate_rental_table(self, source_label: str, records: list, append: bool = False):
+    def _populate_rental_table(
+        self,
+        source_label: str,
+        records: list,
+        append: bool = False,
+        restore_selection_key=None,
+    ):
         """Fill or append to the QTableWidget with rental records."""
         if not records:
             return
 
         # Invalidate cache when table content changes
         try:
-            if hasattr(self, '_cache_manager') and self._cache_manager:
-                self._cache_manager.invalidate_cache_for_table('rental_table')
+            if hasattr(self, "_cache_manager") and self._cache_manager:
+                self._cache_manager.invalidate_cache_for_table("rental_table")
         except Exception as e:
             print(f"Cache invalidation failed: {e}")
 
         # Use batch update manager for flicker-free table population
         batch_manager_used = False
-        if hasattr(self, '_batch_manager') and self._batch_manager:
+        if hasattr(self, "_batch_manager") and self._batch_manager:
             try:
                 self._batch_manager.begin_batch_update()
                 batch_manager_used = True
@@ -3041,9 +3624,14 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             row_idx = start_row + idx
             if source_label == "Local DB":
                 # SQLite tuple; keep same unpacking as before
-                display_id, tenant_name, room_number, advanced_paid, created_at, updated_at = (
-                    record[0], record[1], record[2], record[3], record[4], record[5]
-                )
+                (
+                    display_id,
+                    tenant_name,
+                    room_number,
+                    advanced_paid,
+                    created_at,
+                    updated_at,
+                ) = (record[0], record[1], record[2], record[3], record[4], record[5])
                 full_record_data = record  # full tuple
             else:  # Cloud (Supabase) -> dict
                 display_id = record.get("id")
@@ -3056,15 +3644,15 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
             # Create items with History tab's EXACT font styling for ALL columns
             from PyQt5.QtGui import QColor, QFont
-            
+
             # Regular font for non-priority columns (History tab: 10px, 500 weight)
             regular_font = QFont("Segoe UI", 10)
             regular_font.setWeight(500)
-            
+
             # Priority font for Advanced Paid (History tab: 12px, QFont.Bold)
             priority_font = QFont("Segoe UI", 12)
             priority_font.setWeight(QFont.Bold)
-            
+
             # Create items using sophisticated History tab methods for enhanced visual hierarchy
             tenant_item = self._create_identifier_item(str(tenant_name), "tenant")
             # Use NumericTableWidgetItem for numeric sorting on Room Number
@@ -3083,10 +3671,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             except Exception:
                 room_item.setData(Qt.UserRole, 0)
                 room_item.setData(Qt.EditRole, 0)
-            advanced_item = self._create_special_item(str(advanced_paid), "advanced_paid", is_priority=True)
+            advanced_item = self._create_special_item(
+                str(advanced_paid), "advanced_paid", is_priority=True
+            )
             created_item = self._create_identifier_item(str(created_at), "date")
             updated_item = self._create_identifier_item(str(updated_at), "date")
-            
+
             self.rental_records_table.setItem(row_idx, 0, tenant_item)
             self.rental_records_table.setItem(row_idx, 1, room_item)
             self.rental_records_table.setItem(row_idx, 2, advanced_item)
@@ -3094,10 +3684,12 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             self.rental_records_table.setItem(row_idx, 4, updated_item)
 
             # Attach raw data for later dialog (store in first column)
-            self.rental_records_table.item(row_idx, 0).setData(Qt.UserRole, full_record_data)
-        
+            self.rental_records_table.item(row_idx, 0).setData(
+                Qt.UserRole, full_record_data
+            )
+
         # Stretch mode handles column sizing automatically - no manual adjustment needed
-        
+
         # Clean up batch update or re-enable sorting
         try:
             if batch_manager_used:
@@ -3106,7 +3698,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 self.rental_records_table.sortItems(1, Qt.AscendingOrder)
             else:
                 # Re-enable sorting and enforce numeric order by Room Number
-                if 'prev_sorting' in locals() and prev_sorting:
+                if "prev_sorting" in locals() and prev_sorting:
                     self.rental_records_table.setSortingEnabled(True)
                     self.rental_records_table.sortItems(1, Qt.AscendingOrder)
         except Exception as e:
@@ -3117,36 +3709,37 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 self.rental_records_table.sortItems(1, Qt.AscendingOrder)
             except Exception as fallback_error:
                 print(f"Fallback sorting re-enable failed: {fallback_error}")
-    
 
-        
         # Always allow horizontal scrollbar when needed
         self.rental_records_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
+
         # Apply equal column widths after populating data
         try:
             self._apply_equal_column_widths(self.rental_records_table)
         except Exception as e:
             print(f"Equal width sizing failed: {e}")
 
+        if not append:
+            self._restore_record_selection(restore_selection_key)
+
     def show_record_details_dialog(self, index):
         if not index.isValid():
             return
-            
+
         selected_row = index.row()
         if selected_row < 0 or selected_row >= self.rental_records_table.rowCount():
             return
-            
+
         item = self.rental_records_table.item(selected_row, 0)
         if not item:
             print(f"No item found at row {selected_row}")
             return
-            
+
         record_data = item.data(Qt.UserRole)
         if not record_data:
             print(f"No record data found for row {selected_row}")
             return
-        
+
         selected_source = self.load_source_combo.currentText()
 
         # Adapt record_data to a consistent format for the dialog
@@ -3167,7 +3760,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 "is_archived": bool(record_data[10]),
                 "supabase_id": record_data[11],
             }
-        else: # Cloud (Supabase) - already a flattened dict
+        else:  # Cloud (Supabase) - already a flattened dict
             record_dict = record_data
             # Ensure local paths are empty strings if not present, as dialog expects paths
             record_dict["photo_path"] = record_dict.get("photo_url", "")
@@ -3178,15 +3771,22 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         try:
             dialog = RentalRecordDialog(
                 self.main_window,  # Use main window as parent for proper centering
-                record_data=record_dict, # Pass the consistent dictionary
-                db_manager=self.db_manager, # Local DB manager
-                supabase_manager=self.main_window.supabase_manager, # Supabase manager
+                record_data=record_dict,  # Pass the consistent dictionary
+                db_manager=self.db_manager,  # Local DB manager
+                supabase_manager=self.main_window.supabase_manager,  # Supabase manager
                 is_archived_record=record_dict.get("is_archived", False),
                 main_window_ref=self.main_window,
-                current_source=selected_source, # Pass the current source to the dialog
-                supabase_id=record_dict.get("supabase_id") # Pass supabase_id
+                current_source=selected_source,  # Pass the current source to the dialog
+                supabase_id=record_dict.get("supabase_id"),  # Pass supabase_id
             )
-            dialog.exec_() # Show as modal dialog
+            coordinator = getattr(self.main_window, "update_coordinator", None)
+            if coordinator is not None:
+                coordinator.begin_edit_session("rental")
+            try:
+                dialog.exec_()  # Show as modal dialog
+            finally:
+                if coordinator is not None:
+                    coordinator.end_edit_session("rental")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to open record details: {e}")
             print(f"Error opening rental record dialog: {e}\n{traceback.format_exc()}")
@@ -3194,8 +3794,8 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
     def load_record_into_form_for_edit(self, record_data: dict):
         # This method is called from the dialog to load data for editing
         # record_data is expected to be a dictionary (either from local DB or Supabase, flattened)
-        self.current_rental_id = record_data.get("id") # Local DB ID
-        self.current_supabase_id = record_data.get("supabase_id") # Supabase ID
+        self.current_rental_id = record_data.get("id")  # Local DB ID
+        self.current_supabase_id = record_data.get("supabase_id")  # Supabase ID
         # Store archive status so we can retain it during save
         self.current_is_archived = bool(record_data.get("is_archived", False))
 
@@ -3204,35 +3804,61 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.room_number_input.setText(record_data.get("room_number", ""))
         self.advanced_paid_input.setText(str(record_data.get("advanced_paid", 0.0)))
 
-
         # Update file upload widgets with existing file paths/URLs
-        self._update_upload_widget_for_edit("photo", record_data.get("photo_path") or record_data.get("photo_url"))
-        self._update_upload_widget_for_edit("nid_front", record_data.get("nid_front_path") or record_data.get("nid_front_url"))
-        self._update_upload_widget_for_edit("nid_back", record_data.get("nid_back_path") or record_data.get("nid_back_url"))
-        self._update_upload_widget_for_edit("police_form", record_data.get("police_form_path") or record_data.get("police_form_url"))
-        
+        self._update_upload_widget_for_edit(
+            "photo", record_data.get("photo_path") or record_data.get("photo_url")
+        )
+        self._update_upload_widget_for_edit(
+            "nid_front",
+            record_data.get("nid_front_path") or record_data.get("nid_front_url"),
+        )
+        self._update_upload_widget_for_edit(
+            "nid_back",
+            record_data.get("nid_back_path") or record_data.get("nid_back_url"),
+        )
+        self._update_upload_widget_for_edit(
+            "police_form",
+            record_data.get("police_form_path") or record_data.get("police_form_url"),
+        )
+
         # Ensure legacy labels exist and update them for compatibility
         self._ensure_legacy_labels_exist()
-        self.photo_path_label.setText(record_data.get("photo_path") or record_data.get("photo_url") or "No file selected")
-        self.nid_front_path_label.setText(record_data.get("nid_front_path") or record_data.get("nid_front_url") or "No file selected")
-        self.nid_back_path_label.setText(record_data.get("nid_back_path") or record_data.get("nid_back_url") or "No file selected")
-        self.police_form_path_label.setText(record_data.get("police_form_path") or record_data.get("police_form_url") or "No file selected")
-        
+        self.photo_path_label.setText(
+            record_data.get("photo_path")
+            or record_data.get("photo_url")
+            or "No file selected"
+        )
+        self.nid_front_path_label.setText(
+            record_data.get("nid_front_path")
+            or record_data.get("nid_front_url")
+            or "No file selected"
+        )
+        self.nid_back_path_label.setText(
+            record_data.get("nid_back_path")
+            or record_data.get("nid_back_url")
+            or "No file selected"
+        )
+        self.police_form_path_label.setText(
+            record_data.get("police_form_path")
+            or record_data.get("police_form_url")
+            or "No file selected"
+        )
+
         self.save_record_btn.setText("Update Record")
-        self.tenant_name_input.setFocus() # Set focus back to the form
+        self.tenant_name_input.setFocus()  # Set focus back to the form
 
     def clear_form(self):
         # Clear input fields
         self.tenant_name_input.clear()
         self.room_number_input.clear()
         self.advanced_paid_input.clear()
-        
+
         # Clear file upload widgets
         self._clear_file_upload("photo", self.photo_widget.status_label)
         self._clear_file_upload("nid_front", self.nid_front_widget.status_label)
         self._clear_file_upload("nid_back", self.nid_back_widget.status_label)
         self._clear_file_upload("police_form", self.police_form_widget.status_label)
-        
+
         # Reset form state
         self.current_rental_id = None
         self.current_supabase_id = None
@@ -3296,13 +3922,16 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             original_path = Path(p)
             # Normalize original path for case-insensitive comparison on Windows
             original_path_norm = Path(os.path.normcase(str(original_path)))
-        except OSError: # Catches invalid path strings (e.g. containing null bytes)
+        except OSError:  # Catches invalid path strings (e.g. containing null bytes)
             # If path conversion fails, it's not a safe path
             return False
 
         # 1. Check original path against forbidden directories (before resolving symlinks)
         # This prevents access to sensitive system directories even if symlinked from a safe location.
-        if any(self._rel_to(original_path_norm, Path(os.path.normcase(str(fd)))) for fd in self.FORBIDDEN):
+        if any(
+            self._rel_to(original_path_norm, Path(os.path.normcase(str(fd))))
+            for fd in self.FORBIDDEN
+        ):
             return False
 
         # 2. Reject any traversal attempt visible in the user-supplied path
@@ -3325,11 +3954,17 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             return False
 
         # 5. Check resolved path against forbidden directories (in case a safe path symlinks to a forbidden one)
-        if any(self._rel_to(resolved_path_norm, Path(os.path.normcase(str(fd)))) for fd in self.FORBIDDEN):
+        if any(
+            self._rel_to(resolved_path_norm, Path(os.path.normcase(str(fd))))
+            for fd in self.FORBIDDEN
+        ):
             return False
 
         # 6. Check resolved path against safe directories
-        return any(self._rel_to(resolved_path_norm, Path(os.path.normcase(str(sd)))) for sd in self.SAFE_DIRS)
+        return any(
+            self._rel_to(resolved_path_norm, Path(os.path.normcase(str(sd))))
+            for sd in self.SAFE_DIRS
+        )
 
     def _validate_image_file(self, file_path):
         """Validate that the file is actually an image"""
@@ -3348,7 +3983,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
                 # Parse the URL to safely extract the file extension (ignore query params)
                 parsed = urllib.parse.urlparse(image_path)
-                url_path = parsed.path  # e.g. "/storage/v1/object/public/..../image.jpg"
+                url_path = (
+                    parsed.path
+                )  # e.g. "/storage/v1/object/public/..../image.jpg"
                 _root, ext = _os.path.splitext(url_path)
                 # Fallback to .jpg if extension missing or contains illegal chars (e.g. '.jpg?')
                 if not ext or any(c in ext for c in "?&#%"):
@@ -3357,7 +3994,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 # Use optimized fetcher with for_display=False to get full-resolution image
                 fetcher = get_global_fetcher()
                 image_data = fetcher.fetch_single(image_path, for_display=False)
-                
+
                 if image_data:
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
                     tmp.write(image_data)
@@ -3371,10 +4008,15 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 print(f"Error downloading image {image_path}: {url_exc}")
                 return None, 0, 0
 
-        if not image_path or ('safe_bypass' not in locals() and not self._is_safe_path(image_path)) or not os.path.exists(image_path):
+        if (
+            not image_path
+            or ("safe_bypass" not in locals() and not self._is_safe_path(image_path))
+            or not os.path.exists(image_path)
+        ):
             return None, 0, 0
         try:
             from reportlab.lib.utils import ImageReader
+
             # Use ReportLab's ImageReader to get original dimensions in points
             img_reader = ImageReader(image_path)
             original_width_points, original_height_points = img_reader.getSize()
@@ -3412,18 +4054,20 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         # Define PDF file name
         def _sanitize(s):
             # Replace invalid filename characters with underscore
-            return re.sub(r'[\\/*?:"<>|]', '_', str(s)).replace(' ', '_')
+            return re.sub(r'[\\/*?:"<>|]', "_", str(s)).replace(" ", "_")
 
-        pdf_filename = f"Rental_Record_{_sanitize(tenant_name)}_{_sanitize(room_number)}.pdf"
-        
+        pdf_filename = (
+            f"Rental_Record_{_sanitize(tenant_name)}_{_sanitize(room_number)}.pdf"
+        )
+
         # Ask user where to save the PDF using modern dialog
         pdf_path = SaveDialog.get_save_filename(
             parent=self,
             title="Save Rental Record PDF",
             default_filename=pdf_filename,
-            file_filter="PDF Files (*.pdf);;All Files (*)"
+            file_filter="PDF Files (*.pdf);;All Files (*)",
         )
-        
+
         # If user cancelled the dialog, return None
         if not pdf_path:
             return None
@@ -3433,7 +4077,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         try:
             progress_dialog = FluentProgressDialog(
                 message="Fetching full-resolution images and generating PDF...",
-                parent=self
+                parent=self,
             )
             progress_dialog.show()
             QApplication.processEvents()  # Force UI update
@@ -3460,35 +4104,49 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             from reportlab.lib import colors
             from reportlab.lib.enums import TA_CENTER
 
-            doc = BaseDocTemplate(pdf_path, pagesize=letter,
-                                  leftMargin=0.1 * inch, rightMargin=0.1 * inch,
-                                  topMargin=0.1 * inch, bottomMargin=0.1 * inch)
+            doc = BaseDocTemplate(
+                pdf_path,
+                pagesize=letter,
+                leftMargin=0.1 * inch,
+                rightMargin=0.1 * inch,
+                topMargin=0.1 * inch,
+                bottomMargin=0.1 * inch,
+            )
             styles = getSampleStyleSheet()
 
             # Custom style for centered bold text
             centered_bold_style = ParagraphStyle(
-                'CenteredBold',
-                parent=styles['Normal'],
-                fontName='Helvetica-Bold',
+                "CenteredBold",
+                parent=styles["Normal"],
+                fontName="Helvetica-Bold",
                 fontSize=14,
                 alignment=TA_CENTER,
-                spaceAfter=3
+                spaceAfter=3,
             )
 
             # Custom style for "Associated Documents:" to control spacing
             associated_docs_style = ParagraphStyle(
-                'AssociatedDocs',
-                parent=styles['h3'], # Inherit font/size from h3, but override spacing
+                "AssociatedDocs",
+                parent=styles["h3"],  # Inherit font/size from h3, but override spacing
                 spaceBefore=0,
-                spaceAfter=0
+                spaceAfter=0,
             )
 
             # Define Frames for Page 1 (Rental Details)
-            frame1_height = letter[1] - (2 * 0.1 * inch) # Page height - top/bottom margins
-            frame1 = Frame(doc.leftMargin, doc.bottomMargin, doc.width, frame1_height,
-                           leftPadding=0, bottomPadding=0,
-                           rightPadding=0, topPadding=0,
-                           showBoundary=1) # Set showBoundary=1 for debugging frames
+            frame1_height = letter[1] - (
+                2 * 0.1 * inch
+            )  # Page height - top/bottom margins
+            frame1 = Frame(
+                doc.leftMargin,
+                doc.bottomMargin,
+                doc.width,
+                frame1_height,
+                leftPadding=0,
+                bottomPadding=0,
+                rightPadding=0,
+                topPadding=0,
+                showBoundary=1,
+            )  # Set showBoundary=1 for debugging frames
 
             # Define Frames for Page 2 (Tenant Photo, NID Front/Back)
             # Page width and height for calculations
@@ -3505,29 +4163,47 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             usable_height = page_height - p2_top_margin - p2_bottom_margin
 
             # Define a single full-page frame for Page 2
-            frame2_full = Frame(p2_left_margin, p2_bottom_margin, usable_width, usable_height,
-                                leftPadding=0, bottomPadding=0,
-                                rightPadding=0, topPadding=0,
-                                showBoundary=1)
+            frame2_full = Frame(
+                p2_left_margin,
+                p2_bottom_margin,
+                usable_width,
+                usable_height,
+                leftPadding=0,
+                bottomPadding=0,
+                rightPadding=0,
+                topPadding=0,
+                showBoundary=1,
+            )
 
             # Define Frames for Page 3 (Police Form)
             frame3_height = letter[1] - (2 * 0.1 * inch)
-            frame3 = Frame(doc.leftMargin, doc.bottomMargin, doc.width, frame3_height,
-                           leftPadding=0, bottomPadding=0,
-                           rightPadding=0, topPadding=0,
-                           showBoundary=1)
+            frame3 = Frame(
+                doc.leftMargin,
+                doc.bottomMargin,
+                doc.width,
+                frame3_height,
+                leftPadding=0,
+                bottomPadding=0,
+                rightPadding=0,
+                topPadding=0,
+                showBoundary=1,
+            )
 
             # Define Page Templates
-            page_template_1 = PageTemplate(id='Page1', frames=[frame1])
-            page_template_2 = PageTemplate(id='Page2', frames=[frame2_full]) # Use single frame
-            page_template_3 = PageTemplate(id='Page3', frames=[frame3])
+            page_template_1 = PageTemplate(id="Page1", frames=[frame1])
+            page_template_2 = PageTemplate(
+                id="Page2", frames=[frame2_full]
+            )  # Use single frame
+            page_template_3 = PageTemplate(id="Page3", frames=[frame3])
 
             doc.addPageTemplates([page_template_1, page_template_2, page_template_3])
 
             all_elements = []
-            
+
             # --- Page 1: Rental Information Data ---
-            all_elements.append(Paragraph("Rental Information Record", centered_bold_style))
+            all_elements.append(
+                Paragraph("Rental Information Record", centered_bold_style)
+            )
             all_elements.append(Spacer(1, 0.02 * inch))
 
             # Tenant Details Table
@@ -3537,109 +4213,253 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 ["Room Number:", room_number],
                 ["Advanced Paid:", f"TK {advanced_paid:,.2f}"],
                 ["Record Created:", created_at],
-                ["Last Updated:", updated_at]
+                ["Last Updated:", updated_at],
             ]
-            table_style = TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('BOX', (0, 0), (-1, -1), 1, colors.black),
-            ])
+            table_style = TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                    ("BOX", (0, 0), (-1, -1), 1, colors.black),
+                ]
+            )
             table = Table(data, colWidths=[2 * inch, 4 * inch])
             table.setStyle(table_style)
             all_elements.append(table)
             all_elements.append(Spacer(1, 0.02 * inch))
-            all_elements.append(NextPageTemplate('Page2')) # Set template for the next page
-            all_elements.append(PageBreak()) # Force a page break
+            all_elements.append(
+                NextPageTemplate("Page2")
+            )  # Set template for the next page
+            all_elements.append(PageBreak())  # Force a page break
 
             # --- Page 2: Tenant Photo, NID Front/Back ---
             # Define a common max height for images on Page 2 to ensure they fit
             # Set a fixed maximum height for each image to ensure all three fit on the page.
-            max_image_height_p2 = 3.0 * inch # Each image will be scaled to fit within 3 inches height
+            max_image_height_p2 = (
+                3.0 * inch
+            )  # Each image will be scaled to fit within 3 inches height
 
-            all_elements.append(Paragraph("<b>Associated Documents:</b>", associated_docs_style))
-            all_elements.append(Spacer(1, 0.05 * inch)) # Use a fixed spacer height
+            all_elements.append(
+                Paragraph("<b>Associated Documents:</b>", associated_docs_style)
+            )
+            all_elements.append(Spacer(1, 0.05 * inch))  # Use a fixed spacer height
 
             # Tenant Photo
-            if photo_path and (photo_path.startswith("http") or (os.path.exists(photo_path) and self._is_safe_path(photo_path))):
-                all_elements.append(Paragraph("<b>Tenant Photo:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
-                scaled_image_path, img_width_points, img_height_points = self._scale_image(photo_path, usable_width, max_image_height_p2)
+            if photo_path and (
+                photo_path.startswith("http")
+                or (os.path.exists(photo_path) and self._is_safe_path(photo_path))
+            ):
+                all_elements.append(
+                    Paragraph(
+                        "<b>Tenant Photo:</b>",
+                        ParagraphStyle(
+                            "ImageTitle",
+                            parent=styles["Normal"],
+                            spaceAfter=0,
+                            leading=0,
+                        ),
+                    )
+                )
+                scaled_image_path, img_width_points, img_height_points = (
+                    self._scale_image(photo_path, usable_width, max_image_height_p2)
+                )
                 if scaled_image_path:
-                    img = Image(scaled_image_path, width=img_width_points, height=img_height_points, kind='proportional')
-                    img.hAlign = 'CENTER' # Center the image horizontally
+                    img = Image(
+                        scaled_image_path,
+                        width=img_width_points,
+                        height=img_height_points,
+                        kind="proportional",
+                    )
+                    img.hAlign = "CENTER"  # Center the image horizontally
                     all_elements.append(img)
                 else:
-                    all_elements.append(Paragraph(f"<i>Could not load image from {photo_path}</i>", styles['Normal']))
+                    all_elements.append(
+                        Paragraph(
+                            f"<i>Could not load image from {photo_path}</i>",
+                            styles["Normal"],
+                        )
+                    )
             else:
-                all_elements.append(Paragraph(f"<i>Tenant Photo: Not provided or file not found/safe.</i>", styles['Normal']))
+                all_elements.append(
+                    Paragraph(
+                        f"<i>Tenant Photo: Not provided or file not found/safe.</i>",
+                        styles["Normal"],
+                    )
+                )
             all_elements.append(Spacer(1, 0.05 * inch))
 
             # NID Front Side
-            if nid_front_path and (nid_front_path.startswith("http") or (os.path.exists(nid_front_path) and self._is_safe_path(nid_front_path))):
-                all_elements.append(Paragraph("<b>NID Front Side:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
-                scaled_image_path, img_width_points, img_height_points = self._scale_image(nid_front_path, usable_width, max_image_height_p2)
+            if nid_front_path and (
+                nid_front_path.startswith("http")
+                or (
+                    os.path.exists(nid_front_path)
+                    and self._is_safe_path(nid_front_path)
+                )
+            ):
+                all_elements.append(
+                    Paragraph(
+                        "<b>NID Front Side:</b>",
+                        ParagraphStyle(
+                            "ImageTitle",
+                            parent=styles["Normal"],
+                            spaceAfter=0,
+                            leading=0,
+                        ),
+                    )
+                )
+                scaled_image_path, img_width_points, img_height_points = (
+                    self._scale_image(nid_front_path, usable_width, max_image_height_p2)
+                )
                 if scaled_image_path:
-                    img = Image(scaled_image_path, width=img_width_points, height=img_height_points, kind='proportional')
-                    img.hAlign = 'CENTER' # Center the image horizontally
+                    img = Image(
+                        scaled_image_path,
+                        width=img_width_points,
+                        height=img_height_points,
+                        kind="proportional",
+                    )
+                    img.hAlign = "CENTER"  # Center the image horizontally
                     all_elements.append(img)
                 else:
-                    all_elements.append(Paragraph(f"<i>Could not load image from {nid_front_path}</i>", styles['Normal']))
+                    all_elements.append(
+                        Paragraph(
+                            f"<i>Could not load image from {nid_front_path}</i>",
+                            styles["Normal"],
+                        )
+                    )
             else:
-                all_elements.append(Paragraph(f"<i>NID Front Side: Not provided or file not found/safe.</i>", styles['Normal']))
-            all_elements.append(Spacer(1, 0.05 * inch)) # Small space between NID images
+                all_elements.append(
+                    Paragraph(
+                        f"<i>NID Front Side: Not provided or file not found/safe.</i>",
+                        styles["Normal"],
+                    )
+                )
+            all_elements.append(
+                Spacer(1, 0.05 * inch)
+            )  # Small space between NID images
 
             # NID Back Side
-            if nid_back_path and (nid_back_path.startswith("http") or (os.path.exists(nid_back_path) and self._is_safe_path(nid_back_path))):
-                all_elements.append(Paragraph("<b>NID Back Side:</b>", ParagraphStyle('ImageTitle', parent=styles['Normal'], spaceAfter=0, leading=0)))
-                scaled_image_path, img_width_points, img_height_points = self._scale_image(nid_back_path, usable_width, max_image_height_p2)
+            if nid_back_path and (
+                nid_back_path.startswith("http")
+                or (os.path.exists(nid_back_path) and self._is_safe_path(nid_back_path))
+            ):
+                all_elements.append(
+                    Paragraph(
+                        "<b>NID Back Side:</b>",
+                        ParagraphStyle(
+                            "ImageTitle",
+                            parent=styles["Normal"],
+                            spaceAfter=0,
+                            leading=0,
+                        ),
+                    )
+                )
+                scaled_image_path, img_width_points, img_height_points = (
+                    self._scale_image(nid_back_path, usable_width, max_image_height_p2)
+                )
                 if scaled_image_path:
-                    img = Image(scaled_image_path, width=img_width_points, height=img_height_points, kind='proportional')
-                    img.hAlign = 'CENTER' # Center the image horizontally
+                    img = Image(
+                        scaled_image_path,
+                        width=img_width_points,
+                        height=img_height_points,
+                        kind="proportional",
+                    )
+                    img.hAlign = "CENTER"  # Center the image horizontally
                     all_elements.append(img)
                 else:
-                    all_elements.append(Paragraph(f"<i>Could not load image from {nid_back_path}</i>", styles['Normal']))
+                    all_elements.append(
+                        Paragraph(
+                            f"<i>Could not load image from {nid_back_path}</i>",
+                            styles["Normal"],
+                        )
+                    )
             else:
-                all_elements.append(Paragraph(f"<i>NID Back Side: Not provided or file not found/safe.</i>", styles['Normal']))
-            all_elements.append(NextPageTemplate('Page3')) # Set template for the next page
-            all_elements.append(PageBreak()) # Force a page break
+                all_elements.append(
+                    Paragraph(
+                        f"<i>NID Back Side: Not provided or file not found/safe.</i>",
+                        styles["Normal"],
+                    )
+                )
+            all_elements.append(
+                NextPageTemplate("Page3")
+            )  # Set template for the next page
+            all_elements.append(PageBreak())  # Force a page break
 
             # --- Page 3: Police Verification Form ---
-            all_elements.append(Paragraph("<b>Police Verification Form:</b>", styles['Normal']))
+            all_elements.append(
+                Paragraph("<b>Police Verification Form:</b>", styles["Normal"])
+            )
             all_elements.append(Spacer(1, 0.02 * inch))
 
-            if police_form_path and (police_form_path.startswith("http") or (os.path.exists(police_form_path) and self._is_safe_path(police_form_path))):
+            if police_form_path and (
+                police_form_path.startswith("http")
+                or (
+                    os.path.exists(police_form_path)
+                    and self._is_safe_path(police_form_path)
+                )
+            ):
                 # Calculate max_width and max_height for the police form to fit frame3
-                police_form_max_width = frame3.width # Use full frame width
-                police_form_max_height = frame3_height - (1.0 * inch) # Account for some internal padding/spacing and title/spacer
+                police_form_max_width = frame3.width  # Use full frame width
+                police_form_max_height = frame3_height - (
+                    1.0 * inch
+                )  # Account for some internal padding/spacing and title/spacer
 
                 # Use _scale_image for police form as well
-                scaled_image_path, img_width_points, img_height_points = self._scale_image(police_form_path, police_form_max_width, police_form_max_height)
-                
+                scaled_image_path, img_width_points, img_height_points = (
+                    self._scale_image(
+                        police_form_path, police_form_max_width, police_form_max_height
+                    )
+                )
+
                 if scaled_image_path:
                     try:
-                        img = Image(scaled_image_path, width=img_width_points, height=img_height_points) # No need for kind='proportional' if already scaled
-                        img.hAlign = 'CENTER'
+                        img = Image(
+                            scaled_image_path,
+                            width=img_width_points,
+                            height=img_height_points,
+                        )  # No need for kind='proportional' if already scaled
+                        img.hAlign = "CENTER"
                         all_elements.append(img)
                     except Exception as img_e:
-                        all_elements.append(Paragraph(f"<i>Error creating image object for police form: {img_e}</i>", styles['Normal']))
+                        all_elements.append(
+                            Paragraph(
+                                f"<i>Error creating image object for police form: {img_e}</i>",
+                                styles["Normal"],
+                            )
+                        )
                 else:
-                    all_elements.append(Paragraph(f"<i>Could not load or scale police form image from {police_form_path}</i>", styles['Normal']))
+                    all_elements.append(
+                        Paragraph(
+                            f"<i>Could not load or scale police form image from {police_form_path}</i>",
+                            styles["Normal"],
+                        )
+                    )
             else:
-                all_elements.append(Paragraph(f"<i>Police Verification Form: Not provided or file not found/safe.</i>", styles['Normal']))
+                all_elements.append(
+                    Paragraph(
+                        f"<i>Police Verification Form: Not provided or file not found/safe.</i>",
+                        styles["Normal"],
+                    )
+                )
 
             doc.build(all_elements)
             if progress_dialog:
                 progress_dialog.close()
-            QMessageBox.information(self, "PDF Generated", f"Rental record PDF saved to:\n{pdf_path}")
+            QMessageBox.information(
+                self, "PDF Generated", f"Rental record PDF saved to:\n{pdf_path}"
+            )
             return pdf_path
         except Exception as e:
             if progress_dialog:
                 progress_dialog.close()
-            QMessageBox.critical(self, "PDF Generation Error", f"Failed to generate PDF: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "PDF Generation Error",
+                f"Failed to generate PDF: {e}\n{traceback.format_exc()}",
+            )
             return None
 
     def _ensure_local_copy(self, path_str: str | None) -> str | None:
@@ -3661,6 +4481,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
             if not dest.exists():
                 import requests
+
                 resp = requests.get(path_str, timeout=15, verify=False)
                 resp.raise_for_status()
                 dest.write_bytes(resp.content)
@@ -3670,194 +4491,221 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             # If download fails keep original URL so record isn't lost
             print(f"Warning: could not cache remote image {path_str}: {dl_exc}")
             return path_str
+
     def get_performance_report(self) -> Dict[str, Any]:
         """
         Generate comprehensive performance report for optimization analysis.
-        
+
         Returns:
             Dictionary containing performance metrics, cache statistics, and recommendations
         """
         try:
             report = {
-                'timestamp': datetime.now().isoformat(),
-                'tab_name': 'rental_info_tab',
-                'debug_enabled': self._resize_debug_enabled,
-                'optimization_status': {},
-                'cache_performance': {},
-                'debug_statistics': {},
-                'recommendations': []
+                "timestamp": datetime.now().isoformat(),
+                "tab_name": "rental_info_tab",
+                "debug_enabled": self._resize_debug_enabled,
+                "optimization_status": {},
+                "cache_performance": {},
+                "debug_statistics": {},
+                "recommendations": [],
             }
-            
+
             # Get optimization manager status
-            if hasattr(self, '_optimization_manager') and self._optimization_manager:
-                report['optimization_status'] = self._optimization_manager.get_optimization_status()
-            
+            if hasattr(self, "_optimization_manager") and self._optimization_manager:
+                report["optimization_status"] = (
+                    self._optimization_manager.get_optimization_status()
+                )
+
             # Get cache performance statistics
-            report['cache_performance'] = self._get_cache_performance_statistics()
-            
+            report["cache_performance"] = self._get_cache_performance_statistics()
+
             # Get debug manager statistics
-            if hasattr(self, '_debug_manager') and self._debug_manager:
-                report['debug_statistics'] = self._debug_manager.get_performance_report()
-            
+            if hasattr(self, "_debug_manager") and self._debug_manager:
+                report["debug_statistics"] = (
+                    self._debug_manager.get_performance_report()
+                )
+
             # Add table-specific metrics
             if self.rental_records_table:
-                report['table_metrics'] = {
-                    'row_count': self.rental_records_table.rowCount(),
-                    'column_count': self.rental_records_table.columnCount(),
-                    'viewport_width': self.rental_records_table.viewport().width(),
-                    'table_width': self.rental_records_table.width(),
-                    'is_visible': self.rental_records_table.isVisible()
+                report["table_metrics"] = {
+                    "row_count": self.rental_records_table.rowCount(),
+                    "column_count": self.rental_records_table.columnCount(),
+                    "viewport_width": self.rental_records_table.viewport().width(),
+                    "table_width": self.rental_records_table.width(),
+                    "is_visible": self.rental_records_table.isVisible(),
                 }
-            
+
             # Generate recommendations based on performance data
             self._add_performance_recommendations(report)
-            
+
             return report
-            
+
         except Exception as e:
             return {
-                'error': f'Failed to generate performance report: {e}',
-                'timestamp': datetime.now().isoformat(),
-                'tab_name': 'rental_info_tab'
+                "error": f"Failed to generate performance report: {e}",
+                "timestamp": datetime.now().isoformat(),
+                "tab_name": "rental_info_tab",
             }
-    
+
     def _add_performance_recommendations(self, report: Dict[str, Any]):
         """
         Add performance recommendations based on collected metrics.
-        
+
         Args:
             report: Performance report dictionary to add recommendations to
         """
         try:
             recommendations = []
-            
+
             # Check cache performance
-            cache_perf = report.get('cache_performance', {})
+            cache_perf = report.get("cache_performance", {})
             for cache_type, stats in cache_perf.items():
-                if isinstance(stats, dict) and 'hit_ratio' in stats:
-                    if stats['hit_ratio'] < 0.3:
-                        recommendations.append(f"Low {cache_type} cache hit ratio ({stats['hit_ratio']:.1%}). Consider reviewing cache strategy.")
-                    elif stats['hit_ratio'] > 0.9:
-                        recommendations.append(f"Excellent {cache_type} cache performance ({stats['hit_ratio']:.1%}).")
-            
+                if isinstance(stats, dict) and "hit_ratio" in stats:
+                    if stats["hit_ratio"] < 0.3:
+                        recommendations.append(
+                            f"Low {cache_type} cache hit ratio ({stats['hit_ratio']:.1%}). Consider reviewing cache strategy."
+                        )
+                    elif stats["hit_ratio"] > 0.9:
+                        recommendations.append(
+                            f"Excellent {cache_type} cache performance ({stats['hit_ratio']:.1%})."
+                        )
+
             # Check debug statistics
-            debug_stats = report.get('debug_statistics', {})
-            timing_analysis = debug_stats.get('timing_analysis', {})
+            debug_stats = report.get("debug_statistics", {})
+            timing_analysis = debug_stats.get("timing_analysis", {})
             if timing_analysis:
-                avg_duration = timing_analysis.get('average_duration_ms', 0)
-                slow_percentage = timing_analysis.get('slow_operations_percentage', 0)
-                
+                avg_duration = timing_analysis.get("average_duration_ms", 0)
+                slow_percentage = timing_analysis.get("slow_operations_percentage", 0)
+
                 if avg_duration > 50:
-                    recommendations.append(f"Average resize duration is high ({avg_duration:.1f}ms). Consider optimization.")
-                
+                    recommendations.append(
+                        f"Average resize duration is high ({avg_duration:.1f}ms). Consider optimization."
+                    )
+
                 if slow_percentage > 25:
-                    recommendations.append(f"High percentage of slow operations ({slow_percentage:.1f}%). Review resize logic.")
-            
+                    recommendations.append(
+                        f"High percentage of slow operations ({slow_percentage:.1f}%). Review resize logic."
+                    )
+
             # Check optimization status
-            opt_status = report.get('optimization_status', {})
-            if opt_status.get('fallback_active', False):
-                recommendations.append("Optimization fallback is active. Check for errors in optimization components.")
-            
+            opt_status = report.get("optimization_status", {})
+            if opt_status.get("fallback_active", False):
+                recommendations.append(
+                    "Optimization fallback is active. Check for errors in optimization components."
+                )
+
             # Check table metrics
-            table_metrics = report.get('table_metrics', {})
+            table_metrics = report.get("table_metrics", {})
             if table_metrics:
-                row_count = table_metrics.get('row_count', 0)
+                row_count = table_metrics.get("row_count", 0)
                 if row_count > 1000:
-                    recommendations.append(f"Large table ({row_count} rows). Consider pagination or virtualization.")
-                
-                viewport_width = table_metrics.get('viewport_width', 0)
+                    recommendations.append(
+                        f"Large table ({row_count} rows). Consider pagination or virtualization."
+                    )
+
+                viewport_width = table_metrics.get("viewport_width", 0)
                 if viewport_width < 300:
-                    recommendations.append("Very narrow viewport. Table may not display optimally.")
-            
-            report['recommendations'] = recommendations
-            
+                    recommendations.append(
+                        "Very narrow viewport. Table may not display optimally."
+                    )
+
+            report["recommendations"] = recommendations
+
         except Exception as e:
-            report['recommendations'] = [f"Error generating recommendations: {e}"]
-    
+            report["recommendations"] = [f"Error generating recommendations: {e}"]
+
     def enable_debug_logging(self, enabled: bool = True):
         """
         Enable or disable debug logging for this tab.
-        
+
         Args:
             enabled: Whether to enable debug logging
         """
         self._resize_debug_enabled = enabled
-        
+
         # Also enable debug manager if available
-        if hasattr(self, '_debug_manager') and self._debug_manager:
+        if hasattr(self, "_debug_manager") and self._debug_manager:
             self._debug_manager.set_enabled(enabled)
-        
-        self._log_resize_debug("Debug logging state changed", {'enabled': enabled})
-    
+
+        self._log_resize_debug("Debug logging state changed", {"enabled": enabled})
+
     def is_debug_enabled(self) -> bool:
         """Check if debug logging is currently enabled."""
         return self._resize_debug_enabled
-    
+
     def print_performance_report(self):
         """Print a comprehensive performance report for debugging and analysis."""
         try:
             report = self.get_performance_report()
-            
-            print("\n" + "="*60)
+
+            print("\n" + "=" * 60)
             print("RENTAL TAB PERFORMANCE REPORT")
-            print("="*60)
+            print("=" * 60)
             print(f"Generated: {report.get('timestamp', 'Unknown')}")
             print(f"Debug Enabled: {report.get('debug_enabled', False)}")
-            
+
             # Optimization Status
-            opt_status = report.get('optimization_status', {})
+            opt_status = report.get("optimization_status", {})
             if opt_status:
                 print(f"\nOptimization Status:")
-                print(f"  Fallback Active: {opt_status.get('fallback_active', 'Unknown')}")
-                components = opt_status.get('components_initialized', {})
+                print(
+                    f"  Fallback Active: {opt_status.get('fallback_active', 'Unknown')}"
+                )
+                components = opt_status.get("components_initialized", {})
                 if components:
                     print(f"  Components Initialized:")
                     for comp, status in components.items():
                         print(f"    {comp}: {status}")
-            
+
             # Cache Performance
-            cache_perf = report.get('cache_performance', {})
-            if cache_perf and 'error' not in cache_perf:
+            cache_perf = report.get("cache_performance", {})
+            if cache_perf and "error" not in cache_perf:
                 print(f"\nCache Performance:")
                 for cache_type, stats in cache_perf.items():
-                    if isinstance(stats, dict) and 'hit_ratio' in stats:
+                    if isinstance(stats, dict) and "hit_ratio" in stats:
                         print(f"  {cache_type}:")
                         print(f"    Hit Ratio: {stats['hit_ratio']:.1%}")
                         print(f"    Hits: {stats.get('hits', 0)}")
                         print(f"    Misses: {stats.get('misses', 0)}")
-            
+
             # Debug Statistics
-            debug_stats = report.get('debug_statistics', {})
+            debug_stats = report.get("debug_statistics", {})
             if debug_stats:
                 print(f"\nDebug Statistics:")
-                summary = debug_stats.get('summary', {})
+                summary = debug_stats.get("summary", {})
                 if summary:
-                    print(f"  Total Resize Operations: {summary.get('total_resize_operations', 0)}")
+                    print(
+                        f"  Total Resize Operations: {summary.get('total_resize_operations', 0)}"
+                    )
                     print(f"  Cache Hit Ratio: {summary.get('cache_hit_ratio', 0):.1%}")
-                
-                timing = debug_stats.get('timing_analysis', {})
+
+                timing = debug_stats.get("timing_analysis", {})
                 if timing:
                     print(f"  Timing Analysis:")
-                    print(f"    Average Duration: {timing.get('average_duration_ms', 0):.1f}ms")
-                    print(f"    Slow Operations: {timing.get('slow_operations_percentage', 0):.1f}%")
-            
+                    print(
+                        f"    Average Duration: {timing.get('average_duration_ms', 0):.1f}ms"
+                    )
+                    print(
+                        f"    Slow Operations: {timing.get('slow_operations_percentage', 0):.1f}%"
+                    )
+
             # Table Metrics
-            table_metrics = report.get('table_metrics', {})
+            table_metrics = report.get("table_metrics", {})
             if table_metrics:
                 print(f"\nTable Metrics:")
                 print(f"  Rows: {table_metrics.get('row_count', 0)}")
                 print(f"  Columns: {table_metrics.get('column_count', 0)}")
                 print(f"  Viewport Width: {table_metrics.get('viewport_width', 0)}px")
                 print(f"  Table Width: {table_metrics.get('table_width', 0)}px")
-            
+
             # Recommendations
-            recommendations = report.get('recommendations', [])
+            recommendations = report.get("recommendations", [])
             if recommendations:
                 print(f"\nRecommendations:")
                 for i, rec in enumerate(recommendations, 1):
                     print(f"  {i}. {rec}")
-            
-            print("="*60)
-            
+
+            print("=" * 60)
+
         except Exception as e:
             print(f"Failed to print performance report: {e}")

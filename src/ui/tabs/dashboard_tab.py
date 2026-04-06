@@ -1446,6 +1446,16 @@ class DashboardTab(QWidget):
             level = "warning"
         self._notify(level, "Dashboard", t, duration=4500)
 
+    def _begin_global_update_activity(self, key: str, message: str):
+        coordinator = getattr(self.main_window, "update_coordinator", None)
+        if coordinator is not None:
+            coordinator.begin_activity(key, message)
+
+    def _end_global_update_activity(self, key: str):
+        coordinator = getattr(self.main_window, "update_coordinator", None)
+        if coordinator is not None:
+            coordinator.end_activity(key)
+
     def _populate_years_from_cache(self):
         years = []
         if self.db_manager and hasattr(self.db_manager, "get_cached_years"):
@@ -1551,12 +1561,16 @@ class DashboardTab(QWidget):
             return
 
         self._set_status("Fetching available years from Supabase…")
+        self._begin_global_update_activity(
+            "dashboard-years", "Updates: syncing dashboard"
+        )
         self._years_worker = FetchSupabaseAvailableYearsWorker(supabase_manager)
         self._years_worker.years_fetched.connect(self._on_years_fetched)
         self._years_worker.error_occurred.connect(self._on_years_error)
         self._years_worker.start()
 
     def _on_years_fetched(self, years: list):
+        self._end_global_update_activity("dashboard-years")
         self._years_fetched_from_supabase_this_session = True
         years_int = []
         for y in years or []:
@@ -1635,6 +1649,7 @@ class DashboardTab(QWidget):
         self._sync_owner_room_year_async(selected_owner_room_year)
 
     def _on_years_error(self, msg: str):
+        self._end_global_update_activity("dashboard-years")
         if msg == "PAUSED_PROJECT":
             self._set_status("Supabase project is paused.")
         else:
@@ -1721,6 +1736,10 @@ class DashboardTab(QWidget):
             return
 
         self._set_status("Syncing year from Supabase…")
+        self._sync_worker_year = int(year)
+        self._begin_global_update_activity(
+            f"dashboard-main-{year}", "Updates: syncing dashboard"
+        )
         self._sync_worker = SyncSupabaseMainCalculationsYearWorker(
             supabase_manager, self._db_path, year
         )
@@ -1729,11 +1748,16 @@ class DashboardTab(QWidget):
         self._sync_worker.start()
 
     def _on_sync_finished(self, year: int):
+        sync_year = getattr(self, "_sync_worker_year", year)
+        self._end_global_update_activity(f"dashboard-main-{sync_year}")
         self._set_status("")
         # Refresh all sections using their own combo's selected year
         self._render_year_from_cache(year)
 
     def _on_sync_error(self, msg: str):
+        sync_year = getattr(self, "_sync_worker_year", None)
+        if sync_year is not None:
+            self._end_global_update_activity(f"dashboard-main-{sync_year}")
         if msg == "PAUSED_PROJECT":
             self._set_status("Supabase project is paused.")
         else:
@@ -2202,6 +2226,10 @@ class DashboardTab(QWidget):
             return
 
         self._set_owner_room_status("Syncing owner data from Supabase…")
+        self._owner_room_main_sync_year = int(year)
+        self._begin_global_update_activity(
+            f"dashboard-owner-main-{year}", "Updates: syncing room data"
+        )
         self._owner_room_main_sync_worker = SyncSupabaseMainCalculationsYearWorker(
             supabase_manager, self._db_path, year
         )
@@ -2218,10 +2246,15 @@ class DashboardTab(QWidget):
             self._sync_rentals_cache_async()
 
     def _on_owner_room_main_sync_finished(self, year: int):
+        sync_year = getattr(self, "_owner_room_main_sync_year", year)
+        self._end_global_update_activity(f"dashboard-owner-main-{sync_year}")
         self._set_owner_room_status("")
         self._render_owner_room_from_cache(year)
 
     def _on_owner_room_main_sync_error(self, msg: str):
+        sync_year = getattr(self, "_owner_room_main_sync_year", None)
+        if sync_year is not None:
+            self._end_global_update_activity(f"dashboard-owner-main-{sync_year}")
         if msg == "PAUSED_PROJECT":
             self._set_owner_room_status("Supabase project is paused.")
         else:
@@ -2239,6 +2272,10 @@ class DashboardTab(QWidget):
             return
 
         self._set_owner_room_status("Syncing room bills from Supabase…")
+        self._room_sync_year = int(year)
+        self._begin_global_update_activity(
+            f"dashboard-room-{year}", "Updates: syncing room data"
+        )
         self._room_sync_worker = SyncSupabaseRoomCalculationsYearWorker(
             supabase_manager, self._db_path, year
         )
@@ -2247,11 +2284,16 @@ class DashboardTab(QWidget):
         self._room_sync_worker.start()
 
     def _on_room_sync_finished(self, year: int):
+        sync_year = getattr(self, "_room_sync_year", year)
+        self._end_global_update_activity(f"dashboard-room-{sync_year}")
         self._set_owner_room_status("")
         self._populate_rooms_from_cache()
         self._render_owner_room_from_cache(year)
 
     def _on_room_sync_error(self, msg: str):
+        sync_year = getattr(self, "_room_sync_year", None)
+        if sync_year is not None:
+            self._end_global_update_activity(f"dashboard-room-{sync_year}")
         if msg == "PAUSED_PROJECT":
             self._set_owner_room_status("Supabase project is paused.")
         else:
@@ -2268,6 +2310,9 @@ class DashboardTab(QWidget):
         if self._rentals_sync_worker and self._rentals_sync_worker.isRunning():
             return
 
+        self._begin_global_update_activity(
+            "dashboard-rentals", "Updates: syncing rental cache"
+        )
         self._rentals_sync_worker = SyncSupabaseRentalRecordsCacheWorker(
             supabase_manager, self._db_path
         )
@@ -2276,11 +2321,13 @@ class DashboardTab(QWidget):
         self._rentals_sync_worker.start()
 
     def _on_rentals_sync_finished(self):
+        self._end_global_update_activity("dashboard-rentals")
         year = self._selected_owner_room_year()
         if year is not None:
             self._render_owner_room_from_cache(year)
 
     def _on_rentals_sync_error(self, msg: str):
+        self._end_global_update_activity("dashboard-rentals")
         if msg == "PAUSED_PROJECT":
             self._set_owner_room_status("Supabase project is paused.")
         else:
