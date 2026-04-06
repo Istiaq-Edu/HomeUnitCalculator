@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import time
+
 # Apply compatibility patch before importing supabase
 try:
     from src.core.supabase_patch import *
@@ -10,14 +11,15 @@ except ImportError:
 from supabase import create_client, Client
 from postgrest.exceptions import APIError
 from gotrue.errors import AuthApiError
-from src.core.db_manager import DBManager # To get Supabase URL and Key
+from src.core.db_manager import DBManager  # To get Supabase URL and Key
 from src.core.supabase_error_handler import SupabaseErrorHandler
 from datetime import datetime
+
 
 class SupabaseManager:
     def __init__(self):
         self.supabase: Client = None
-        self.db_manager = DBManager() # Use DBManager to get Supabase config
+        self.db_manager = DBManager()  # Use DBManager to get Supabase config
         self.supabase_url = None  # Store URL for error messages
         self._initialize_supabase_client()
 
@@ -30,7 +32,9 @@ class SupabaseManager:
         if not (supabase_url and supabase_key):
             self.supabase = None
             self.supabase_url = None
-            logging.info("Supabase URL/Key not found in local DB. Supabase features disabled.")
+            logging.info(
+                "Supabase URL/Key not found in local DB. Supabase features disabled."
+            )
             return
 
         # Store URL for error messages
@@ -50,7 +54,12 @@ class SupabaseManager:
         """Checks if the Supabase client is initialized and ready for use."""
         return self.supabase is not None
 
-    def upload_image(self, local_file_path: str, bucket_name: str = "rental-images", folder: str = "rentals") -> str | None:
+    def upload_image(
+        self,
+        local_file_path: str,
+        bucket_name: str = "rental-images",
+        folder: str = "rentals",
+    ) -> str | None:
         """
         Uploads an image to Supabase Storage with optimized compression and returns its public URL.
         Uses optimized JPEG for photos (smaller, visually lossless at quality 95).
@@ -70,49 +79,55 @@ class SupabaseManager:
         try:
             from PIL import Image
             import io
-            
+
             # Open the image
             img = Image.open(local_file_path)
-            
+
             # Convert to RGB if needed (JPEG doesn't support transparency)
-            if img.mode in ('RGBA', 'LA', 'P'):
+            if img.mode in ("RGBA", "LA", "P"):
                 # Create white background for transparency
-                if img.mode == 'RGBA' or (img.mode == 'P' and 'transparency' in img.info):
-                    background = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
+                if img.mode == "RGBA" or (
+                    img.mode == "P" and "transparency" in img.info
+                ):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    if img.mode == "P":
+                        img = img.convert("RGBA")
+                    background.paste(
+                        img, mask=img.split()[3] if img.mode == "RGBA" else None
+                    )
                     img = background
                 else:
-                    img = img.convert('RGB')
-            elif img.mode not in ('RGB', 'L'):
-                img = img.convert('RGB')
-            
+                    img = img.convert("RGB")
+            elif img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+
             # Save as optimized JPEG to memory buffer
             # quality=95 is visually lossless but 30-50% smaller than quality=100
             # optimize=True enables additional lossless compression
             buffer = io.BytesIO()
-            img.save(buffer, format='JPEG', quality=95, optimize=True)
+            img.save(buffer, format="JPEG", quality=95, optimize=True)
             buffer.seek(0)
-            
+
             # Keep original filename with .jpg extension
             original_name = os.path.basename(local_file_path)
             name_without_ext = os.path.splitext(original_name)[0]
             file_name = f"{name_without_ext}.jpg"
             storage_path = f"{folder}/{file_name}"
-            
+
             # Upload the optimized JPEG
             self.supabase.storage.from_(bucket_name).upload(
-                path=storage_path, 
-                file=buffer.read(), 
-                file_options={"content-type": "image/jpeg", "upsert": "true"}
+                path=storage_path,
+                file=buffer.read(),
+                file_options={"content-type": "image/jpeg", "upsert": "true"},
             )
-            
+
             # Get the public URL
-            public_url_response = self.supabase.storage.from_(bucket_name).get_public_url(storage_path)
+            public_url_response = self.supabase.storage.from_(
+                bucket_name
+            ).get_public_url(storage_path)
             logging.info(f"✓ Uploaded optimized JPEG: {file_name}")
             return public_url_response
-            
+
         except Exception as e:
             print(f"Error uploading image {local_file_path}: {e}")
             logging.error(f"Upload error details: {e}")
@@ -140,34 +155,55 @@ class SupabaseManager:
         data_to_save = {
             "month": month,
             "year": year,
-            "main_data": main_calc_data # The entire dict will be stored as JSONB
+            "main_data": main_calc_data,  # The entire dict will be stored as JSONB
         }
 
         try:
             # Check for existing record
-            response = self.supabase.table("main_calculations").select("id").eq("month", month).eq("year", year).execute()
+            response = (
+                self.supabase.table("main_calculations")
+                .select("id")
+                .eq("month", month)
+                .eq("year", year)
+                .execute()
+            )
             main_calc_id = None
             if response.data:
-                main_calc_id = response.data[0]['id']
+                main_calc_id = response.data[0]["id"]
 
             if main_calc_id:
                 # Update existing record
-                update_response = self.supabase.table("main_calculations").update(data_to_save).eq("id", main_calc_id).execute()
+                update_response = (
+                    self.supabase.table("main_calculations")
+                    .update(data_to_save)
+                    .eq("id", main_calc_id)
+                    .execute()
+                )
                 if update_response.data:
                     print(f"Main calculation data updated for {month} {year}")
                     return main_calc_id
                 else:
-                    print(f"Failed to update main calculation data: {update_response.json()}")
+                    print(
+                        f"Failed to update main calculation data: {update_response.json()}"
+                    )
                     return None
             else:
                 # Insert new record
-                insert_response = self.supabase.table("main_calculations").insert(data_to_save).execute()
+                insert_response = (
+                    self.supabase.table("main_calculations")
+                    .insert(data_to_save)
+                    .execute()
+                )
                 if insert_response.data:
-                    new_id = insert_response.data[0]['id']
-                    print(f"Main calculation data inserted for {month} {year} with ID: {new_id}")
+                    new_id = insert_response.data[0]["id"]
+                    print(
+                        f"Main calculation data inserted for {month} {year} with ID: {new_id}"
+                    )
                     return new_id
                 else:
-                    print(f"Failed to insert main calculation data: {insert_response.json()}")
+                    print(
+                        f"Failed to insert main calculation data: {insert_response.json()}"
+                    )
                     return None
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error saving main calculation: {e}")
@@ -176,7 +212,9 @@ class SupabaseManager:
             print(f"An unexpected error occurred saving main calculation: {e}")
             return None
 
-    def save_room_calculations(self, main_calc_id: int, room_data_list: list[dict]) -> bool:
+    def save_room_calculations(
+        self, main_calc_id: int, room_data_list: list[dict]
+    ) -> bool:
         """
         Saves room calculation data to Supabase, handling image uploads.
         Existing room calculations are **replaced** in a two-step process that mimics a
@@ -206,23 +244,49 @@ class SupabaseManager:
 
             old_record_ids: list[int] = []
             if old_records_resp and old_records_resp.data:
-                old_record_ids = [rec["id"] for rec in old_records_resp.data if "id" in rec]
-                print(f"Found {len(old_record_ids)} existing room calculations that will be deleted after a successful insert.")
+                old_record_ids = [
+                    rec["id"] for rec in old_records_resp.data if "id" in rec
+                ]
+                print(
+                    f"Found {len(old_record_ids)} existing room calculations that will be deleted after a successful insert."
+                )
 
             records_to_insert = []
             for room_data in room_data_list:
                 # Upload images and get URLs
-                photo_url = self.upload_image(room_data.get("photo_path")) if room_data.get("photo_path") else None
-                nid_front_url = self.upload_image(room_data.get("nid_front_path")) if room_data.get("nid_front_path") else None
-                nid_back_url = self.upload_image(room_data.get("nid_back_path")) if room_data.get("nid_back_path") else None
-                police_form_url = self.upload_image(room_data.get("police_form_path")) if room_data.get("police_form_path") else None
+                photo_url = (
+                    self.upload_image(room_data.get("photo_path"))
+                    if room_data.get("photo_path")
+                    else None
+                )
+                nid_front_url = (
+                    self.upload_image(room_data.get("nid_front_path"))
+                    if room_data.get("nid_front_path")
+                    else None
+                )
+                nid_back_url = (
+                    self.upload_image(room_data.get("nid_back_path"))
+                    if room_data.get("nid_back_path")
+                    else None
+                )
+                police_form_url = (
+                    self.upload_image(room_data.get("police_form_path"))
+                    if room_data.get("police_form_path")
+                    else None
+                )
 
                 # Determine the JSONB payload for room_data
-                if "room_data" in room_data and isinstance(room_data["room_data"], dict):
+                if "room_data" in room_data and isinstance(
+                    room_data["room_data"], dict
+                ):
                     room_jsonb = room_data["room_data"]
                 else:
                     # Build JSONB from all keys that are not image path references
-                    room_jsonb = {k: v for k, v in room_data.items() if not k.endswith("_path") and k != "room_data"}
+                    room_jsonb = {
+                        k: v
+                        for k, v in room_data.items()
+                        if not k.endswith("_path") and k != "room_data"
+                    }
 
                 # Prepare data for JSONB column and URL columns
                 record = {
@@ -231,12 +295,16 @@ class SupabaseManager:
                     "photo_url": photo_url,
                     "nid_front_url": nid_front_url,
                     "nid_back_url": nid_back_url,
-                    "police_form_url": police_form_url
+                    "police_form_url": police_form_url,
                 }
                 records_to_insert.append(record)
-            
+
             if records_to_insert:
-                insert_response = self.supabase.table("room_calculations").insert(records_to_insert).execute()
+                insert_response = (
+                    self.supabase.table("room_calculations")
+                    .insert(records_to_insert)
+                    .execute()
+                )
                 if insert_response.data:
                     print(
                         f"Inserted {len(insert_response.data)} room calculation records."
@@ -262,11 +330,13 @@ class SupabaseManager:
 
                     return True
                 else:
-                    print(f"Failed to insert room calculation data: {insert_response.json()}")
+                    print(
+                        f"Failed to insert room calculation data: {insert_response.json()}"
+                    )
                     return False
             else:
                 print("No room calculation records to insert.")
-                return True # No rooms to insert, still considered successful
+                return True  # No rooms to insert, still considered successful
 
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error saving room calculations: {e}")
@@ -287,17 +357,19 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot retrieve main calculation.")
             return None
         try:
-            query = self.supabase.table("main_calculations").select("id, month, year, main_data")
+            query = self.supabase.table("main_calculations").select(
+                "id, month, year, main_data"
+            )
             if month is not None:
                 query = query.eq("month", month)
             if year is not None:
                 query = query.eq("year", year)
-            
+
             # If both are None, it's effectively get_all_main_calculations, but with limit 1
             # If only one is None, it filters by the other.
             response = query.limit(1).execute()
             if response.data:
-                return response.data[0] # Return the full record
+                return response.data[0]  # Return the full record
             return None
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error retrieving main calculation: {e}")
@@ -306,7 +378,9 @@ class SupabaseManager:
             print(f"An unexpected error occurred retrieving main calculation: {e}")
             return None
 
-    def get_main_calculations(self, month: str | None = None, year: int | None = None) -> list[dict]:
+    def get_main_calculations(
+        self, month: str | None = None, year: int | None = None
+    ) -> list[dict]:
         """
         Retrieves main calculation records from Supabase, optionally filtered by month and year.
         If both month and year are None, it retrieves all records.
@@ -318,21 +392,30 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot retrieve main calculations.")
             return []
         try:
-            query = self.supabase.table("main_calculations").select("id, month, year, main_data")
-            
+            query = self.supabase.table("main_calculations").select(
+                "id, month, year, main_data"
+            )
+
             if month is not None:
                 query = query.eq("month", month)
             if year is not None:
                 query = query.eq("year", year)
-            
+
             attempts = 0
             while True:
                 try:
-                    response = query.order("year", desc=True).order("created_at", desc=True).execute()
+                    response = (
+                        query.order("year", desc=True)
+                        .order("created_at", desc=True)
+                        .execute()
+                    )
                     return response.data if response.data else []
                 except Exception as e:
                     error_type = SupabaseErrorHandler.detect_error_type(e)
-                    if error_type in ("network_error", "connection_timeout") and attempts < 2:
+                    if (
+                        error_type in ("network_error", "connection_timeout")
+                        and attempts < 2
+                    ):
                         attempts += 1
                         time.sleep(0.6 * (attempts + 1))
                         continue
@@ -343,9 +426,13 @@ class SupabaseManager:
         except Exception as e:
             error_type = SupabaseErrorHandler.detect_error_type(e)
             if error_type in ("network_error", "connection_timeout"):
-                logging.warning(f"Supabase network error retrieving main calculations: {e}")
+                logging.warning(
+                    f"Supabase network error retrieving main calculations: {e}"
+                )
             else:
-                logging.error(f"An unexpected error occurred retrieving main calculations: {e}")
+                logging.error(
+                    f"An unexpected error occurred retrieving main calculations: {e}"
+                )
             raise
 
     def get_available_years(self) -> list[int]:
@@ -382,10 +469,19 @@ class SupabaseManager:
         last_field_used = None
 
         def _run(select_str: str) -> list[dict]:
-            query = self.supabase.table("main_calculations").select(select_str).eq("year", year)
+            query = (
+                self.supabase.table("main_calculations")
+                .select(select_str)
+                .eq("year", year)
+            )
             if since and since_field:
                 query = query.gt(since_field, since)
-            return (query.order("year", desc=True).order("created_at", desc=True).execute().data) or []
+            return (
+                query.order("year", desc=True)
+                .order("created_at", desc=True)
+                .execute()
+                .data
+            ) or []
 
         try:
             data = _run(select_with_timestamps)
@@ -412,7 +508,13 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot retrieve room calculations.")
             return []
         try:
-            base = self.supabase.table("room_calculations").select("id, room_data, photo_url, nid_front_url, nid_back_url, police_form_url").eq("main_calculation_id", main_calculation_id)
+            base = (
+                self.supabase.table("room_calculations")
+                .select(
+                    "id, room_data, photo_url, nid_front_url, nid_back_url, police_form_url"
+                )
+                .eq("main_calculation_id", main_calculation_id)
+            )
             attempts = 0
             while True:
                 try:
@@ -420,7 +522,10 @@ class SupabaseManager:
                     break
                 except Exception as e:
                     error_type = SupabaseErrorHandler.detect_error_type(e)
-                    if error_type in ("network_error", "connection_timeout") and attempts < 2:
+                    if (
+                        error_type in ("network_error", "connection_timeout")
+                        and attempts < 2
+                    ):
                         attempts += 1
                         time.sleep(0.6 * (attempts + 1))
                         continue
@@ -434,7 +539,7 @@ class SupabaseManager:
                         "photo_url": record.get("photo_url"),
                         "nid_front_url": record.get("nid_front_url"),
                         "nid_back_url": record.get("nid_back_url"),
-                        "police_form_url": record.get("police_form_url")
+                        "police_form_url": record.get("police_form_url"),
                     }
                     for record in response.data
                 ]
@@ -446,9 +551,94 @@ class SupabaseManager:
         except Exception as e:
             error_type = SupabaseErrorHandler.detect_error_type(e)
             if error_type in ("network_error", "connection_timeout"):
-                logging.warning(f"Supabase network error retrieving room calculations: {e}")
+                logging.warning(
+                    f"Supabase network error retrieving room calculations: {e}"
+                )
             else:
-                logging.error(f"An unexpected error occurred retrieving room calculations: {e}")
+                logging.error(
+                    f"An unexpected error occurred retrieving room calculations: {e}"
+                )
+            raise
+
+    def get_room_calculations_bulk(
+        self, main_calculation_ids: list[int | str]
+    ) -> dict[str, list[dict]]:
+        """Retrieve room calculations for many main calculation IDs in fewer Supabase queries."""
+        if not self.is_client_initialized():
+            print("Supabase client not initialized. Cannot retrieve room calculations.")
+            return {}
+
+        unique_ids = [
+            str(i) for i in dict.fromkeys(main_calculation_ids or []) if i is not None
+        ]
+        if not unique_ids:
+            return {}
+
+        grouped_records: dict[str, list[dict]] = {}
+        chunk_size = 100
+
+        try:
+            for start in range(0, len(unique_ids), chunk_size):
+                chunk = unique_ids[start : start + chunk_size]
+                base = (
+                    self.supabase.table("room_calculations")
+                    .select(
+                        "id, main_calculation_id, room_data, photo_url, nid_front_url, nid_back_url, police_form_url"
+                    )
+                    .in_("main_calculation_id", chunk)
+                    .order("main_calculation_id")
+                    .order("id")
+                )
+
+                attempts = 0
+                while True:
+                    try:
+                        response = base.execute()
+                        break
+                    except Exception as e:
+                        error_type = SupabaseErrorHandler.detect_error_type(e)
+                        if (
+                            error_type in ("network_error", "connection_timeout")
+                            and attempts < 2
+                        ):
+                            attempts += 1
+                            time.sleep(0.6 * (attempts + 1))
+                            continue
+                        raise
+
+                for record in response.data or []:
+                    main_id = record.get("main_calculation_id")
+                    if main_id is None:
+                        continue
+
+                    key = str(main_id)
+                    grouped_records.setdefault(key, []).append(
+                        {
+                            "id": record.get("id"),
+                            "room_data": record.get("room_data", {}),
+                            "photo_url": record.get("photo_url"),
+                            "nid_front_url": record.get("nid_front_url"),
+                            "nid_back_url": record.get("nid_back_url"),
+                            "police_form_url": record.get("police_form_url"),
+                        }
+                    )
+
+            return grouped_records
+        except (APIError, AuthApiError) as e:
+            logging.error(
+                f"Supabase API error retrieving room calculations in bulk: {e}"
+            )
+            raise
+        except Exception as e:
+            error_type = SupabaseErrorHandler.detect_error_type(e)
+            if error_type in ("network_error", "connection_timeout"):
+                logging.warning(
+                    f"Supabase network error retrieving room calculations in bulk: {e}"
+                )
+            else:
+                logging.error(
+                    f"An unexpected error occurred retrieving room calculations in bulk: {e}"
+                )
             raise
 
     def _upload_rental_images(self, image_paths: dict) -> dict:
@@ -482,7 +672,11 @@ class SupabaseManager:
 
             # Check for upload failures before proceeding
             for key, path in image_paths.items():
-                if path and not str(path).lower().startswith("http") and not image_urls.get(key):
+                if (
+                    path
+                    and not str(path).lower().startswith("http")
+                    and not image_urls.get(key)
+                ):
                     return f"Error: Failed to upload image for {key}."
 
             # Step 2: Prepare the record for insertion/update
@@ -502,7 +696,7 @@ class SupabaseManager:
                 "start_month": record_data.get("start_month"),
                 "end_year": record_data.get("end_year"),
                 "end_month": record_data.get("end_month"),
-                "updated_at": datetime.now().isoformat()
+                "updated_at": datetime.now().isoformat(),
             }
 
             # For inserts, also populate created_at so ordering works even if the DB column lacks a default.
@@ -512,23 +706,25 @@ class SupabaseManager:
             def _write(payload: dict):
                 if record_data.get("supabase_id"):
                     return (
-                        self.supabase
-                            .table("rental_records")
-                            .update(payload, returning="representation")
-                            .eq("supabase_id", record_data["supabase_id"]).execute()
+                        self.supabase.table("rental_records")
+                        .update(payload, returning="representation")
+                        .eq("supabase_id", record_data["supabase_id"])
+                        .execute()
                     )
                 return (
-                    self.supabase
-                        .table("rental_records")
-                        .insert(payload, returning="representation")
-                        .execute()
+                    self.supabase.table("rental_records")
+                    .insert(payload, returning="representation")
+                    .execute()
                 )
 
             try:
                 response = _write(record_to_save)
             except Exception as write_exc:
                 msg = str(write_exc)
-                if any(k in msg for k in ("start_year", "start_month", "end_year", "end_month")):
+                if any(
+                    k in msg
+                    for k in ("start_year", "start_month", "end_year", "end_month")
+                ):
                     safe_payload = record_to_save.copy()
                     for k in ("start_year", "start_month", "end_year", "end_month"):
                         safe_payload.pop(k, None)
@@ -536,7 +732,11 @@ class SupabaseManager:
                 else:
                     raise
 
-            if response.data and isinstance(response.data, list) and len(response.data) > 0:
+            if (
+                response.data
+                and isinstance(response.data, list)
+                and len(response.data) > 0
+            ):
                 return f"Successfully saved record for {record_data.get('tenant_name')}. (Cloud)"
             else:
                 return f"Error: Failed to save record to Supabase. Response: {response}"
@@ -601,7 +801,9 @@ class SupabaseManager:
             # This allows the error handler to detect paused projects and show friendly messages
             raise
 
-    def update_rental_record_archive_status(self, supabase_id: str, is_archived: bool) -> bool:
+    def update_rental_record_archive_status(
+        self, supabase_id: str, is_archived: bool
+    ) -> bool:
         """
         Updates the is_archived status of a rental record in Supabase.
         :param supabase_id: The supabase_id of the rental record to update.
@@ -612,13 +814,25 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot update archive status.")
             return False
         try:
-            payload = {"is_archived": is_archived, "updated_at": datetime.now().isoformat()}
-            response = self.supabase.table("rental_records").update(payload).eq("supabase_id", supabase_id).execute()
+            payload = {
+                "is_archived": is_archived,
+                "updated_at": datetime.now().isoformat(),
+            }
+            response = (
+                self.supabase.table("rental_records")
+                .update(payload)
+                .eq("supabase_id", supabase_id)
+                .execute()
+            )
             if response.data:
-                print(f"Rental record supabase_id {supabase_id} archive status updated to {is_archived}.")
+                print(
+                    f"Rental record supabase_id {supabase_id} archive status updated to {is_archived}."
+                )
                 return True
             else:
-                print(f"Failed to update archive status for record supabase_id {supabase_id}: {response.json()}")
+                print(
+                    f"Failed to update archive status for record supabase_id {supabase_id}: {response.json()}"
+                )
                 return False
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error updating archive status: {e}")
@@ -640,13 +854,25 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot delete rental record.")
             return False
         try:
-            col = "id" if isinstance(record_identifier, int) or str(record_identifier).isdigit() else "supabase_id"
-            response = self.supabase.table("rental_records").delete().eq(col, record_identifier).execute()
+            col = (
+                "id"
+                if isinstance(record_identifier, int)
+                or str(record_identifier).isdigit()
+                else "supabase_id"
+            )
+            response = (
+                self.supabase.table("rental_records")
+                .delete()
+                .eq(col, record_identifier)
+                .execute()
+            )
             if response.data:
                 print(f"Rental record {record_identifier} deleted.")
                 return True
             else:
-                print(f"Failed to delete rental record {record_identifier}: {response.json()}")
+                print(
+                    f"Failed to delete rental record {record_identifier}: {response.json()}"
+                )
                 return False
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error deleting rental record: {e}")
@@ -662,10 +888,18 @@ class SupabaseManager:
     def get_main_calculations_by_id(self, record_id: int | str) -> dict | None:
         """Retrieve a single main_calculations row by primary-key id."""
         if not self.is_client_initialized():
-            print("Supabase client not initialized. Cannot retrieve main calculation by id.")
+            print(
+                "Supabase client not initialized. Cannot retrieve main calculation by id."
+            )
             return None
         try:
-            response = self.supabase.table("main_calculations").select("*").eq("id", record_id).limit(1).execute()
+            response = (
+                self.supabase.table("main_calculations")
+                .select("*")
+                .eq("id", record_id)
+                .limit(1)
+                .execute()
+            )
             return response.data[0] if response.data else None
         except (APIError, AuthApiError) as e:
             logging.error(f"Supabase API error retrieving main calculation by id: {e}")
@@ -683,9 +917,16 @@ class SupabaseManager:
             return False
         try:
             # First remove room_calculations rows
-            self.supabase.table("room_calculations").delete().eq("main_calculation_id", record_id).execute()
+            self.supabase.table("room_calculations").delete().eq(
+                "main_calculation_id", record_id
+            ).execute()
             # Then remove the main_calculations row
-            main_del_resp = self.supabase.table("main_calculations").delete().eq("id", record_id).execute()
+            main_del_resp = (
+                self.supabase.table("main_calculations")
+                .delete()
+                .eq("id", record_id)
+                .execute()
+            )
             return bool(main_del_resp.data)
         except (APIError, AuthApiError) as e:
             logging.error(f"Supabase API error deleting calculation record: {e}")

@@ -1,61 +1,72 @@
 import sys
 import os
+
 # Add the project root to the sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 # Suppress QFluentWidgets promotional messages
-os.environ['QFLUENTWIDGETS_DISABLE_TIPS'] = '1'
+os.environ["QFLUENTWIDGETS_DISABLE_TIPS"] = "1"
 
 # Optional: Enable startup timing (comment out to disable)
 try:
     from src.core.startup_timer import StartupTimer
+
     StartupTimer.checkpoint("Imports started")
 except ImportError:
+
     class StartupTimer:
         @staticmethod
-        def checkpoint(label): pass
+        def checkpoint(label):
+            pass
+
         @staticmethod
-        def finish(): pass
+        def finish():
+            pass
 
-import json
-from datetime import datetime as dt_class
 
-import functools
 import logging
-from PyQt5.QtCore import Qt, QRegExp, QEvent, QPoint, QSize, QTimer
-from PyQt5.QtGui import QFont, QRegExpValidator, QIcon, QColor, QCursor, QKeySequence, QPixmap, QPainter
+from PyQt5.QtCore import Qt, QEvent, QSize, QTimer
+from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QGridLayout, QGroupBox, QFormLayout, QFileDialog,
-    QMessageBox, QSpinBox, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QShortcut,
-    QAbstractSpinBox, QStyleOptionSpinBox, QStyle, QDesktopWidget, QSizePolicy, QDialog, QAbstractItemView
+    QApplication,
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+    QPushButton,
+    QGroupBox,
+    QMessageBox,
+    QDesktopWidget,
+    QSizePolicy,
 )
+
 # reportlab imports deferred to generate_pdf() for faster startup
 import csv
 import os
 import traceback
-from postgrest.exceptions import APIError
 from datetime import datetime
 from src.core.db_manager import DBManager
-from src.core.encryption_utils import EncryptionUtil
-from src.core.key_manager import get_or_create_key
 from src.core.lazy_tab_loader import LazyTabLoader
 from src.core.utils import resource_path
 from src.core.utils import get_user_data_dir
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
-from src.ui.tabs.dashboard_tab import DashboardTab
-from src.ui.tabs.main_tab import MainTab
-from src.ui.tabs.rooms_tab import RoomsTab
-from src.ui.save_dialog import SaveDialog
 from qfluentwidgets import (
-    InfoBar, InfoBarPosition,
-    NavigationInterface, NavigationItemPosition, setThemeColor,
-    FluentIcon, setTheme, Theme, isDarkTheme,
-    stacked_widget, ComboBox, PushButton, FluentWindow
+    InfoBar,
+    InfoBarPosition,
+    NavigationInterface,
+    NavigationItemPosition,
+    setThemeColor,
+    FluentIcon,
+    setTheme,
+    Theme,
+    isDarkTheme,
+    stacked_widget,
+    ComboBox,
+    PushButton,
+    FluentWindow,
 )
 
 # Fluent design toast-like information bars (non-blocking replacements for QMessageBox.information)
 try:
+
     def _non_blocking_information(parent, title, text, *_, **__):  # noqa: D401, ANN001
         """Patched replacement for QMessageBox.information that shows a transient Fluent InfoBar.
 
@@ -117,6 +128,7 @@ except ImportError:
     pass
 # ----------------------------------------------------------------------------------------------
 
+
 class MeterCalculationApp(FluentWindow):
     def __init__(self):
         StartupTimer.checkpoint("Creating main window")
@@ -129,11 +141,11 @@ class MeterCalculationApp(FluentWindow):
         QApplication.setFont(font)
 
         self.setWindowTitle("Home Unit Calculator")
-        
+
         # Force update the title bar after setting the title
-        if hasattr(self, 'titleBar') and hasattr(self.titleBar, 'titleLabel'):
+        if hasattr(self, "titleBar") and hasattr(self.titleBar, "titleLabel"):
             self.titleBar.titleLabel.setText("Home Unit Calculator")
-            
+
         # Use resize instead of setGeometry to allow flexible positioning
         self.resize(1300, 860)
         # Set minimum size to ensure usability and prevent layout collapse
@@ -141,7 +153,7 @@ class MeterCalculationApp(FluentWindow):
 
         # Set dark theme and accent color
         setTheme(Theme.DARK)
-        setThemeColor('#0078D4')
+        setThemeColor("#0078D4")
 
         # Patch CardWidget colours to improve dark-theme consistency
         self._patch_cardwidget_dark_style()
@@ -165,7 +177,7 @@ class MeterCalculationApp(FluentWindow):
                 padding: 0px 10px;
             }
         """)
-        
+
         # Ensure the title bar itself has proper styling and height for larger icon
         self.titleBar.setStyleSheet("""
             TitleBar {
@@ -186,13 +198,15 @@ class MeterCalculationApp(FluentWindow):
                 padding-bottom: 4px;
             }
         """)
-        
+
         # Set minimum height to accommodate larger icon (32x32 + padding)
         self.titleBar.setMinimumHeight(40)
         # Adjust layout to position buttons on the right and center vertically
         self.titleBar.hBoxLayout.setStretch(1, 0)  # Set title stretch to 0
         spacer = self.titleBar.hBoxLayout.takeAt(2)  # Remove existing spacer if any
-        self.titleBar.hBoxLayout.insertStretch(2)  # Add stretch between title and buttons
+        self.titleBar.hBoxLayout.insertStretch(
+            2
+        )  # Add stretch between title and buttons
 
         # Vertically center all title bar elements
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.iconLabel, Qt.AlignVCenter)
@@ -200,18 +214,17 @@ class MeterCalculationApp(FluentWindow):
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.minBtn, Qt.AlignVCenter)
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.maxBtn, Qt.AlignVCenter)
         self.titleBar.hBoxLayout.setAlignment(self.titleBar.closeBtn, Qt.AlignVCenter)
-        
+
         self.image_storage_dir = str(get_user_data_dir() / "data" / "images")
         os.makedirs(self.image_storage_dir, exist_ok=True)
-        
+
         StartupTimer.checkpoint("Initializing database")
         self.db_manager = DBManager()
         self.db_manager.bootstrap_rentals_table()
         self.db_manager.bootstrap_dashboard_cache_tables()
-        self.encryption_util = EncryptionUtil()
         self.supabase_manager = None
         self._cloud_features_enabled = False
-        
+
         StartupTimer.checkpoint("Creating UI components")
         self.load_info_source_combo = ComboBox()
         self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
@@ -219,24 +232,27 @@ class MeterCalculationApp(FluentWindow):
         self.load_info_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
         self.load_info_source_combo.setIconSize(QSize(16, 16))
         # Apply custom delegate so icon also appears when combo is closed
-        
+
         self.load_history_source_combo = ComboBox()
-        self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
+        self.load_history_source_combo.addItems(
+            ["Load from PC (CSV)", "Load from Cloud"]
+        )
         self.load_history_source_combo.setItemIcon(0, FluentIcon.DOCUMENT.icon())
         self.load_history_source_combo.setItemIcon(1, FluentIcon.CLOUD.icon())
         self.load_history_source_combo.setIconSize(QSize(16, 16))
-        
+
         StartupTimer.checkpoint("Creating tabs")
         self.tab_loader = LazyTabLoader(self)
-        self.tab_loader.register_tab("dashboard", lambda: DashboardTab(self), eager_load=True)
-        self.tab_loader.register_tab("main", lambda: MainTab(self))
-        self.tab_loader.register_tab("rooms", lambda: RoomsTab(self.main_tab_instance, self))
+        self.tab_loader.register_tab("dashboard", self._create_dashboard_tab)
+        self.tab_loader.register_tab("main", self._create_main_tab)
+        self.tab_loader.register_tab("rooms", self._create_rooms_tab)
         self.tab_loader.register_tab("history", self._create_history_tab)
         self.tab_loader.register_tab("rental", self._create_rental_tab)
         self.tab_loader.register_tab("archived", self._create_archived_tab)
         self.tab_loader.register_tab("supabase", self._create_supabase_config_tab)
 
         self._tab_interfaces = {
+            "dashboard": self.tab_loader.get_placeholder("dashboard"),
             "main": self.tab_loader.get_placeholder("main"),
             "rooms": self.tab_loader.get_placeholder("rooms"),
             "history": self.tab_loader.get_placeholder("history"),
@@ -245,7 +261,7 @@ class MeterCalculationApp(FluentWindow):
             "supabase": self.tab_loader.get_placeholder("supabase"),
         }
         self._route_to_tab = {}
-        
+
         # Table layout stabilization is now handled directly in the tab files
 
         StartupTimer.checkpoint("Setting up navigation")
@@ -254,29 +270,34 @@ class MeterCalculationApp(FluentWindow):
         self.center_window()
         self.refresh_all_rental_tabs()
         QTimer.singleShot(500, self._initialize_supabase_client)
-        
+
         # Set title bar icon after everything is initialized
         self._set_title_bar_icon()
-        
+
         # Force icon to be visible
         self._force_icon_visibility()
 
-        # Global keyboard shortcuts
+        # Keyboard navigation can initialize right after the first paint.
+        QTimer.singleShot(0, self._initialize_keyboard_navigation)
+
+        StartupTimer.checkpoint("Initialization complete")
+        StartupTimer.finish()
+
+    def _initialize_keyboard_navigation(self):
         try:
             from src.ui.keyboard_navigation import KeyboardNavigationManager
 
             self._kb_nav_manager = KeyboardNavigationManager(self)
-        except Exception as nav_exc:  # pragma: no cover – keep UI alive even if navigation fails
+        except (
+            Exception
+        ) as nav_exc:  # pragma: no cover – keep UI alive even if navigation fails
             print(f"Keyboard navigation failed to initialise: {nav_exc}")
-        
-        StartupTimer.checkpoint("Initialization complete")
-        StartupTimer.finish()
 
     def _set_title_bar_icon(self):
         """Set a larger title bar icon by directly manipulating the title bar widgets."""
-        if not hasattr(self, 'titleBar'):
+        if not hasattr(self, "titleBar"):
             return
-            
+
         try:
             # Try multiple possible icon paths. Prefer resource_path so PyInstaller/Nuitka bundles work.
             try:
@@ -284,13 +305,21 @@ class MeterCalculationApp(FluentWindow):
             except Exception:
                 possible_icon_paths = [
                     "icons/icon.png",
-                    os.path.join(os.path.dirname(__file__), "..", "..", "icons", "icon.png"),
-                    os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "icons", "icon.png")
+                    os.path.join(
+                        os.path.dirname(__file__), "..", "..", "icons", "icon.png"
+                    ),
+                    os.path.join(
+                        os.path.abspath(os.path.dirname(__file__)),
+                        "..",
+                        "..",
+                        "icons",
+                        "icon.png",
+                    ),
                 ]
-            
+
             icon_to_use = None
             icon_path_used = None
-            
+
             # Try to load custom icon first
             for icon_path in possible_icon_paths:
                 if os.path.exists(icon_path):
@@ -298,28 +327,34 @@ class MeterCalculationApp(FluentWindow):
                     if not pixmap.isNull():
                         icon_to_use = QIcon()
                         # Create larger icon - 28x28 for better visibility
-                        icon_to_use.addPixmap(pixmap.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                        icon_to_use.addPixmap(
+                            pixmap.scaled(
+                                28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                            )
+                        )
                         icon_path_used = icon_path
                         break
-            
+
             # Fallback to FluentIcon if custom icon failed
             if icon_to_use is None:
                 icon_to_use = FluentIcon.APPLICATION.icon()
                 icon_path_used = "FluentIcon.APPLICATION"
-            
+
             # Set window icon (for taskbar)
             self.setWindowIcon(icon_to_use)
-            
+
             # Method 1: Try the standard setIcon method
-            if hasattr(self.titleBar, 'setIcon'):
+            if hasattr(self.titleBar, "setIcon"):
                 self.titleBar.setIcon(icon_to_use)
-                
+
                 # Now make sure the icon label is visible and properly sized
-                if hasattr(self.titleBar, 'iconLabel'):
+                if hasattr(self.titleBar, "iconLabel"):
                     icon_label = self.titleBar.iconLabel
                     if icon_label:
                         # Make the icon larger and visible
-                        larger_pixmap = icon_to_use.pixmap(32, 32)  # Create 32x32 pixmap
+                        larger_pixmap = icon_to_use.pixmap(
+                            32, 32
+                        )  # Create 32x32 pixmap
                         icon_label.setPixmap(larger_pixmap)
                         icon_label.setFixedSize(36, 36)  # Container size
                         icon_label.setVisible(True)
@@ -333,10 +368,14 @@ class MeterCalculationApp(FluentWindow):
                             }
                         """)
                         return
-                
+
                 # Fallback: find the icon label manually
                 for child in self.titleBar.findChildren(QLabel):
-                    if hasattr(child, 'pixmap') and child.pixmap() and not child.pixmap().isNull():
+                    if (
+                        hasattr(child, "pixmap")
+                        and child.pixmap()
+                        and not child.pixmap().isNull()
+                    ):
                         # This is likely the icon label
                         larger_pixmap = icon_to_use.pixmap(32, 32)
                         child.setPixmap(larger_pixmap)
@@ -352,18 +391,18 @@ class MeterCalculationApp(FluentWindow):
                             }
                         """)
                         return
-            
+
             # Method 2: Find and modify icon widgets directly
             icon_set = False
-            
+
             # Look for existing icon widgets in the title bar
             for child in self.titleBar.findChildren(QLabel):
                 # Skip the title label
-                if hasattr(child, 'text') and child.text() == self.windowTitle():
+                if hasattr(child, "text") and child.text() == self.windowTitle():
                     continue
-                    
+
                 # Try to set icon on labels that might be icon containers
-                if hasattr(child, 'setPixmap'):
+                if hasattr(child, "setPixmap"):
                     pixmap = icon_to_use.pixmap(28, 28)  # Get 28x28 pixmap
                     child.setPixmap(pixmap)
                     child.setFixedSize(32, 32)  # Slightly larger container
@@ -380,14 +419,17 @@ class MeterCalculationApp(FluentWindow):
                     print(f"Icon set on QLabel: {child.objectName()}")
                     icon_set = True
                     break
-            
+
             # Method 3: Look for buttons that might hold icons
             if not icon_set:
                 for child in self.titleBar.findChildren(QPushButton):
                     # Skip window control buttons (minimize, maximize, close)
-                    if any(name in child.objectName().lower() for name in ['min', 'max', 'close', 'restore']):
+                    if any(
+                        name in child.objectName().lower()
+                        for name in ["min", "max", "close", "restore"]
+                    ):
                         continue
-                    
+
                     child.setIcon(icon_to_use)
                     child.setIconSize(QSize(28, 28))
                     child.setFixedSize(36, 36)
@@ -407,7 +449,7 @@ class MeterCalculationApp(FluentWindow):
                     """)
                     icon_set = True
                     break
-                
+
         except Exception as e:
             pass
 
@@ -422,8 +464,16 @@ class MeterCalculationApp(FluentWindow):
                 # Fall back to relative/absolute search
                 for p in (
                     "icons/icon.png",
-                    os.path.join(os.path.dirname(__file__), "..", "..", "icons", "icon.png"),
-                    os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", "..", "icons", "icon.png"),
+                    os.path.join(
+                        os.path.dirname(__file__), "..", "..", "icons", "icon.png"
+                    ),
+                    os.path.join(
+                        os.path.abspath(os.path.dirname(__file__)),
+                        "..",
+                        "..",
+                        "icons",
+                        "icon.png",
+                    ),
                 ):
                     if os.path.exists(p):
                         icon_path = p
@@ -433,7 +483,11 @@ class MeterCalculationApp(FluentWindow):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
                     icon = QIcon()
-                    icon.addPixmap(pixmap.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    icon.addPixmap(
+                        pixmap.scaled(
+                            32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        )
+                    )
                     self.setWindowIcon(icon)
                     return
 
@@ -445,14 +499,14 @@ class MeterCalculationApp(FluentWindow):
 
     def _force_icon_visibility(self):
         """Ensure the title bar icon is visible by targeting the specific icon label."""
-        if not hasattr(self, 'titleBar'):
+        if not hasattr(self, "titleBar"):
             return
-            
+
         try:
             # Method 1: Use the iconLabel property if available
-            if hasattr(self.titleBar, 'iconLabel'):
+            if hasattr(self.titleBar, "iconLabel"):
                 icon_label = self.titleBar.iconLabel
-                if icon_label and hasattr(icon_label, 'pixmap') and icon_label.pixmap():
+                if icon_label and hasattr(icon_label, "pixmap") and icon_label.pixmap():
                     icon_label.setVisible(True)
                     icon_label.show()
                     icon_label.raise_()
@@ -460,20 +514,23 @@ class MeterCalculationApp(FluentWindow):
                     if icon_label.size().width() < 20:
                         icon_label.setFixedSize(36, 36)
                     return
-            
+
             # Method 2: Find icon labels manually
             for child in self.titleBar.findChildren(QLabel):
-                if hasattr(child, 'pixmap') and child.pixmap() and not child.pixmap().isNull():
+                if (
+                    hasattr(child, "pixmap")
+                    and child.pixmap()
+                    and not child.pixmap().isNull()
+                ):
                     child.setVisible(True)
                     child.show()
                     child.raise_()
                     # Ensure it has a reasonable size
                     if child.size().width() < 20:
                         child.setFixedSize(36, 36)
-                    
+
         except Exception as e:
             pass
-
 
     def _apply_global_dark_styles(self):
         """Apply a single dark stylesheet to the entire QApplication so that
@@ -669,7 +726,12 @@ class MeterCalculationApp(FluentWindow):
 
             setattr(QFileDialog, method_name, staticmethod(wrapper))
 
-        for _m in ("getOpenFileName", "getOpenFileNames", "getSaveFileName", "getExistingDirectory"):
+        for _m in (
+            "getOpenFileName",
+            "getOpenFileNames",
+            "getSaveFileName",
+            "getExistingDirectory",
+        ):
             if hasattr(QFileDialog, _m):
                 _wrap_static(_m)
 
@@ -689,17 +751,23 @@ class MeterCalculationApp(FluentWindow):
         try:
             from PyQt5.QtGui import QColor
             from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, pyqtProperty
-            from qfluentwidgets.components.widgets.card_widget import CardWidget, SimpleCardWidget, ElevatedCardWidget
+            from qfluentwidgets.components.widgets.card_widget import (
+                CardWidget,
+                SimpleCardWidget,
+                ElevatedCardWidget,
+            )
 
             # Avoid double-patching in case the window is reinstantiated
-            if getattr(CardWidget, '__hmc_dark_patched__', False):
+            if getattr(CardWidget, "__hmc_dark_patched__", False):
                 return
 
             def _normal(self):
                 # Give specific boxes a frosted look with semi-transparent white overlay
                 try:
-                    if hasattr(self, 'objectName') and self.objectName() in {
-                        'billing_period_box', 'reading_pairs_box', 'additional_amount_box'
+                    if hasattr(self, "objectName") and self.objectName() in {
+                        "billing_period_box",
+                        "reading_pairs_box",
+                        "additional_amount_box",
                     }:
                         return QColor(255, 255, 255, 72)  # stronger frosted lightening
                 except Exception:
@@ -709,15 +777,19 @@ class MeterCalculationApp(FluentWindow):
             def _hover(self):
                 # Keep hover static for specific containers (no visual change)
                 try:
-                    if hasattr(self, 'objectName'):
+                    if hasattr(self, "objectName"):
                         if self.objectName() in {
-                            'billing_meter_container',
-                            'billing_period_box',
-                            'reading_pairs_box',
-                            'additional_amount_box',
+                            "billing_meter_container",
+                            "billing_period_box",
+                            "reading_pairs_box",
+                            "additional_amount_box",
                         }:
                             # Match normal for these containers (frosted or static)
-                            if self.objectName() in {'billing_period_box', 'reading_pairs_box', 'additional_amount_box'}:
+                            if self.objectName() in {
+                                "billing_period_box",
+                                "reading_pairs_box",
+                                "additional_amount_box",
+                            }:
                                 return QColor(255, 255, 255, 72)
                             return QColor(43, 43, 43)
                 except Exception:
@@ -727,8 +799,10 @@ class MeterCalculationApp(FluentWindow):
             def _pressed(self):
                 # Keep pressed identical to normal for frosted boxes (no visual change)
                 try:
-                    if hasattr(self, 'objectName') and self.objectName() in {
-                        'billing_period_box', 'reading_pairs_box', 'additional_amount_box'
+                    if hasattr(self, "objectName") and self.objectName() in {
+                        "billing_period_box",
+                        "reading_pairs_box",
+                        "additional_amount_box",
                     }:
                         return QColor(255, 255, 255, 72)
                 except Exception:
@@ -741,42 +815,44 @@ class MeterCalculationApp(FluentWindow):
                 # Skip hover behavior for containers that should not react on hover
                 # Also skip for any CardWidget inside the Rental Info interface to avoid hover crashes
                 try:
-                    p = getattr(self, 'parent', lambda: None)()
+                    p = getattr(self, "parent", lambda: None)()
                     while p is not None:
-                        if hasattr(p, 'objectName') and p.objectName() == 'RentalId':
+                        if hasattr(p, "objectName") and p.objectName() == "RentalId":
                             event.accept()
                             return
-                        p = getattr(p, 'parent', lambda: None)()
+                        p = getattr(p, "parent", lambda: None)()
                 except Exception:
                     pass
                 try:
-                    if hasattr(self, 'objectName'):
+                    if hasattr(self, "objectName"):
                         obj_name = self.objectName()
                         # Skip hover for specific containers
                         if obj_name in {
-                            'billing_meter_container',
-                            'billing_period_box',
-                            'reading_pairs_box',
-                            'additional_amount_box',
-                            'room_selection_card',  # Room tab selector
+                            "billing_meter_container",
+                            "billing_period_box",
+                            "reading_pairs_box",
+                            "additional_amount_box",
+                            "room_selection_card",  # Room tab selector
                         }:
-                            event.accept(); return
+                            event.accept()
+                            return
                         # Skip hover for all room containers
-                        if obj_name.startswith('room_') and obj_name.endswith('_card'):
-                            event.accept(); return
+                        if obj_name.startswith("room_") and obj_name.endswith("_card"):
+                            event.accept()
+                            return
                 except Exception:
                     pass
 
                 # Call original enter event if it exists
-                if hasattr(self.__class__, '_original_enterEvent'):
+                if hasattr(self.__class__, "_original_enterEvent"):
                     self._original_enterEvent(event)
-                
+
                 # Add subtle scale animation on hover
-                if not hasattr(self, '_hover_animation'):
+                if not hasattr(self, "_hover_animation"):
                     self._hover_animation = QPropertyAnimation(self, b"geometry")
                     self._hover_animation.setDuration(150)
                     self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
-                
+
                 # Subtle elevation effect disabled at global level; individual cards/boxes handle their own hover styling
 
             def _enhanced_leave_event(self, event):
@@ -784,62 +860,61 @@ class MeterCalculationApp(FluentWindow):
                 # Skip hover behavior for containers that should not react on hover
                 # Also skip for any CardWidget inside the Rental Info interface to avoid hover crashes
                 try:
-                    p = getattr(self, 'parent', lambda: None)()
+                    p = getattr(self, "parent", lambda: None)()
                     while p is not None:
-                        if hasattr(p, 'objectName') and p.objectName() == 'RentalId':
+                        if hasattr(p, "objectName") and p.objectName() == "RentalId":
                             event.accept()
                             return
-                        p = getattr(p, 'parent', lambda: None)()
+                        p = getattr(p, "parent", lambda: None)()
                 except Exception:
                     pass
                 try:
-                    if hasattr(self, 'objectName'):
+                    if hasattr(self, "objectName"):
                         obj_name = self.objectName()
                         # Skip hover for specific containers
                         if obj_name in {
-                            'billing_meter_container',
-                            'billing_period_box',
-                            'reading_pairs_box',
-                            'additional_amount_box',
-                            'room_selection_card',  # Room tab selector
+                            "billing_meter_container",
+                            "billing_period_box",
+                            "reading_pairs_box",
+                            "additional_amount_box",
+                            "room_selection_card",  # Room tab selector
                         }:
                             event.accept()
                             return
                         # Skip hover for all room containers
-                        if obj_name.startswith('room_') and obj_name.endswith('_card'):
+                        if obj_name.startswith("room_") and obj_name.endswith("_card"):
                             event.accept()
                             return
                 except Exception:
                     pass
 
                 # Call original leave event if it exists
-                if hasattr(self.__class__, '_original_leaveEvent'):
+                if hasattr(self.__class__, "_original_leaveEvent"):
                     self._original_leaveEvent(event)
 
             for _cls in (CardWidget, SimpleCardWidget, ElevatedCardWidget):
                 _cls._normalBackgroundColor = _normal  # type: ignore[assignment]
-                _cls._hoverBackgroundColor = _hover    # type: ignore[assignment]
+                _cls._hoverBackgroundColor = _hover  # type: ignore[assignment]
                 _cls._pressedBackgroundColor = _pressed  # type: ignore[assignment]
-                
+
                 # Store original event handlers if they exist
-                if hasattr(_cls, 'enterEvent'):
+                if hasattr(_cls, "enterEvent"):
                     _cls._original_enterEvent = _cls.enterEvent
-                if hasattr(_cls, 'leaveEvent'):
+                if hasattr(_cls, "leaveEvent"):
                     _cls._original_leaveEvent = _cls.leaveEvent
-                
+
                 # Apply enhanced event handlers
                 _cls.enterEvent = _enhanced_enter_event
                 _cls.leaveEvent = _enhanced_leave_event
-                
+
                 _cls.__hmc_dark_patched__ = True
         except Exception as e:
             # Silently continue if patching fails; better to show default than crash
             print(f"Failed to patch CardWidget for dark theme: {e}")
 
-
-
     def check_internet_connectivity(self):
         import socket
+
         try:
             socket.create_connection(("8.8.8.8", 53), timeout=1)
             return True
@@ -854,56 +929,85 @@ class MeterCalculationApp(FluentWindow):
         from src.core.supabase_manager import SupabaseManager
 
         self.supabase_manager = SupabaseManager()
-        self._cloud_features_enabled = bool(self.supabase_manager.is_client_initialized())
+        self._cloud_features_enabled = bool(
+            self.supabase_manager.is_client_initialized()
+        )
 
         if self._cloud_features_enabled:
             # Set default load source to Cloud if Supabase is configured for all tabs
             self.load_history_source_combo.setCurrentText("Load from Cloud")
             self.load_info_source_combo.setCurrentText("Load from Cloud")
-            
+
             # Sync the button displays to match the combo box selections
             if self.tab_loader.is_loaded("main"):
                 self.main_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("history"):
                 self.history_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("rental"):
-                self.rental_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
+                self.rental_info_tab_instance.load_source_combo.setCurrentText(
+                    "Cloud (Supabase)"
+                )
                 self.rental_info_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("archived"):
-                self.archived_info_tab_instance.load_source_combo.setCurrentText("Cloud (Supabase)")
+                self.archived_info_tab_instance.load_source_combo.setCurrentText(
+                    "Cloud (Supabase)"
+                )
                 self.archived_info_tab_instance.sync_source_button_display()
         else:
             print("Supabase client not initialized. Cloud features disabled.")
             # If Supabase fails to initialize, ensure source is PC (CSV) / Local DB
             self.load_history_source_combo.setCurrentText("Load from PC (CSV)")
             self.load_info_source_combo.setCurrentText("Load from PC (CSV)")
-            
+
             # Sync the button displays to match the combo box selections
             if self.tab_loader.is_loaded("main"):
                 self.main_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("history"):
                 self.history_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("rental"):
-                self.rental_info_tab_instance.load_source_combo.setCurrentText("Local DB")
+                self.rental_info_tab_instance.load_source_combo.setCurrentText(
+                    "Local DB"
+                )
                 self.rental_info_tab_instance.sync_source_button_display()
             if self.tab_loader.is_loaded("archived"):
-                self.archived_info_tab_instance.load_source_combo.setCurrentText("Local DB")
+                self.archived_info_tab_instance.load_source_combo.setCurrentText(
+                    "Local DB"
+                )
                 self.archived_info_tab_instance.sync_source_button_display()
 
     def _create_history_tab(self):
         from src.ui.tabs.history_tab import HistoryTab
+
         return HistoryTab(self)
+
+    def _create_dashboard_tab(self):
+        from src.ui.tabs.dashboard_tab import DashboardTab
+
+        return DashboardTab(self)
+
+    def _create_main_tab(self):
+        from src.ui.tabs.main_tab import MainTab
+
+        return MainTab(self)
+
+    def _create_rooms_tab(self):
+        from src.ui.tabs.rooms_tab import RoomsTab
+
+        return RoomsTab(self.main_tab_instance, self)
 
     def _create_rental_tab(self):
         from src.ui.tabs.rental_info_tab import RentalInfoTab
+
         return RentalInfoTab(self)
 
     def _create_archived_tab(self):
         from src.ui.tabs.archived_info_tab import ArchivedInfoTab
+
         return ArchivedInfoTab(self)
 
     def _create_supabase_config_tab(self):
         from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
+
         return SupabaseConfigTab(self)
 
     @property
@@ -941,7 +1045,10 @@ class MeterCalculationApp(FluentWindow):
         return loaded or interface_widget
 
     def _mount_lazy_tab(self, tab_key: str, interface_widget):
-        if tab_key in {"history", "rental", "archived", "supabase"} and self.supabase_manager is None:
+        if (
+            tab_key in {"history", "rental", "archived", "supabase"}
+            and self.supabase_manager is None
+        ):
             self._initialize_supabase_client()
 
         tab_widget = self.tab_loader.get_tab(tab_key)
@@ -973,7 +1080,9 @@ class MeterCalculationApp(FluentWindow):
             tab_widget.sync_source_button_display()
             return
 
-        if tab_key in {"rental", "archived"} and hasattr(tab_widget, "load_source_combo"):
+        if tab_key in {"rental", "archived"} and hasattr(
+            tab_widget, "load_source_combo"
+        ):
             if self._cloud_features_enabled:
                 tab_widget.load_source_combo.setCurrentText("Cloud (Supabase)")
             else:
@@ -1009,9 +1118,11 @@ class MeterCalculationApp(FluentWindow):
         QTimer.singleShot(0, _load)
         return interface_widget
 
+    def _ensure_current_interface_loaded(self):
+        return self._ensure_interface_loaded(self.stackedWidget.currentWidget())
 
     def init_navigation(self):
-        self.dashboard_tab_instance.setObjectName("DashboardId")
+        self._tab_interfaces["dashboard"].setObjectName("DashboardId")
         self._tab_interfaces["main"].setObjectName("CalculatorId")
         self._tab_interfaces["rooms"].setObjectName("RoomsId")
         self._tab_interfaces["history"].setObjectName("HistoryId")
@@ -1020,6 +1131,7 @@ class MeterCalculationApp(FluentWindow):
         self._tab_interfaces["supabase"].setObjectName("SupabaseId")
 
         self._route_to_tab = {
+            "DashboardId": "dashboard",
             "CalculatorId": "main",
             "RoomsId": "rooms",
             "HistoryId": "history",
@@ -1031,23 +1143,43 @@ class MeterCalculationApp(FluentWindow):
         # Set minimum and maximum width for navigation panel to prevent collapse and enable responsive behavior
         self.navigationInterface.setMinimumWidth(200)
         self.navigationInterface.setMaximumWidth(300)
-        
+
         # Enable scroll policy for navigation interface content
         self.navigationInterface.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
 
-        self.addSubInterface(self.dashboard_tab_instance, FluentIcon.HOME, 'Dashboard')
-        self.addSubInterface(self._tab_interfaces["main"], FluentIcon.EDIT, 'Calculator')
-        self.addSubInterface(self._tab_interfaces["rooms"], FluentIcon.APPLICATION, 'Room Calculations')
-        self.addSubInterface(self._tab_interfaces["history"], FluentIcon.HISTORY, 'Calculation History')
-        self.addSubInterface(self._tab_interfaces["rental"], FluentIcon.PEOPLE, 'Rental Info')
-        self.addSubInterface(self._tab_interfaces["archived"], FluentIcon.DOCUMENT, 'Archived Info')
-        self.addSubInterface(self._tab_interfaces["supabase"], FluentIcon.SETTING, 'Supabase Config', position=NavigationItemPosition.BOTTOM)
-        
+        self.addSubInterface(
+            self._tab_interfaces["dashboard"], FluentIcon.HOME, "Dashboard"
+        )
+        self.addSubInterface(
+            self._tab_interfaces["main"], FluentIcon.EDIT, "Calculator"
+        )
+        self.addSubInterface(
+            self._tab_interfaces["rooms"], FluentIcon.APPLICATION, "Room Calculations"
+        )
+        self.addSubInterface(
+            self._tab_interfaces["history"], FluentIcon.HISTORY, "Calculation History"
+        )
+        self.addSubInterface(
+            self._tab_interfaces["rental"], FluentIcon.PEOPLE, "Rental Info"
+        )
+        self.addSubInterface(
+            self._tab_interfaces["archived"], FluentIcon.DOCUMENT, "Archived Info"
+        )
+        self.addSubInterface(
+            self._tab_interfaces["supabase"],
+            FluentIcon.SETTING,
+            "Supabase Config",
+            position=NavigationItemPosition.BOTTOM,
+        )
+
         # Enable scroll area for navigation items if needed
         self._setup_navigation_scroll_area()
-        
+
         self.stackedWidget.currentChanged.connect(self.on_current_interface_changed)
-        self.navigationInterface.setCurrentItem(self.dashboard_tab_instance.objectName())
+        self.navigationInterface.setCurrentItem(
+            self._tab_interfaces["dashboard"].objectName()
+        )
+        QTimer.singleShot(0, self._ensure_current_interface_loaded)
 
     def _setup_navigation_scroll_area(self):
         """Set up scroll area for navigation interface when tabs exceed available space."""
@@ -1055,9 +1187,11 @@ class MeterCalculationApp(FluentWindow):
             # Find the navigation panel widget and enable scroll area
             from PyQt5.QtWidgets import QScrollArea
             from PyQt5.QtCore import Qt
-            
+
             # Apply scroll area styling to navigation interface
-            self.navigationInterface.setStyleSheet(self.navigationInterface.styleSheet() + """
+            self.navigationInterface.setStyleSheet(
+                self.navigationInterface.styleSheet()
+                + """
                 NavigationInterface {
                     background-color: #2b2b2b;
                 }
@@ -1083,7 +1217,8 @@ class MeterCalculationApp(FluentWindow):
                 NavigationInterface QScrollBar::sub-line:vertical {
                     height: 0px;
                 }
-            """)
+            """
+            )
         except Exception as e:
             # Silently continue if scroll area setup fails
             pass
@@ -1093,44 +1228,52 @@ class MeterCalculationApp(FluentWindow):
         current_widget = self.stackedWidget.widget(index)
         resolved_widget = self._ensure_interface_loaded(current_widget)
         active_widget = self._get_loaded_widget(resolved_widget)
-        if hasattr(active_widget, 'set_focus_on_tab_change'):
+        if hasattr(active_widget, "set_focus_on_tab_change"):
             active_widget.set_focus_on_tab_change()
-        
+
         # Standard tab switching behavior - table stabilization handled in tab files
-        if hasattr(active_widget, 'force_table_resize'):
+        if hasattr(active_widget, "force_table_resize"):
             QTimer.singleShot(150, active_widget.force_table_resize)
 
         # QFluentWidgets sometimes resets the TitleBar icon to the current page's FluentIcon
         # (e.g., HOME). Re-apply our app icon right after the page switch.
         QTimer.singleShot(0, self._set_title_bar_icon)
 
-
     def save_to_pdf(self):
+        from src.ui.save_dialog import SaveDialog
+
         month_name = self.main_tab_instance.month_combo.currentText()
         year_value = self.main_tab_instance.year_spinbox.value()
         default_filename = f"MeterCalculation_{month_name}_{year_value}.pdf"
-        
+
         def try_save_pdf(path):
             try:
                 self.generate_pdf(path)
                 QMessageBox.information(self, "PDF Saved", f"Report saved to {path}")
                 return True
             except PermissionError:
-                QMessageBox.warning(self, "Permission Denied",
-                                  f"Cannot save to {path}\n\nThe file may be open in another program or you don't have write permission to this location. Please close any programs using this file and try again or select a different location.")
+                QMessageBox.warning(
+                    self,
+                    "Permission Denied",
+                    f"Cannot save to {path}\n\nThe file may be open in another program or you don't have write permission to this location. Please close any programs using this file and try again or select a different location.",
+                )
                 return False
             except Exception as e:
-                QMessageBox.critical(self, "PDF Save Error", f"Failed to save PDF: {e}\n{traceback.format_exc()}")
+                QMessageBox.critical(
+                    self,
+                    "PDF Save Error",
+                    f"Failed to save PDF: {e}\n{traceback.format_exc()}",
+                )
                 return False
-        
+
         # Use modern file dialog
         file_path = SaveDialog.get_save_filename(
             parent=self,
             title="Save PDF Report",
             default_filename=default_filename,
-            file_filter="PDF Files (*.pdf);;All Files (*)"
+            file_filter="PDF Files (*.pdf);;All Files (*)",
         )
-        
+
         if file_path:
             try_save_pdf(file_path)
 
@@ -1138,169 +1281,504 @@ class MeterCalculationApp(FluentWindow):
         # Import reportlab modules only when generating PDF (deferred for faster startup)
         from reportlab.lib.units import inch
         from reportlab.lib.pagesizes import letter
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.platypus import (
+            SimpleDocTemplate,
+            Table,
+            TableStyle,
+            Paragraph,
+            Spacer,
+        )
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER
-        
-        doc = SimpleDocTemplate(file_path, pagesize=letter, topMargin=0.3*inch, bottomMargin=0.3*inch, leftMargin=0.3*inch, rightMargin=0.3*inch)
+
+        doc = SimpleDocTemplate(
+            file_path,
+            pagesize=letter,
+            topMargin=0.3 * inch,
+            bottomMargin=0.3 * inch,
+            leftMargin=0.3 * inch,
+            rightMargin=0.3 * inch,
+        )
         elements = []
         styles = getSampleStyleSheet()
-        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.darkblue, spaceAfter=10, alignment=TA_CENTER)
-        header_style = ParagraphStyle('HeaderStyle', parent=styles['Heading2'], fontSize=14, textColor=colors.darkblue, spaceAfter=5, alignment=TA_CENTER)
-        normal_style = ParagraphStyle('NormalStyle', parent=styles['Normal'], fontSize=10, textColor=colors.black, spaceAfter=2)
-        label_style = ParagraphStyle('LabelStyle', parent=styles['Normal'], fontSize=9, textColor=colors.grey, spaceAfter=1)
-        bold_number_style = ParagraphStyle('BoldNumberStyle', parent=styles['Normal'], fontSize=12, textColor=colors.black, spaceAfter=2, fontName='Helvetica-Bold')
+        title_style = ParagraphStyle(
+            "TitleStyle",
+            parent=styles["Heading1"],
+            fontSize=16,
+            textColor=colors.darkblue,
+            spaceAfter=10,
+            alignment=TA_CENTER,
+        )
+        header_style = ParagraphStyle(
+            "HeaderStyle",
+            parent=styles["Heading2"],
+            fontSize=14,
+            textColor=colors.darkblue,
+            spaceAfter=5,
+            alignment=TA_CENTER,
+        )
+        normal_style = ParagraphStyle(
+            "NormalStyle",
+            parent=styles["Normal"],
+            fontSize=10,
+            textColor=colors.black,
+            spaceAfter=2,
+        )
+        label_style = ParagraphStyle(
+            "LabelStyle",
+            parent=styles["Normal"],
+            fontSize=9,
+            textColor=colors.grey,
+            spaceAfter=1,
+        )
+        bold_number_style = ParagraphStyle(
+            "BoldNumberStyle",
+            parent=styles["Normal"],
+            fontSize=12,
+            textColor=colors.black,
+            spaceAfter=2,
+            fontName="Helvetica-Bold",
+        )
 
-        def create_cell(content, bgcolor=colors.lightsteelblue, textcolor=colors.black, style=normal_style, height=0.2*inch):
-            if isinstance(content, str): content = Paragraph(content, style)
-            return Table([[content]], colWidths=[7.5*inch], rowHeights=[height], style=TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), bgcolor), ('BOX', (0,0), (-1,-1), 1, colors.darkblue),
-                ('TEXTCOLOR', (0,0), (-1,-1), textcolor), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('LEFTPADDING', (0,0), (-1,-1), 6),
-                ('RIGHTPADDING', (0,0), (-1,-1), 6), ('TOPPADDING', (0,0), (-1,-1), 2),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 2)]))
+        def create_cell(
+            content,
+            bgcolor=colors.lightsteelblue,
+            textcolor=colors.black,
+            style=normal_style,
+            height=0.2 * inch,
+        ):
+            if isinstance(content, str):
+                content = Paragraph(content, style)
+            return Table(
+                [[content]],
+                colWidths=[7.5 * inch],
+                rowHeights=[height],
+                style=TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), bgcolor),
+                        ("BOX", (0, 0), (-1, -1), 1, colors.darkblue),
+                        ("TEXTCOLOR", (0, 0), (-1, -1), textcolor),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        ("TOPPADDING", (0, 0), (-1, -1), 2),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ]
+                ),
+            )
 
         elements.append(Paragraph("Meter Calculation Report", title_style))
-        elements.append(Spacer(1, 0.1*inch))
+        elements.append(Spacer(1, 0.1 * inch))
         month_year = f"{self.main_tab_instance.month_combo.currentText()} {self.main_tab_instance.year_spinbox.value()}"
-        elements.append(create_cell(Paragraph(f"Month: <font color='red'>{month_year}</font>", header_style), bgcolor=colors.lightsteelblue, height=0.3*inch))
-        elements.append(Spacer(1, 0.05*inch))
-        elements.append(create_cell("Main Meter Info", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))
-        
+        elements.append(
+            create_cell(
+                Paragraph(
+                    f"Month: <font color='red'>{month_year}</font>", header_style
+                ),
+                bgcolor=colors.lightsteelblue,
+                height=0.3 * inch,
+            )
+        )
+        elements.append(Spacer(1, 0.05 * inch))
+        elements.append(
+            create_cell(
+                "Main Meter Info",
+                bgcolor=colors.lightsteelblue,
+                textcolor=colors.darkblue,
+                style=header_style,
+                height=0.3 * inch,
+            )
+        )
+
         meter_info_left_data = []
         for i in range(len(self.main_tab_instance.meter_entries)):
             meter_info_left_data.append(
-                [Paragraph(f"Meter-{i+1} Unit:", normal_style), Paragraph(self.main_tab_instance.meter_entries[i].text() or '0', normal_style)]
+                [
+                    Paragraph(f"Meter-{i + 1} Unit:", normal_style),
+                    Paragraph(
+                        self.main_tab_instance.meter_entries[i].text() or "0",
+                        normal_style,
+                    ),
+                ]
             )
         meter_info_left_data.append(
-            [Paragraph("Total Difference:", normal_style), Paragraph(f"{self.main_tab_instance.total_diff_value_label.text() or 'N/A'}", normal_style)]
+            [
+                Paragraph("Total Difference:", normal_style),
+                Paragraph(
+                    f"{self.main_tab_instance.total_diff_value_label.text() or 'N/A'}",
+                    normal_style,
+                ),
+            ]
         )
-        
+
         meter_info_right_data = [
-            [Paragraph("Per Unit Cost:", normal_style), Paragraph(f"{self.main_tab_instance.per_unit_cost_value_label.text() or 'N/A'}", bold_number_style)],
-            [Paragraph("Total Unit Cost:", normal_style), Paragraph(f"{self.main_tab_instance.total_unit_value_label.text() or 'N/A'} TK", bold_number_style)],
-            [Paragraph("Added Amount:", normal_style), Paragraph(f"{self.main_tab_instance.additional_amount_value_label.text() or 'N/A'}", normal_style)],
-            [Paragraph("In Total Amount:", normal_style), Paragraph(f"{self.main_tab_instance.in_total_value_label.text() or 'N/A'}", bold_number_style)],
+            [
+                Paragraph("Per Unit Cost:", normal_style),
+                Paragraph(
+                    f"{self.main_tab_instance.per_unit_cost_value_label.text() or 'N/A'}",
+                    bold_number_style,
+                ),
+            ],
+            [
+                Paragraph("Total Unit Cost:", normal_style),
+                Paragraph(
+                    f"{self.main_tab_instance.total_unit_value_label.text() or 'N/A'} TK",
+                    bold_number_style,
+                ),
+            ],
+            [
+                Paragraph("Added Amount:", normal_style),
+                Paragraph(
+                    f"{self.main_tab_instance.additional_amount_value_label.text() or 'N/A'}",
+                    normal_style,
+                ),
+            ],
+            [
+                Paragraph("In Total Amount:", normal_style),
+                Paragraph(
+                    f"{self.main_tab_instance.in_total_value_label.text() or 'N/A'}",
+                    bold_number_style,
+                ),
+            ],
         ]
 
         max_rows = max(len(meter_info_left_data), len(meter_info_right_data))
-        while len(meter_info_left_data) < max_rows: meter_info_left_data.append([Paragraph("", normal_style), Paragraph("", normal_style)])
-        while len(meter_info_right_data) < max_rows: meter_info_right_data.append([Paragraph("", normal_style), Paragraph("", normal_style)])
-        
-        main_meter_table_data = [meter_info_left_data[i] + meter_info_right_data[i] for i in range(max_rows)]
-        main_meter_table = Table(main_meter_table_data, colWidths=[2.5*inch, 1.25*inch, 2.5*inch, 1.25*inch], rowHeights=[0.2*inch] * max_rows)
-        main_meter_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), colors.white), ('BOX', (0,0), (-1,-1), 1, colors.darkblue),
-            ('LINEABOVE', (0,0), (-1,-1), 1, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('LEFTPADDING', (0,0), (-1,-1), 6),
-            ('RIGHTPADDING', (0,0), (-1,-1), 6), ('TOPPADDING', (0,0), (-1,-1), 2),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ]))
-        elements.append(main_meter_table)
-        elements.append(Spacer(1, 0.1*inch))
+        while len(meter_info_left_data) < max_rows:
+            meter_info_left_data.append(
+                [Paragraph("", normal_style), Paragraph("", normal_style)]
+            )
+        while len(meter_info_right_data) < max_rows:
+            meter_info_right_data.append(
+                [Paragraph("", normal_style), Paragraph("", normal_style)]
+            )
 
-        elements.append(create_cell("Room Information", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))
-        
+        main_meter_table_data = [
+            meter_info_left_data[i] + meter_info_right_data[i] for i in range(max_rows)
+        ]
+        main_meter_table = Table(
+            main_meter_table_data,
+            colWidths=[2.5 * inch, 1.25 * inch, 2.5 * inch, 1.25 * inch],
+            rowHeights=[0.2 * inch] * max_rows,
+        )
+        main_meter_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                    ("BOX", (0, 0), (-1, -1), 1, colors.darkblue),
+                    ("LINEABOVE", (0, 0), (-1, -1), 1, colors.lightgrey),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
+        elements.append(main_meter_table)
+        elements.append(Spacer(1, 0.1 * inch))
+
+        elements.append(
+            create_cell(
+                "Room Information",
+                bgcolor=colors.lightsteelblue,
+                textcolor=colors.darkblue,
+                style=header_style,
+                height=0.3 * inch,
+            )
+        )
+
         room_pdf_data = []
         if self.rooms_tab_instance.room_entries:
             for i in range(0, len(self.rooms_tab_instance.room_entries), 2):
                 row = []
                 for j in range(2):
                     if i + j < len(self.rooms_tab_instance.room_entries):
-                        room_data = self.rooms_tab_instance.room_entries[i+j]
-                        
-                        real_unit_label = room_data['real_unit_label']
-                        unit_bill_label = room_data['unit_bill_label']
-                        gas_bill_entry = room_data['gas_bill_entry']
-                        water_bill_entry = room_data['water_bill_entry']
-                        house_rent_entry = room_data['house_rent_entry']
-                        grand_total_label = room_data['grand_total_label']
+                        room_data = self.rooms_tab_instance.room_entries[i + j]
 
-                        room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAt(i + j).widget()
-                        room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+j+1}"
+                        real_unit_label = room_data["real_unit_label"]
+                        unit_bill_label = room_data["unit_bill_label"]
+                        gas_bill_entry = room_data["gas_bill_entry"]
+                        water_bill_entry = room_data["water_bill_entry"]
+                        house_rent_entry = room_data["house_rent_entry"]
+                        grand_total_label = room_data["grand_total_label"]
+
+                        room_group_widget = (
+                            self.rooms_tab_instance.rooms_scroll_layout.itemAt(
+                                i + j
+                            ).widget()
+                        )
+                        room_name = (
+                            room_group_widget.title()
+                            if isinstance(room_group_widget, QGroupBox)
+                            else f"Room {i + j + 1}"
+                        )
                         month_idx = self.main_tab_instance.month_combo.currentIndex()
-                        next_month_name = self.main_tab_instance.month_combo.itemText((month_idx + 1) % 12)
-                        
-                        room_header_style_pdf = ParagraphStyle('RoomHeaderStylePdf', parent=styles['Normal'], fontSize=10, textColor=colors.darkblue, spaceAfter=2, fontName='Helvetica-Bold')
-                        bold_unit_bill_style_pdf = ParagraphStyle('BoldUnitBillStylePdf', parent=styles['Normal'], fontSize=11, textColor=colors.black, spaceAfter=2, fontName='Helvetica-Bold')
-                        header_style_left_pdf = ParagraphStyle('HeaderStyleLeftPdf', parent=room_header_style_pdf, alignment=0)
-                        header_style_right_gray_pdf = ParagraphStyle('HeaderStyleRightGrayPdf', parent=room_header_style_pdf, alignment=2, textColor=colors.gray)
- 
-                        header_row_pdf = [Paragraph(f"{room_name}", header_style_left_pdf), Paragraph(f"Created: {next_month_name}", header_style_right_gray_pdf)]
+                        next_month_name = self.main_tab_instance.month_combo.itemText(
+                            (month_idx + 1) % 12
+                        )
 
-                        room_info_data = [ header_row_pdf,
-                            [Paragraph("Month:", label_style), Paragraph(month_year, normal_style)],
-                            [Paragraph("Per-Unit Cost:", label_style), Paragraph(self.main_tab_instance.per_unit_cost_value_label.text() or 'N/A', normal_style)],
-                            [Paragraph("Unit:", label_style), Paragraph(real_unit_label.text() or 'N/A', normal_style)],
-                            [Paragraph("Unit Bill:", label_style), Paragraph(unit_bill_label.text() or 'N/A', bold_unit_bill_style_pdf)],
-                            [Paragraph("Gas Bill:", label_style), Paragraph(gas_bill_entry.text() or '0.00', normal_style)],
-                            [Paragraph("Water Bill:", label_style), Paragraph(water_bill_entry.text() or '0.00', normal_style)],
-                            [Paragraph("House Rent:", label_style), Paragraph(house_rent_entry.text() or '0.00', normal_style)],
-                            [Paragraph("Grand Total:", label_style), Paragraph(grand_total_label.text() or 'N/A', bold_unit_bill_style_pdf)]]
-                        room_table_pdf = Table(room_info_data, colWidths=[1.5*inch, 2.15*inch], rowHeights=[0.3*inch] + [0.2*inch]*8)
-                        room_table_pdf.setStyle(TableStyle([
-                            ('BACKGROUND', (0,0), (-1,0), colors.lightsteelblue), ('BACKGROUND', (0,1), (-1,-1), colors.white),
-                            ('BOX', (0,0), (-1,-1), 1, colors.darkblue), ('LINEBELOW', (0,0), (-1,0), 1, colors.darkblue),
-                            ('LINEBELOW', (0,4), (-1,4), 2, colors.darkblue), # Thick line below Unit Bill (row 4, 0-indexed)
-                            ('LINEABOVE', (0,1), (-1,-1), 1, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                            ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('LEFTPADDING', (0,0), (-1,-1), 6),
-                            ('RIGHTPADDING', (0,0), (-1,-1), 6), ('TOPPADDING', (0,0), (-1,-1), 2),
-                            ('BOTTOMPADDING', (0,0), (-1,-1), 2)]))
+                        room_header_style_pdf = ParagraphStyle(
+                            "RoomHeaderStylePdf",
+                            parent=styles["Normal"],
+                            fontSize=10,
+                            textColor=colors.darkblue,
+                            spaceAfter=2,
+                            fontName="Helvetica-Bold",
+                        )
+                        bold_unit_bill_style_pdf = ParagraphStyle(
+                            "BoldUnitBillStylePdf",
+                            parent=styles["Normal"],
+                            fontSize=11,
+                            textColor=colors.black,
+                            spaceAfter=2,
+                            fontName="Helvetica-Bold",
+                        )
+                        header_style_left_pdf = ParagraphStyle(
+                            "HeaderStyleLeftPdf",
+                            parent=room_header_style_pdf,
+                            alignment=0,
+                        )
+                        header_style_right_gray_pdf = ParagraphStyle(
+                            "HeaderStyleRightGrayPdf",
+                            parent=room_header_style_pdf,
+                            alignment=2,
+                            textColor=colors.gray,
+                        )
+
+                        header_row_pdf = [
+                            Paragraph(f"{room_name}", header_style_left_pdf),
+                            Paragraph(
+                                f"Created: {next_month_name}",
+                                header_style_right_gray_pdf,
+                            ),
+                        ]
+
+                        room_info_data = [
+                            header_row_pdf,
+                            [
+                                Paragraph("Month:", label_style),
+                                Paragraph(month_year, normal_style),
+                            ],
+                            [
+                                Paragraph("Per-Unit Cost:", label_style),
+                                Paragraph(
+                                    self.main_tab_instance.per_unit_cost_value_label.text()
+                                    or "N/A",
+                                    normal_style,
+                                ),
+                            ],
+                            [
+                                Paragraph("Unit:", label_style),
+                                Paragraph(
+                                    real_unit_label.text() or "N/A", normal_style
+                                ),
+                            ],
+                            [
+                                Paragraph("Unit Bill:", label_style),
+                                Paragraph(
+                                    unit_bill_label.text() or "N/A",
+                                    bold_unit_bill_style_pdf,
+                                ),
+                            ],
+                            [
+                                Paragraph("Gas Bill:", label_style),
+                                Paragraph(
+                                    gas_bill_entry.text() or "0.00", normal_style
+                                ),
+                            ],
+                            [
+                                Paragraph("Water Bill:", label_style),
+                                Paragraph(
+                                    water_bill_entry.text() or "0.00", normal_style
+                                ),
+                            ],
+                            [
+                                Paragraph("House Rent:", label_style),
+                                Paragraph(
+                                    house_rent_entry.text() or "0.00", normal_style
+                                ),
+                            ],
+                            [
+                                Paragraph("Grand Total:", label_style),
+                                Paragraph(
+                                    grand_total_label.text() or "N/A",
+                                    bold_unit_bill_style_pdf,
+                                ),
+                            ],
+                        ]
+                        room_table_pdf = Table(
+                            room_info_data,
+                            colWidths=[1.5 * inch, 2.15 * inch],
+                            rowHeights=[0.3 * inch] + [0.2 * inch] * 8,
+                        )
+                        room_table_pdf.setStyle(
+                            TableStyle(
+                                [
+                                    (
+                                        "BACKGROUND",
+                                        (0, 0),
+                                        (-1, 0),
+                                        colors.lightsteelblue,
+                                    ),
+                                    ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                                    ("BOX", (0, 0), (-1, -1), 1, colors.darkblue),
+                                    ("LINEBELOW", (0, 0), (-1, 0), 1, colors.darkblue),
+                                    (
+                                        "LINEBELOW",
+                                        (0, 4),
+                                        (-1, 4),
+                                        2,
+                                        colors.darkblue,
+                                    ),  # Thick line below Unit Bill (row 4, 0-indexed)
+                                    (
+                                        "LINEABOVE",
+                                        (0, 1),
+                                        (-1, -1),
+                                        1,
+                                        colors.lightgrey,
+                                    ),
+                                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                                ]
+                            )
+                        )
                         row.append(room_table_pdf)
-                    else: row.append("")
+                    else:
+                        row.append("")
                 room_pdf_data.append(row)
         if room_pdf_data:
-            room_table_main = Table(room_pdf_data, colWidths=[3.85*inch, 3.85*inch], spaceBefore=0.05*inch)
-            room_table_main.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+            room_table_main = Table(
+                room_pdf_data,
+                colWidths=[3.85 * inch, 3.85 * inch],
+                spaceBefore=0.05 * inch,
+            )
+            room_table_main.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
             elements.append(room_table_main)
-        
+
         # Add summary section for all room bills
         if self.rooms_tab_instance.room_entries:
             room_bill_totals = self.rooms_tab_instance.get_all_room_bill_totals()
-            
-            elements.append(Spacer(1, 0.1*inch))
-            elements.append(create_cell("Total Room Bills Summary", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))
-            
+
+            elements.append(Spacer(1, 0.1 * inch))
+            elements.append(
+                create_cell(
+                    "Total Room Bills Summary",
+                    bgcolor=colors.lightsteelblue,
+                    textcolor=colors.darkblue,
+                    style=header_style,
+                    height=0.3 * inch,
+                )
+            )
+
             summary_data = [
-                [Paragraph("Total House Rent:", normal_style), Paragraph(f"{room_bill_totals['total_house_rent']:.2f} TK", normal_style)],
-                [Paragraph("Total Water Bill:", normal_style), Paragraph(f"{room_bill_totals['total_water_bill']:.2f} TK", normal_style)],
-                [Paragraph("Total Gas Bill:", normal_style), Paragraph(f"{room_bill_totals['total_gas_bill']:.2f} TK", normal_style)],
-                [Paragraph("Total Room Unit Bill:", normal_style), Paragraph(f"{room_bill_totals['total_room_unit_bill']:.2f} TK", normal_style)],
+                [
+                    Paragraph("Total House Rent:", normal_style),
+                    Paragraph(
+                        f"{room_bill_totals['total_house_rent']:.2f} TK", normal_style
+                    ),
+                ],
+                [
+                    Paragraph("Total Water Bill:", normal_style),
+                    Paragraph(
+                        f"{room_bill_totals['total_water_bill']:.2f} TK", normal_style
+                    ),
+                ],
+                [
+                    Paragraph("Total Gas Bill:", normal_style),
+                    Paragraph(
+                        f"{room_bill_totals['total_gas_bill']:.2f} TK", normal_style
+                    ),
+                ],
+                [
+                    Paragraph("Total Room Unit Bill:", normal_style),
+                    Paragraph(
+                        f"{room_bill_totals['total_room_unit_bill']:.2f} TK",
+                        normal_style,
+                    ),
+                ],
             ]
-            summary_table = Table(summary_data, colWidths=[2.5*inch, 2.5*inch], rowHeights=[0.2*inch]*4)
-            summary_table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), colors.white), ('BOX', (0,0), (-1,-1), 1, colors.darkblue),
-                ('LINEABOVE', (0,0), (-1,-1), 1, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('LEFTPADDING', (0,0), (-1,-1), 6),
-                ('RIGHTPADDING', (0,0), (-1,-1), 6), ('TOPPADDING', (0,0), (-1,-1), 2),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-            ]))
+            summary_table = Table(
+                summary_data,
+                colWidths=[2.5 * inch, 2.5 * inch],
+                rowHeights=[0.2 * inch] * 4,
+            )
+            summary_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                        ("BOX", (0, 0), (-1, -1), 1, colors.darkblue),
+                        ("LINEABOVE", (0, 0), (-1, -1), 1, colors.lightgrey),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        ("TOPPADDING", (0, 0), (-1, -1), 2),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ]
+                )
+            )
             elements.append(summary_table)
-            
+
             # Add Owner Unit Bill section
-            elements.append(Spacer(1, 0.1*inch))
-            elements.append(create_cell("Owner Unit Bill", bgcolor=colors.lightsteelblue, textcolor=colors.darkblue, style=header_style, height=0.3*inch))
-            
+            elements.append(Spacer(1, 0.1 * inch))
+            elements.append(
+                create_cell(
+                    "Owner Unit Bill",
+                    bgcolor=colors.lightsteelblue,
+                    textcolor=colors.darkblue,
+                    style=header_style,
+                    height=0.3 * inch,
+                )
+            )
+
             # Calculate owner unit bill: total unit cost - (total water bill + total room unit bill)
             # Owner pays the full electricity bill, tenants pay their portion (electricity + water pump usage)
             # Owner's portion = Total bill - What tenants pay
-            total_unit_cost_text = self.main_tab_instance.total_unit_value_label.text() or '0'
-            total_unit_cost = float(total_unit_cost_text.replace('TK', '').strip()) if total_unit_cost_text != 'N/A' else 0.0
-            
-            owner_unit_bill = total_unit_cost - (room_bill_totals['total_water_bill'] + room_bill_totals['total_room_unit_bill'])
-            
+            total_unit_cost_text = (
+                self.main_tab_instance.total_unit_value_label.text() or "0"
+            )
+            total_unit_cost = (
+                float(total_unit_cost_text.replace("TK", "").strip())
+                if total_unit_cost_text != "N/A"
+                else 0.0
+            )
+
+            owner_unit_bill = total_unit_cost - (
+                room_bill_totals["total_water_bill"]
+                + room_bill_totals["total_room_unit_bill"]
+            )
+
             owner_data = [
-                [Paragraph("Owner Unit Bill:", normal_style), Paragraph(f"{owner_unit_bill:.2f} TK", normal_style)],
+                [
+                    Paragraph("Owner Unit Bill:", normal_style),
+                    Paragraph(f"{owner_unit_bill:.2f} TK", normal_style),
+                ],
             ]
-            owner_table = Table(owner_data, colWidths=[2.5*inch, 2.5*inch], rowHeights=[0.2*inch])
-            owner_table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), colors.white), ('BOX', (0,0), (-1,-1), 1, colors.darkblue),
-                ('LINEABOVE', (0,0), (-1,-1), 1, colors.lightgrey), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('ALIGN', (0,0), (-1,-1), 'LEFT'), ('LEFTPADDING', (0,0), (-1,-1), 6),
-                ('RIGHTPADDING', (0,0), (-1,-1), 6), ('TOPPADDING', (0,0), (-1,-1), 2),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-            ]))
+            owner_table = Table(
+                owner_data, colWidths=[2.5 * inch, 2.5 * inch], rowHeights=[0.2 * inch]
+            )
+            owner_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+                        ("BOX", (0, 0), (-1, -1), 1, colors.darkblue),
+                        ("LINEABOVE", (0, 0), (-1, -1), 1, colors.lightgrey),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                        ("TOPPADDING", (0, 0), (-1, -1), 2),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ]
+                )
+            )
             elements.append(owner_table)
 
         doc.build(elements)
@@ -1310,91 +1788,214 @@ class MeterCalculationApp(FluentWindow):
         filename = "meter_calculation_history.csv"
         meter_texts = [me.text() for me in self.main_tab_instance.meter_entries]
         diff_texts = [de.text() for de in self.main_tab_instance.diff_entries]
-        if all(not text for text in meter_texts) and all(not text for text in diff_texts):
-             QMessageBox.warning(self, "Empty Data", "Cannot save empty calculation data.")
-             return
+        if all(not text for text in meter_texts) and all(
+            not text for text in diff_texts
+        ):
+            QMessageBox.warning(
+                self, "Empty Data", "Cannot save empty calculation data."
+            )
+            return
         try:
             file_exists = os.path.isfile(filename)
-            with open(filename, mode='a', newline='') as file:
+            with open(filename, mode="a", newline="") as file:
                 writer = csv.writer(file)
                 if not file_exists or os.path.getsize(filename) == 0:
-                    header = ["Month"] + [f"Meter-{i+1}" for i in range(10)] + \
-                                [f"Diff-{i+1}" for i in range(10)] + \
-                                ["Total Unit", "Total Diff", "Per Unit Cost", "Added Amount", "In Total"] + \
-                                ["Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill",
-                                 "Gas Bill", "Water Bill", "House Rent", "Grand Total",
-                                 "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"]
+                    header = (
+                        ["Month"]
+                        + [f"Meter-{i + 1}" for i in range(10)]
+                        + [f"Diff-{i + 1}" for i in range(10)]
+                        + [
+                            "Total Unit",
+                            "Total Diff",
+                            "Per Unit Cost",
+                            "Added Amount",
+                            "In Total",
+                        ]
+                        + [
+                            "Room Name",
+                            "Present Unit",
+                            "Previous Unit",
+                            "Real Unit",
+                            "Unit Bill",
+                            "Gas Bill",
+                            "Water Bill",
+                            "House Rent",
+                            "Grand Total",
+                            "Total House Rent",
+                            "Total Water Bill",
+                            "Total Gas Bill",
+                            "Total Room Unit Bill",
+                        ]
+                    )
                     writer.writerow(header)
                 main_data_row = [month_name]
-                for i in range(10): 
-                    main_data_row.append(self.main_tab_instance.meter_entries[i].text() if i < len(self.main_tab_instance.meter_entries) and self.main_tab_instance.meter_entries[i].text() else "0")
-                for i in range(10): 
-                    main_data_row.append(self.main_tab_instance.diff_entries[i].text() if i < len(self.main_tab_instance.diff_entries) and self.main_tab_instance.diff_entries[i].text() else "0")
-                main_data_row.extend([
-                    (self.main_tab_instance.total_unit_value_label.text().split(':')[-1].replace("TK", "").strip() or "0"),
-                    (self.main_tab_instance.total_diff_value_label.text().split(':')[-1].replace("TK", "").strip() or "0"),
-                    (self.main_tab_instance.per_unit_cost_value_label.text().split(':')[-1].replace("TK", "").strip() or "0.00"),
-                    str(self.main_tab_instance.get_additional_amount()),
-                    (self.main_tab_instance.in_total_value_label.text().split(':')[-1].replace("TK", "").strip() or "0.00")
-                ])
-                if hasattr(self.rooms_tab_instance, 'room_entries') and self.rooms_tab_instance.room_entries:
+                for i in range(10):
+                    main_data_row.append(
+                        self.main_tab_instance.meter_entries[i].text()
+                        if i < len(self.main_tab_instance.meter_entries)
+                        and self.main_tab_instance.meter_entries[i].text()
+                        else "0"
+                    )
+                for i in range(10):
+                    main_data_row.append(
+                        self.main_tab_instance.diff_entries[i].text()
+                        if i < len(self.main_tab_instance.diff_entries)
+                        and self.main_tab_instance.diff_entries[i].text()
+                        else "0"
+                    )
+                main_data_row.extend(
+                    [
+                        (
+                            self.main_tab_instance.total_unit_value_label.text()
+                            .split(":")[-1]
+                            .replace("TK", "")
+                            .strip()
+                            or "0"
+                        ),
+                        (
+                            self.main_tab_instance.total_diff_value_label.text()
+                            .split(":")[-1]
+                            .replace("TK", "")
+                            .strip()
+                            or "0"
+                        ),
+                        (
+                            self.main_tab_instance.per_unit_cost_value_label.text()
+                            .split(":")[-1]
+                            .replace("TK", "")
+                            .strip()
+                            or "0.00"
+                        ),
+                        str(self.main_tab_instance.get_additional_amount()),
+                        (
+                            self.main_tab_instance.in_total_value_label.text()
+                            .split(":")[-1]
+                            .replace("TK", "")
+                            .strip()
+                            or "0.00"
+                        ),
+                    ]
+                )
+                if (
+                    hasattr(self.rooms_tab_instance, "room_entries")
+                    and self.rooms_tab_instance.room_entries
+                ):
                     for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
                         # Try to get room name from group widget, fallback to generic name
                         try:
-                            room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(i // 3, i % 3).widget()
-                            room_name = room_group_widget.title() if isinstance(room_group_widget, QGroupBox) else f"Room {i+1}"
+                            room_group_widget = self.rooms_tab_instance.rooms_scroll_layout.itemAtPosition(
+                                i // 3, i % 3
+                            ).widget()
+                            room_name = (
+                                room_group_widget.title()
+                                if isinstance(room_group_widget, QGroupBox)
+                                else f"Room {i + 1}"
+                            )
                         except:
-                            room_name = f"Room {i+1}"
-                        
-                        present_text = room_data['present_entry'].text() or "0"
-                        previous_text = room_data['previous_entry'].text() or "0"
-                        real_unit = room_data['real_unit_label'].text() if room_data['real_unit_label'].text() != "Incomplete" else "N/A"
-                        unit_bill = room_data['unit_bill_label'].text().replace(" TK", "") if room_data['unit_bill_label'].text() != "Incomplete" else "N/A"
-                        gas_bill = room_data['gas_bill_entry'].text() or "0.00"
-                        water_bill = room_data['water_bill_entry'].text() or "0.00"
-                        house_rent = room_data['house_rent_entry'].text() or "0.00"
-                        grand_total = room_data['grand_total_label'].text().replace(" TK", "") if room_data['grand_total_label'].text() != "Incomplete" else "N/A"
+                            room_name = f"Room {i + 1}"
+
+                        present_text = room_data["present_entry"].text() or "0"
+                        previous_text = room_data["previous_entry"].text() or "0"
+                        real_unit = (
+                            room_data["real_unit_label"].text()
+                            if room_data["real_unit_label"].text() != "Incomplete"
+                            else "N/A"
+                        )
+                        unit_bill = (
+                            room_data["unit_bill_label"].text().replace(" TK", "")
+                            if room_data["unit_bill_label"].text() != "Incomplete"
+                            else "N/A"
+                        )
+                        gas_bill = room_data["gas_bill_entry"].text() or "0.00"
+                        water_bill = room_data["water_bill_entry"].text() or "0.00"
+                        house_rent = room_data["house_rent_entry"].text() or "0.00"
+                        grand_total = (
+                            room_data["grand_total_label"].text().replace(" TK", "")
+                            if room_data["grand_total_label"].text() != "Incomplete"
+                            else "N/A"
+                        )
 
                         room_csv_data_parts = [
-                            room_name, present_text, previous_text, real_unit, unit_bill,
-                            gas_bill, water_bill, house_rent, grand_total
+                            room_name,
+                            present_text,
+                            previous_text,
+                            real_unit,
+                            unit_bill,
+                            gas_bill,
+                            water_bill,
+                            house_rent,
+                            grand_total,
                         ]
                         if i == 0:
                             # For the first room, append room data and then the summary totals
-                            if hasattr(self.rooms_tab_instance, 'get_all_room_bill_totals'):
-                                room_bill_totals = self.rooms_tab_instance.get_all_room_bill_totals()
+                            if hasattr(
+                                self.rooms_tab_instance, "get_all_room_bill_totals"
+                            ):
+                                room_bill_totals = (
+                                    self.rooms_tab_instance.get_all_room_bill_totals()
+                                )
                                 summary_csv_parts = [
                                     f"{room_bill_totals['total_house_rent']:.2f}",
                                     f"{room_bill_totals['total_water_bill']:.2f}",
                                     f"{room_bill_totals['total_gas_bill']:.2f}",
-                                    f"{room_bill_totals['total_room_unit_bill']:.2f}"
+                                    f"{room_bill_totals['total_room_unit_bill']:.2f}",
                                 ]
                             else:
                                 summary_csv_parts = ["0.00", "0.00", "0.00", "0.00"]
-                            writer.writerow(main_data_row + room_csv_data_parts + summary_csv_parts)
+                            writer.writerow(
+                                main_data_row + room_csv_data_parts + summary_csv_parts
+                            )
                         else:
-                             writer.writerow([""] * len(main_data_row) + room_csv_data_parts + [""] * 4) # Empty cells for totals in subsequent room rows
+                            writer.writerow(
+                                [""] * len(main_data_row)
+                                + room_csv_data_parts
+                                + [""] * 4
+                            )  # Empty cells for totals in subsequent room rows
                 else:
-                    writer.writerow(main_data_row + ["N/A"] * 9 + ["0.00"] * 4) # 9 new fields for rooms + 4 for totals
-            QMessageBox.information(self, "Save Successful", f"Data saved to {filename}")
+                    writer.writerow(
+                        main_data_row + ["N/A"] * 9 + ["0.00"] * 4
+                    )  # 9 new fields for rooms + 4 for totals
+            QMessageBox.information(
+                self, "Save Successful", f"Data saved to {filename}"
+            )
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Failed to save data to CSV: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save data to CSV: {e}\n{traceback.format_exc()}",
+            )
 
     def save_calculation_to_supabase(self):
-        if not self.supabase_manager or not self.supabase_manager.is_client_initialized() or not self.check_internet_connectivity():
-            QMessageBox.warning(self, "Supabase Not Configured", "Please configure Supabase client in settings or check internet connection.")
+        from postgrest.exceptions import APIError
+
+        if (
+            not self.supabase_manager
+            or not self.supabase_manager.is_client_initialized()
+            or not self.check_internet_connectivity()
+        ):
+            QMessageBox.warning(
+                self,
+                "Supabase Not Configured",
+                "Please configure Supabase client in settings or check internet connection.",
+            )
             return
-        
+
         try:
             month = self.main_tab_instance.month_combo.currentText()
             year = self.main_tab_instance.year_spinbox.value()
-            
+
             # Check for existing record
-            existing_record = self.supabase_manager.get_main_calculation_by_month_year(month, year)
+            existing_record = self.supabase_manager.get_main_calculation_by_month_year(
+                month, year
+            )
             if existing_record:
-                reply = QMessageBox.question(self, 'Record Exists', 
-                                             f"A record for {month} {year} already exists. Do you want to overwrite it?",
-                                             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                reply = QMessageBox.question(
+                    self,
+                    "Record Exists",
+                    f"A record for {month} {year} already exists. Do you want to overwrite it?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
                 if reply == QMessageBox.No:
                     return
 
@@ -1405,37 +2006,59 @@ class MeterCalculationApp(FluentWindow):
                 # Remove "TK" and other text, keep only numbers and decimal points
                 cleaned = text.replace("TK", "").replace(" ", "").strip()
                 # Extract only digits and decimal points
-                cleaned = ''.join(c for c in cleaned if c.isdigit() or c == '.')
+                cleaned = "".join(c for c in cleaned if c.isdigit() or c == ".")
                 try:
                     return float(cleaned) if cleaned else 0.0
                 except ValueError:
                     return 0.0
 
             # Main calculation data - using field names that match what HistoryTab expects
-            meter_readings = {f'meter_{i+1}': int(self.main_tab_instance.meter_entries[i].text() or 0) for i in range(len(self.main_tab_instance.meter_entries))}
-            diff_readings = {f'diff_{i+1}': int(self.main_tab_instance.diff_entries[i].text() or 0) for i in range(len(self.main_tab_instance.diff_entries))}
-            
-            main_data = {
-                'month': month,
-                'year': year,
-                'meter_readings': meter_readings,
-                'diff_readings': diff_readings,
-                'total_unit_cost': extract_numeric_value(self.main_tab_instance.total_unit_value_label.text()),
-                'total_diff_units': extract_numeric_value(self.main_tab_instance.total_diff_value_label.text()),
-                'per_unit_cost': extract_numeric_value(self.main_tab_instance.per_unit_cost_value_label.text()),
-                'added_amount': extract_numeric_value(self.main_tab_instance.additional_amount_value_label.text()),
-                'grand_total': extract_numeric_value(self.main_tab_instance.in_total_value_label.text())
+            meter_readings = {
+                f"meter_{i + 1}": int(
+                    self.main_tab_instance.meter_entries[i].text() or 0
+                )
+                for i in range(len(self.main_tab_instance.meter_entries))
             }
-            
+            diff_readings = {
+                f"diff_{i + 1}": int(self.main_tab_instance.diff_entries[i].text() or 0)
+                for i in range(len(self.main_tab_instance.diff_entries))
+            }
+
+            main_data = {
+                "month": month,
+                "year": year,
+                "meter_readings": meter_readings,
+                "diff_readings": diff_readings,
+                "total_unit_cost": extract_numeric_value(
+                    self.main_tab_instance.total_unit_value_label.text()
+                ),
+                "total_diff_units": extract_numeric_value(
+                    self.main_tab_instance.total_diff_value_label.text()
+                ),
+                "per_unit_cost": extract_numeric_value(
+                    self.main_tab_instance.per_unit_cost_value_label.text()
+                ),
+                "added_amount": extract_numeric_value(
+                    self.main_tab_instance.additional_amount_value_label.text()
+                ),
+                "grand_total": extract_numeric_value(
+                    self.main_tab_instance.in_total_value_label.text()
+                ),
+            }
+
             # Also add individual meter and diff readings as separate fields for HistoryTab compatibility
             main_data.update(meter_readings)
             main_data.update(diff_readings)
 
             # Save main calculation
             main_calc_id = self.supabase_manager.save_main_calculation(main_data)
-            
+
             if not main_calc_id:
-                QMessageBox.critical(self, "Cloud Save Error", "Failed to save main calculation data. Check console for details.")
+                QMessageBox.critical(
+                    self,
+                    "Cloud Save Error",
+                    "Failed to save main calculation data. Check console for details.",
+                )
                 return
 
             # Room calculation data
@@ -1443,36 +2066,56 @@ class MeterCalculationApp(FluentWindow):
             if self.rooms_tab_instance.room_entries:
                 for i, room_data in enumerate(self.rooms_tab_instance.room_entries):
                     room_record = {
-                        'room_name': f"Room {i+1}",
-                        'present_unit': int(room_data['present_entry'].text() or 0),
-                        'previous_unit': int(room_data['previous_entry'].text() or 0),
-                        'real_unit': extract_numeric_value(room_data['real_unit_label'].text()),
-                        'unit_bill': extract_numeric_value(room_data['unit_bill_label'].text()),
-                        'gas_bill': float(room_data['gas_bill_entry'].text() or 0),
-                        'water_bill': float(room_data['water_bill_entry'].text() or 0),
-                        'house_rent': float(room_data['house_rent_entry'].text() or 0),
-                        'grand_total': extract_numeric_value(room_data['grand_total_label'].text())
+                        "room_name": f"Room {i + 1}",
+                        "present_unit": int(room_data["present_entry"].text() or 0),
+                        "previous_unit": int(room_data["previous_entry"].text() or 0),
+                        "real_unit": extract_numeric_value(
+                            room_data["real_unit_label"].text()
+                        ),
+                        "unit_bill": extract_numeric_value(
+                            room_data["unit_bill_label"].text()
+                        ),
+                        "gas_bill": float(room_data["gas_bill_entry"].text() or 0),
+                        "water_bill": float(room_data["water_bill_entry"].text() or 0),
+                        "house_rent": float(room_data["house_rent_entry"].text() or 0),
+                        "grand_total": extract_numeric_value(
+                            room_data["grand_total_label"].text()
+                        ),
                     }
-                    room_data_list.append({'room_data': room_record})
+                    room_data_list.append({"room_data": room_record})
 
             # Save room calculations
             if room_data_list:
                 print(f"Debug - Saving {len(room_data_list)} room records...")
-                room_save_success = self.supabase_manager.save_room_calculations(main_calc_id, room_data_list)
+                room_save_success = self.supabase_manager.save_room_calculations(
+                    main_calc_id, room_data_list
+                )
                 print(f"Debug - Room save success: {room_save_success}")
                 if not room_save_success:
-                    QMessageBox.warning(self, "Partial Save", "Main calculation saved, but room data failed to save.")
+                    QMessageBox.warning(
+                        self,
+                        "Partial Save",
+                        "Main calculation saved, but room data failed to save.",
+                    )
                     return
             else:
                 print("Debug - No room data to save")
 
             print("Debug - About to show success message")
-            QMessageBox.information(self, "Cloud Save", "Data saved to Supabase successfully.")
+            QMessageBox.information(
+                self, "Cloud Save", "Data saved to Supabase successfully."
+            )
 
         except APIError as e:
-            QMessageBox.critical(self, "Supabase API Error", f"An API error occurred: {e}")
+            QMessageBox.critical(
+                self, "Supabase API Error", f"An API error occurred: {e}"
+            )
         except Exception as e:
-            QMessageBox.critical(self, "Cloud Save Error", f"Failed to save data to Supabase: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "Cloud Save Error",
+                f"Failed to save data to Supabase: {e}\n{traceback.format_exc()}",
+            )
 
     def setup_navigation(self):
         # Connect stacked widget change to focus-management helper
@@ -1484,7 +2127,9 @@ class MeterCalculationApp(FluentWindow):
     def set_focus_on_tab_change(self, index):
         interface_widget = self.stackedWidget.widget(index)
         active_widget = self._get_loaded_widget(interface_widget)
-        route_key = interface_widget.objectName() if interface_widget is not None else ""
+        route_key = (
+            interface_widget.objectName() if interface_widget is not None else ""
+        )
 
         if route_key == "CalculatorId" and self.tab_loader.is_loaded("main"):
             self.main_tab_instance.meter_entries[0].setFocus()
@@ -1492,7 +2137,7 @@ class MeterCalculationApp(FluentWindow):
 
         if route_key == "RoomsId" and self.tab_loader.is_loaded("rooms"):
             if getattr(self.rooms_tab_instance, "room_entries", None):
-                self.rooms_tab_instance.room_entries[0]['present_entry'].setFocus()
+                self.rooms_tab_instance.room_entries[0]["present_entry"].setFocus()
             return
 
         if route_key == "HistoryId" and self.tab_loader.is_loaded("history"):
@@ -1528,64 +2173,68 @@ class MeterCalculationApp(FluentWindow):
         """Handle main window resize events and notify tabs with error handling"""
         try:
             super().resizeEvent(event)
-            
+
             # Validate event
             if event is None:
                 # Null resize event received, ignoring
                 pass
                 return
-                
+
             # Window resized, notify tabs
             self.notify_tabs_of_resize()
-            
+
         except Exception as e:
             print(f"[MAIN WINDOW RESIZE ERROR] Error in main window resizeEvent: {e}")
             # Try to continue with basic functionality
             try:
                 super().resizeEvent(event)
             except Exception as super_error:
-                print(f"[MAIN WINDOW RESIZE ERROR] Failed to call super().resizeEvent: {super_error}")
-    
+                print(
+                    f"[MAIN WINDOW RESIZE ERROR] Failed to call super().resizeEvent: {super_error}"
+                )
+
     def changeEvent(self, event):
         """Handle window state changes (maximize, minimize, restore) with error handling"""
         try:
             super().changeEvent(event)
-            
+
             # Validate event
             if event is None:
                 print("[MAIN WINDOW RESIZE ERROR] Received null change event")
                 return
-                
+
             # Handle window state changes that affect table sizing
             if event.type() == QEvent.WindowStateChange:
                 # Longer delay for window state changes as they take more time to complete
                 QTimer.singleShot(100, self.notify_tabs_of_resize)
-                
+
         except Exception as e:
             print(f"[MAIN WINDOW RESIZE ERROR] Error in changeEvent: {e}")
             # Try to continue with basic functionality
             try:
                 super().changeEvent(event)
             except Exception as super_error:
-                print(f"[MAIN WINDOW RESIZE ERROR] Failed to call super().changeEvent: {super_error}")
-    
+                print(
+                    f"[MAIN WINDOW RESIZE ERROR] Failed to call super().changeEvent: {super_error}"
+                )
+
     def get_current_tab(self):
         """Get the currently active tab widget"""
         return self._get_loaded_widget(self.stackedWidget.currentWidget())
-    
+
     def notify_tabs_of_resize(self):
         """Notify current tab about resize events with comprehensive error handling"""
         try:
             current_tab = self.get_current_tab()
             if current_tab is None:
                 return
-                
-            if hasattr(current_tab, 'force_table_resize'):
+
+            if hasattr(current_tab, "force_table_resize"):
                 try:
                     current_tab.force_table_resize()
                 except Exception as resize_error:
                     print(f"[RESIZE ERROR] Failed to resize tables: {resize_error}")
-                
+
         except Exception as e:
             # Silently ignore resize notification errors
             pass
@@ -1606,10 +2255,11 @@ class MeterCalculationApp(FluentWindow):
             logging.error(f"Error refreshing rental tabs: {e}")
             print(f"[ERROR] Failed to refresh tabs: {e}")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     # Set application style for better aesthetics
-    app.setStyle("Fusion") 
+    app.setStyle("Fusion")
     ex = MeterCalculationApp()
     ex.show()
     sys.exit(app.exec_())

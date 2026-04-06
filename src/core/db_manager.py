@@ -2,9 +2,10 @@ import os
 import sqlite3
 import json
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from src.core.encryption_utils import EncryptionUtil
 from src.core.utils import get_user_data_dir
+
 
 class DBManager:
     def __init__(self, db_name="app_config.db"):
@@ -32,10 +33,16 @@ class DBManager:
         """Destructor to ensure the connection is closed when the object is garbage collected."""
         self.close()
 
+    @staticmethod
+    def _utc_now_iso() -> str:
+        return datetime.now(UTC).isoformat()
+
     def _connect(self):
         """Establishes a connection to the SQLite database."""
         try:
             self.conn = sqlite3.connect(self.db_name)
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.execute("PRAGMA busy_timeout=5000;")
             # Return rows as dictionaries instead of bare tuples
             self.conn.row_factory = sqlite3.Row
             self.cursor = self.conn.cursor()
@@ -77,11 +84,9 @@ class DBManager:
                 )
             """)
             # Add is_archived column if it doesn't exist (for backward compatibility)
-            columns = self.execute_query(
-                "PRAGMA table_info(rentals);"
-            )
+            columns = self.execute_query("PRAGMA table_info(rentals);")
             column_names = [col[1] for col in columns]
-            if 'is_archived' not in column_names:
+            if "is_archived" not in column_names:
                 try:
                     self.execute_query("""
                         ALTER TABLE rentals ADD COLUMN is_archived INTEGER DEFAULT 0;
@@ -91,10 +96,10 @@ class DBManager:
                     if "duplicate column name" in str(e):
                         print("Column 'is_archived' already exists, skipping addition.")
                     else:
-                        raise # Re-raise other operational errors
-            
+                        raise  # Re-raise other operational errors
+
             # Add supabase_id column and its unique index if they don't exist
-            if 'supabase_id' not in column_names:
+            if "supabase_id" not in column_names:
                 try:
                     # Add the column without the UNIQUE constraint first
                     self.execute_query("""
@@ -103,7 +108,7 @@ class DBManager:
                     print("Added 'supabase_id' column to rentals table.")
                 except sqlite3.OperationalError as e:
                     if "duplicate column name" not in str(e):
-                        raise # Re-raise other operational errors
+                        raise  # Re-raise other operational errors
 
             # Now, create a unique index on the column.
             # This is the recommended way to add a unique constraint to an existing table in SQLite.
@@ -117,7 +122,19 @@ class DBManager:
                 # This might fail if there are duplicate values in existing rows (e.g., all NULLs).
                 # Depending on the desired behavior, you might want to handle this.
                 # For now, we'll print a warning.
-                print(f"Could not create unique index on 'supabase_id'. This may be because of existing duplicate values. Error: {e}")
+                print(
+                    f"Could not create unique index on 'supabase_id'. This may be because of existing duplicate values. Error: {e}"
+                )
+
+            self.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_rentals_archived_created ON rentals (is_archived, created_at DESC);"
+            )
+            self.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_rentals_archived_updated ON rentals (is_archived, updated_at DESC);"
+            )
+            self.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_rentals_room_created ON rentals (room_number, created_at);"
+            )
 
             # Rentals table ready
             pass
@@ -147,7 +164,9 @@ class DBManager:
             col_names = [c[1] for c in cols] if cols else []
             if "added_amount" not in col_names:
                 try:
-                    self.execute_query("ALTER TABLE main_calculations_cache ADD COLUMN added_amount REAL;")
+                    self.execute_query(
+                        "ALTER TABLE main_calculations_cache ADD COLUMN added_amount REAL;"
+                    )
                 except sqlite3.OperationalError as e:
                     if "duplicate column name" not in str(e):
                         raise
@@ -191,6 +210,18 @@ class DBManager:
                     value TEXT
                 )
             """)
+            self.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_main_calc_source_year_month ON main_calculations_cache (source, year, month);"
+            )
+            self.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_room_calc_source_year_room_month ON room_calculations_cache (source, year, room_name, month);"
+            )
+            self.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_room_calc_source_main_record ON room_calculations_cache (source, main_record_id);"
+            )
+            self.execute_query(
+                "CREATE INDEX IF NOT EXISTS idx_rental_records_cache_room_created ON rental_records_cache (room_number, created_at);"
+            )
         except Exception as e:
             print(f"Database Error: Failed to bootstrap dashboard cache tables: {e}")
             raise
@@ -209,11 +240,14 @@ class DBManager:
             (key, value),
         )
 
-    def upsert_main_calculations_cache(self, records: list[dict], source: str = "supabase") -> None:
+    def upsert_main_calculations_cache(
+        self, records: list[dict], source: str = "supabase"
+    ) -> None:
         if not records:
             return
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = self._utc_now_iso()
+        params_list = []
         for record in records:
             record_id = record.get("id")
             if record_id is None:
@@ -225,11 +259,19 @@ class DBManager:
             grand_total = None
             added_amount = None
             try:
-                grand_total = float(main_data.get("grand_total")) if main_data.get("grand_total") is not None else None
+                grand_total = (
+                    float(main_data.get("grand_total"))
+                    if main_data.get("grand_total") is not None
+                    else None
+                )
             except Exception:
                 grand_total = None
             try:
-                added_amount = float(main_data.get("added_amount")) if main_data.get("added_amount") is not None else None
+                added_amount = (
+                    float(main_data.get("added_amount"))
+                    if main_data.get("added_amount") is not None
+                    else None
+                )
             except Exception:
                 added_amount = None
 
@@ -241,21 +283,7 @@ class DBManager:
             except Exception:
                 main_data_json = None
 
-            self.execute_query(
-                """
-                INSERT INTO main_calculations_cache
-                    (source, record_id, month, year, grand_total, added_amount, main_data_json, created_at, updated_at, synced_at)
-                VALUES
-                    (:source, :record_id, :month, :year, :grand_total, :added_amount, :main_data_json, :created_at, :updated_at, :synced_at)
-                ON CONFLICT(source, month, year) DO UPDATE SET
-                    record_id=excluded.record_id,
-                    grand_total=excluded.grand_total,
-                    added_amount=excluded.added_amount,
-                    main_data_json=excluded.main_data_json,
-                    created_at=COALESCE(excluded.created_at, main_calculations_cache.created_at),
-                    updated_at=COALESCE(excluded.updated_at, main_calculations_cache.updated_at),
-                    synced_at=excluded.synced_at
-                """,
+            params_list.append(
                 {
                     "source": source,
                     "record_id": str(record_id),
@@ -267,14 +295,35 @@ class DBManager:
                     "created_at": created_at,
                     "updated_at": updated_at,
                     "synced_at": now_iso,
-                },
+                }
             )
 
-    def upsert_room_calculations_cache(self, entries: list[dict], source: str = "supabase") -> None:
+        self.execute_many(
+            """
+            INSERT INTO main_calculations_cache
+                (source, record_id, month, year, grand_total, added_amount, main_data_json, created_at, updated_at, synced_at)
+            VALUES
+                (:source, :record_id, :month, :year, :grand_total, :added_amount, :main_data_json, :created_at, :updated_at, :synced_at)
+            ON CONFLICT(source, month, year) DO UPDATE SET
+                record_id=excluded.record_id,
+                grand_total=excluded.grand_total,
+                added_amount=excluded.added_amount,
+                main_data_json=excluded.main_data_json,
+                created_at=COALESCE(excluded.created_at, main_calculations_cache.created_at),
+                updated_at=COALESCE(excluded.updated_at, main_calculations_cache.updated_at),
+                synced_at=excluded.synced_at
+            """,
+            params_list,
+        )
+
+    def upsert_room_calculations_cache(
+        self, entries: list[dict], source: str = "supabase"
+    ) -> None:
         if not entries:
             return
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = self._utc_now_iso()
+        params_list = []
         for e in entries:
             room_record_id = e.get("room_record_id")
             main_record_id = e.get("main_record_id")
@@ -293,23 +342,13 @@ class DBManager:
                 room_data_json = None
 
             try:
-                grand_total_val = float(grand_total) if grand_total is not None else None
+                grand_total_val = (
+                    float(grand_total) if grand_total is not None else None
+                )
             except Exception:
                 grand_total_val = None
 
-            self.execute_query(
-                """
-                INSERT INTO room_calculations_cache
-                    (source, main_record_id, room_record_id, month, year, room_name, grand_total, room_data_json, synced_at)
-                VALUES
-                    (:source, :main_record_id, :room_record_id, :month, :year, :room_name, :grand_total, :room_data_json, :synced_at)
-                ON CONFLICT(source, year, month, room_name) DO UPDATE SET
-                    main_record_id=excluded.main_record_id,
-                    room_record_id=excluded.room_record_id,
-                    grand_total=excluded.grand_total,
-                    room_data_json=excluded.room_data_json,
-                    synced_at=excluded.synced_at
-                """,
+            params_list.append(
                 {
                     "source": source,
                     "main_record_id": str(main_record_id),
@@ -320,37 +359,39 @@ class DBManager:
                     "grand_total": grand_total_val,
                     "room_data_json": room_data_json,
                     "synced_at": now_iso,
-                },
+                }
             )
 
-    def upsert_rental_records_cache(self, records: list[dict], source: str = "supabase") -> None:
+        self.execute_many(
+            """
+            INSERT INTO room_calculations_cache
+                (source, main_record_id, room_record_id, month, year, room_name, grand_total, room_data_json, synced_at)
+            VALUES
+                (:source, :main_record_id, :room_record_id, :month, :year, :room_name, :grand_total, :room_data_json, :synced_at)
+            ON CONFLICT(source, year, month, room_name) DO UPDATE SET
+                main_record_id=excluded.main_record_id,
+                room_record_id=excluded.room_record_id,
+                grand_total=excluded.grand_total,
+                room_data_json=excluded.room_data_json,
+                synced_at=excluded.synced_at
+            """,
+            params_list,
+        )
+
+    def upsert_rental_records_cache(
+        self, records: list[dict], source: str = "supabase"
+    ) -> None:
         if not records:
             return
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = self._utc_now_iso()
+        params_list = []
         for r in records:
             supabase_id = r.get("supabase_id") or r.get("id")
             if not supabase_id:
                 continue
 
-            self.execute_query(
-                """
-                INSERT INTO rental_records_cache
-                    (source, supabase_id, tenant_name, room_number, created_at, updated_at, start_year, start_month, end_year, end_month, is_archived, synced_at)
-                VALUES
-                    (:source, :supabase_id, :tenant_name, :room_number, :created_at, :updated_at, :start_year, :start_month, :end_year, :end_month, :is_archived, :synced_at)
-                ON CONFLICT(source, supabase_id) DO UPDATE SET
-                    tenant_name=excluded.tenant_name,
-                    room_number=excluded.room_number,
-                    created_at=COALESCE(excluded.created_at, rental_records_cache.created_at),
-                    updated_at=COALESCE(excluded.updated_at, rental_records_cache.updated_at),
-                    start_year=excluded.start_year,
-                    start_month=excluded.start_month,
-                    end_year=excluded.end_year,
-                    end_month=excluded.end_month,
-                    is_archived=excluded.is_archived,
-                    synced_at=excluded.synced_at
-                """,
+            params_list.append(
                 {
                     "source": source,
                     "supabase_id": str(supabase_id),
@@ -364,8 +405,119 @@ class DBManager:
                     "end_month": r.get("end_month"),
                     "is_archived": int(r.get("is_archived") or 0),
                     "synced_at": now_iso,
-                },
+                }
             )
+
+        self.execute_many(
+            """
+            INSERT INTO rental_records_cache
+                (source, supabase_id, tenant_name, room_number, created_at, updated_at, start_year, start_month, end_year, end_month, is_archived, synced_at)
+            VALUES
+                (:source, :supabase_id, :tenant_name, :room_number, :created_at, :updated_at, :start_year, :start_month, :end_year, :end_month, :is_archived, :synced_at)
+            ON CONFLICT(source, supabase_id) DO UPDATE SET
+                tenant_name=excluded.tenant_name,
+                room_number=excluded.room_number,
+                created_at=COALESCE(excluded.created_at, rental_records_cache.created_at),
+                updated_at=COALESCE(excluded.updated_at, rental_records_cache.updated_at),
+                start_year=excluded.start_year,
+                start_month=excluded.start_month,
+                end_year=excluded.end_year,
+                end_month=excluded.end_month,
+                is_archived=excluded.is_archived,
+                synced_at=excluded.synced_at
+            """,
+            params_list,
+        )
+
+    def delete_missing_rental_records_cache(
+        self, valid_supabase_ids: list[str | int], source: str = "supabase"
+    ) -> None:
+        """Delete cached rental rows that no longer exist in the cloud result set."""
+        normalized_ids = [str(i) for i in dict.fromkeys(valid_supabase_ids or []) if i]
+
+        if not normalized_ids:
+            self.execute_query(
+                "DELETE FROM rental_records_cache WHERE source = ?",
+                (source,),
+            )
+            return
+
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        params = [source, *normalized_ids]
+        self.execute_query(
+            f"DELETE FROM rental_records_cache WHERE source = ? AND supabase_id NOT IN ({placeholders})",
+            tuple(params),
+        )
+
+    def delete_missing_main_calculations_cache(
+        self, year: int, valid_record_ids: list[str | int], source: str = "supabase"
+    ) -> None:
+        """Delete cached main-calculation rows missing from a full-year cloud result."""
+        normalized_ids = [str(i) for i in dict.fromkeys(valid_record_ids or []) if i]
+
+        if not normalized_ids:
+            self.execute_query(
+                "DELETE FROM main_calculations_cache WHERE source = ? AND year = ?",
+                (source, int(year)),
+            )
+            return
+
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        params = [source, int(year), *normalized_ids]
+        self.execute_query(
+            f"DELETE FROM main_calculations_cache WHERE source = ? AND year = ? AND record_id NOT IN ({placeholders})",
+            tuple(params),
+        )
+
+    def delete_missing_room_calculations_cache(
+        self,
+        year: int,
+        valid_room_record_ids: list[str | int],
+        source: str = "supabase",
+    ) -> None:
+        """Delete cached room-calculation rows missing from a full-year cloud result."""
+        normalized_ids = [
+            str(i) for i in dict.fromkeys(valid_room_record_ids or []) if i is not None
+        ]
+
+        if not normalized_ids:
+            self.execute_query(
+                "DELETE FROM room_calculations_cache WHERE source = ? AND year = ?",
+                (source, int(year)),
+            )
+            return
+
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        params = [source, int(year), *normalized_ids]
+        self.execute_query(
+            f"DELETE FROM room_calculations_cache WHERE source = ? AND year = ? AND room_record_id NOT IN ({placeholders})",
+            tuple(params),
+        )
+
+    def delete_missing_room_calculations_for_main_record(
+        self,
+        main_record_id: str | int,
+        valid_room_record_ids: list[str | int],
+        source: str = "supabase",
+    ) -> None:
+        """Delete stale cached room rows for one changed main record."""
+        normalized_ids = [
+            str(i) for i in dict.fromkeys(valid_room_record_ids or []) if i is not None
+        ]
+
+        if not normalized_ids:
+            self.execute_query(
+                "DELETE FROM room_calculations_cache WHERE source = ? AND main_record_id = ?",
+                (source, str(main_record_id)),
+            )
+            return
+
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        params = [source, str(main_record_id), *normalized_ids]
+        self.execute_query(
+            f"DELETE FROM room_calculations_cache WHERE source = ? AND main_record_id = ? AND room_record_id NOT IN ({placeholders})",
+            tuple(params),
+        )
 
     def get_cached_rooms(self, year: int, source: str = "supabase") -> list[str]:
         rows = self.execute_query(
@@ -379,7 +531,9 @@ class DBManager:
         )
         return [str(r["room_name"]) for r in rows] if rows else []
 
-    def get_cached_monthly_room_totals(self, year: int, room_name: str, source: str = "supabase") -> dict[str, float | None]:
+    def get_cached_monthly_room_totals(
+        self, year: int, room_name: str, source: str = "supabase"
+    ) -> dict[str, float | None]:
         rows = self.execute_query(
             """
             SELECT month, grand_total
@@ -404,7 +558,9 @@ class DBManager:
                         out[str(m)] = None
         return out
 
-    def get_cached_monthly_room_unit_bills(self, year: int, room_name: str, source: str = "supabase") -> dict[str, float | None]:
+    def get_cached_monthly_room_unit_bills(
+        self, year: int, room_name: str, source: str = "supabase"
+    ) -> dict[str, float | None]:
         rows = self.execute_query(
             """
             SELECT month, room_data_json
@@ -433,7 +589,9 @@ class DBManager:
                         out[str(m)] = None
         return out
 
-    def get_cached_monthly_room_water_bills(self, year: int, room_name: str, source: str = "supabase") -> dict[str, float | None]:
+    def get_cached_monthly_room_water_bills(
+        self, year: int, room_name: str, source: str = "supabase"
+    ) -> dict[str, float | None]:
         rows = self.execute_query(
             """
             SELECT month, room_data_json
@@ -462,7 +620,9 @@ class DBManager:
                         out[str(m)] = None
         return out
 
-    def get_cached_monthly_owner_added_amounts(self, year: int, source: str = "supabase") -> dict[str, float | None]:
+    def get_cached_monthly_owner_added_amounts(
+        self, year: int, source: str = "supabase"
+    ) -> dict[str, float | None]:
         rows = self.execute_query(
             """
             SELECT month, added_amount
@@ -487,7 +647,9 @@ class DBManager:
                         out[str(m)] = None
         return out
 
-    def get_cached_monthly_owner_unit_bills(self, year: int, source: str = "supabase") -> dict[str, float | None]:
+    def get_cached_monthly_owner_unit_bills(
+        self, year: int, source: str = "supabase"
+    ) -> dict[str, float | None]:
         main_rows = self.execute_query(
             """
             SELECT month, main_data_json
@@ -550,71 +712,91 @@ class DBManager:
             if not month_sums:
                 out[month] = None
                 continue
-            out[month] = float(total_unit_cost) - (float(month_sums["water"]) + float(month_sums["unit"]))
+            out[month] = float(total_unit_cost) - (
+                float(month_sums["water"]) + float(month_sums["unit"])
+            )
         return out
 
-    def get_cached_monthly_per_unit_cost(self, year: int, source: str = "supabase") -> dict[str, float | None]:
+    def get_cached_dashboard_year_snapshot(
+        self, year: int, source: str = "supabase"
+    ) -> dict[str, dict[str, float | None] | str | None]:
         rows = self.execute_query(
             """
-            SELECT month, main_data_json
+            SELECT month, grand_total, main_data_json, synced_at
             FROM main_calculations_cache
             WHERE source = ? AND year = ?
             """,
             (source, int(year)),
         )
-        out: dict[str, float | None] = {}
-        if rows:
-            for r in rows:
-                m = r["month"]
-                if not m:
-                    continue
-                try:
-                    main_data = json.loads(r["main_data_json"] or "{}")
-                except Exception:
-                    main_data = {}
-                v = main_data.get("per_unit_cost")
-                if v is None:
-                    out[str(m)] = None
-                else:
-                    try:
-                        out[str(m)] = float(v)
-                    except Exception:
-                        out[str(m)] = None
-        return out
 
-    def get_cached_monthly_total_electricity_bills(self, year: int, source: str = "supabase") -> dict[str, float | None]:
-        """Return total electricity (unit) bill for the entire building per month.
+        def _coerce_float(value, *, default_zero: bool = False) -> float | None:
+            if value is None:
+                return 0.0 if default_zero else None
+            try:
+                return float(value)
+            except Exception:
+                return 0.0 if default_zero else None
 
-        Reads ``total_unit_cost`` from ``main_calculations_cache.main_data_json``.
-        Returns a ``dict`` mapping month-name string → float (or None if missing).
-        """
-        rows = self.execute_query(
-            """
-            SELECT month, main_data_json
-            FROM main_calculations_cache
-            WHERE source = ? AND year = ?
-            """,
-            (source, int(year)),
-        )
-        out: dict[str, float | None] = {}
-        if rows:
-            for r in rows:
-                m = r["month"]
-                if not m:
-                    continue
-                try:
-                    main_data = json.loads(r["main_data_json"] or "{}")
-                except Exception:
-                    main_data = {}
-                v = main_data.get("total_unit_cost")
-                if v is None:
-                    out[str(m)] = None
-                else:
-                    try:
-                        out[str(m)] = float(v)
-                    except Exception:
-                        out[str(m)] = None
-        return out
+        snapshot: dict[str, dict[str, float | None] | str | None] = {
+            "monthly_totals": {},
+            "monthly_per_unit_cost": {},
+            "monthly_total_electricity_bills": {},
+            "last_sync": None,
+        }
+
+        for r in rows or []:
+            month = r["month"]
+            if not month:
+                continue
+
+            month_key = str(month)
+            synced_at = r["synced_at"]
+            if synced_at and (
+                snapshot["last_sync"] is None
+                or str(synced_at) > str(snapshot["last_sync"])
+            ):
+                snapshot["last_sync"] = synced_at
+
+            monthly_totals = snapshot["monthly_totals"]
+            current_total = monthly_totals.get(month_key, 0.0) or 0.0
+            monthly_totals[month_key] = current_total + (
+                _coerce_float(r["grand_total"], default_zero=True) or 0.0
+            )
+
+            try:
+                main_data = json.loads(r["main_data_json"] or "{}")
+            except Exception:
+                main_data = {}
+
+            snapshot["monthly_per_unit_cost"][month_key] = _coerce_float(
+                main_data.get("per_unit_cost")
+            )
+            snapshot["monthly_total_electricity_bills"][month_key] = _coerce_float(
+                main_data.get("total_unit_cost")
+            )
+
+        return snapshot
+
+    def get_cached_monthly_per_unit_cost(
+        self, year: int, source: str = "supabase"
+    ) -> dict[str, float | None]:
+        snapshot = self.get_cached_dashboard_year_snapshot(year, source=source)
+        return snapshot["monthly_per_unit_cost"]
+
+    def get_cached_monthly_total_electricity_bills(
+        self, year: int, source: str = "supabase"
+    ) -> dict[str, float | None]:
+        snapshot = self.get_cached_dashboard_year_snapshot(year, source=source)
+        return snapshot["monthly_total_electricity_bills"]
+
+    def get_cached_monthly_totals(
+        self, year: int, source: str = "supabase"
+    ) -> dict[str, float]:
+        snapshot = self.get_cached_dashboard_year_snapshot(year, source=source)
+        return {
+            month: float(total or 0.0)
+            for month, total in snapshot["monthly_totals"].items()
+        }
 
     def get_rental_records_for_room(self, room_number: str) -> list[sqlite3.Row]:
         rows = self.execute_query(
@@ -628,15 +810,18 @@ class DBManager:
         )
         if rows:
             return rows
-        return self.execute_query(
-            """
+        return (
+            self.execute_query(
+                """
             SELECT tenant_name, room_number, created_at, updated_at, is_archived
             FROM rentals
             WHERE room_number = ?
             ORDER BY created_at
             """,
-            (str(room_number),),
-        ) or []
+                (str(room_number),),
+            )
+            or []
+        )
 
     def get_cached_years(self, source: str = "supabase") -> list[int]:
         rows = self.execute_query(
@@ -644,28 +829,6 @@ class DBManager:
             (source,),
         )
         return [int(r["year"]) for r in rows] if rows else []
-
-    def get_cached_monthly_totals(self, year: int, source: str = "supabase") -> dict[str, float]:
-        rows = self.execute_query(
-            """
-            SELECT month, SUM(COALESCE(grand_total, 0)) AS total
-            FROM main_calculations_cache
-            WHERE source = ? AND year = ?
-            GROUP BY month
-            """,
-            (source, year),
-        )
-        out: dict[str, float] = {}
-        if rows:
-            for r in rows:
-                m = r["month"]
-                if not m:
-                    continue
-                try:
-                    out[str(m)] = float(r["total"] or 0.0)
-                except Exception:
-                    out[str(m)] = 0.0
-        return out
 
     def execute_query(
         self,
@@ -702,7 +865,7 @@ class DBManager:
                 self.cursor.execute(query)
             else:
                 self.cursor.execute(query, params)
-            
+
             # If the statement produced a result-set, fetch it; otherwise commit.
             if self.cursor.description:  # SELECT / PRAGMA / etc.
                 if fetch_one:
@@ -721,6 +884,24 @@ class DBManager:
             raise
         except Exception as e:
             print(f"An unexpected error occurred during query execution: {e}")
+            raise
+
+    def execute_many(self, query: str, params_list: list[tuple | dict]) -> None:
+        """Execute a write query for many parameter sets in a single transaction."""
+        if not params_list:
+            return
+
+        try:
+            self.cursor.executemany(query, params_list)
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(
+                f"Database batch query error: {e}\nQuery: {query}\nRows: {len(params_list)}"
+            )
+            self.conn.rollback()
+            raise
+        except Exception as e:
+            print(f"An unexpected error occurred during batch query execution: {e}")
             raise
 
     def create_table(self, query: str):
@@ -746,12 +927,16 @@ class DBManager:
             # Store as JSON string to keep both values associated with one entry if needed,
             # or as separate entries. For simplicity, let's store them as separate keys.
             # Alternatively, you could store a JSON blob of all config.
-            
+
             # Using separate keys for clarity and easy retrieval
-            self.cursor.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
-                                ("SUPABASE_URL", encrypted_url))
-            self.cursor.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
-                                ("SUPABASE_KEY", encrypted_key))
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
+                ("SUPABASE_URL", encrypted_url),
+            )
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
+                ("SUPABASE_KEY", encrypted_key),
+            )
             self.conn.commit()
             print("Supabase configuration saved successfully.")
         except sqlite3.Error as e:
@@ -770,9 +955,11 @@ class DBManager:
         """
         config = {}
         try:
-            self.cursor.execute("SELECT key, value FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')")
+            self.cursor.execute(
+                "SELECT key, value FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')"
+            )
             rows = self.cursor.fetchall()
-            
+
             for row in rows:
                 try:
                     decrypted_value = self.encryption_util.decrypt_data(row["value"])
@@ -780,7 +967,7 @@ class DBManager:
                 except Exception as e:
                     print(f"Error decrypting value for key {row['key']}: {e}")
                     # Continue to try decrypting other values
-            
+
             if "SUPABASE_URL" not in config or "SUPABASE_KEY" not in config:
                 print("Supabase configuration not found or incomplete in database.")
                 return {}
@@ -796,9 +983,11 @@ class DBManager:
     def config_exists(self) -> bool:
         """Checks if Supabase configuration exists in the database."""
         try:
-            self.cursor.execute("SELECT COUNT(*) FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')")
+            self.cursor.execute(
+                "SELECT COUNT(*) FROM app_config WHERE key IN ('SUPABASE_URL', 'SUPABASE_KEY')"
+            )
             count = self.cursor.fetchone()[0]
-            return count >= 2 # Both URL and Key must be present
+            return count >= 2  # Both URL and Key must be present
         except sqlite3.Error as e:
             print(f"Error checking config existence: {e}")
             return False
@@ -829,11 +1018,12 @@ class DBManager:
         # Execute and return the lastrowid
         return int(self.execute_query(insert_sql, record_data))
 
+
 if __name__ == "__main__":
     # Example usage and testing
     print("Testing db_manager.py...")
     test_db_name = "test_app_config.db"
-    
+
     # Clean up previous test database if it exists
     if os.path.exists(test_db_name):
         os.remove(test_db_name)
@@ -842,7 +1032,7 @@ if __name__ == "__main__":
     db_manager = None
     try:
         db_manager = DBManager(db_name=test_db_name)
-        
+
         # Test create_table
         print("\nTesting create_table...")
         db_manager.create_table("""
@@ -855,7 +1045,9 @@ if __name__ == "__main__":
 
         # Test execute_query (INSERT)
         print("\nTesting execute_query (INSERT)...")
-        last_id = db_manager.execute_query("INSERT INTO test_table (name) VALUES (?)", ("Test Name 1",))
+        last_id = db_manager.execute_query(
+            "INSERT INTO test_table (name) VALUES (?)", ("Test Name 1",)
+        )
         print(f"Inserted record with ID: {last_id}")
         assert last_id is not None
 
@@ -868,25 +1060,31 @@ if __name__ == "__main__":
 
         # Test execute_query (UPDATE)
         print("\nTesting execute_query (UPDATE)...")
-        db_manager.execute_query("UPDATE test_table SET name = ? WHERE id = ?", ("Updated Name", 1))
-        updated_row = db_manager.execute_query("SELECT * FROM test_table WHERE id = ?", (1,), fetch_one=True)
+        db_manager.execute_query(
+            "UPDATE test_table SET name = ? WHERE id = ?", ("Updated Name", 1)
+        )
+        updated_row = db_manager.execute_query(
+            "SELECT * FROM test_table WHERE id = ?", (1,), fetch_one=True
+        )
         print(f"Updated row: {updated_row}")
         assert updated_row[1] == "Updated Name"
 
         # Test execute_query (DELETE)
         print("\nTesting execute_query (DELETE)...")
         db_manager.execute_query("DELETE FROM test_table WHERE id = ?", (1,))
-        deleted_row = db_manager.execute_query("SELECT * FROM test_table WHERE id = ?", (1,), fetch_one=True)
+        deleted_row = db_manager.execute_query(
+            "SELECT * FROM test_table WHERE id = ?", (1,), fetch_one=True
+        )
         print(f"Deleted row: {deleted_row}")
         assert deleted_row is None
 
         # Test saving config
         test_url = "https://test.supabase.co"
         test_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiY2RlZmdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NzgyMzU2MDAsImV4cCI6MTk5MzgxMTYwMH0.some_random_key_here"
-        
+
         print("\nSaving test configuration...")
         db_manager.save_config(test_url, test_key)
-        
+
         # Test config_exists
         exists = db_manager.config_exists()
         print(f"Config exists after saving: {exists}")
@@ -906,7 +1104,7 @@ if __name__ == "__main__":
         new_test_key = "new_key_12345"
         print("\nSaving new configuration (overwriting)...")
         db_manager.save_config(new_test_url, new_test_key)
-        
+
         retrieved_new_config = db_manager.get_config()
         print(f"Retrieved New URL: {retrieved_new_config.get('SUPABASE_URL')}")
         print(f"Retrieved New Key: {retrieved_new_config.get('SUPABASE_KEY')}")
@@ -920,7 +1118,7 @@ if __name__ == "__main__":
         exists_after_delete = db_manager.config_exists()
         print(f"Config exists after deleting: {exists_after_delete}")
         assert exists_after_delete == False
-        
+
         empty_config = db_manager.get_config()
         print(f"Retrieved config after deleting: {empty_config}")
         assert empty_config == {}

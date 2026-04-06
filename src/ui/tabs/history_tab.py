@@ -9,22 +9,48 @@ from datetime import datetime
 from PyQt5.QtCore import Qt, QRegExp, QSize, QTimer, QEvent
 from PyQt5.QtGui import QRegExpValidator, QIcon, QFont, QPainter, QColor, QPixmap
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFormLayout, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
-    QDialog, QAbstractItemView, QFrame, QGridLayout, QFileDialog
+    QApplication,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QFormLayout,
+    QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QSizePolicy,
+    QDialog,
+    QAbstractItemView,
+    QFrame,
+    QGridLayout,
+    QFileDialog,
 )
 from postgrest.exceptions import APIError
 from qfluentwidgets import (
-    CardWidget, ComboBox, SpinBox, PrimaryPushButton, PushButton,
-    TitleLabel, BodyLabel, CaptionLabel, TableWidget, FluentIcon,
-    DropDownPushButton, RoundMenu, Action, setCustomStyleSheet, IconWidget
+    CardWidget,
+    ComboBox,
+    SpinBox,
+    PrimaryPushButton,
+    PushButton,
+    TitleLabel,
+    BodyLabel,
+    CaptionLabel,
+    TableWidget,
+    FluentIcon,
+    DropDownPushButton,
+    RoundMenu,
+    Action,
+    setCustomStyleSheet,
+    IconWidget,
 )
 
 
 # Custom CardWidget without hover effects for history tab containers
 class StaticCardWidget(CardWidget):
     """CardWidget that disables hover effects while preserving child component functionality."""
-    
+
     def enterEvent(self, event):
         """Do not invoke base CardWidget hover behavior."""
         return  # No-op to keep static appearance
@@ -39,38 +65,54 @@ class StaticCardWidget(CardWidget):
             return True
         return super().event(e)
 
+
 # Ensure project root (containing 'src') is on sys.path when running this file standalone
 try:
     from src.core.utils import resource_path  # For icons
-    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, SmoothTableWidget
+    from src.ui.custom_widgets import (
+        CustomLineEdit,
+        AutoScrollArea,
+        CustomNavButton,
+        SmoothTableWidget,
+    )
     from src.ui.responsive_components import ResponsiveDialog
     from src.ui.components import EnhancedTableMixin
     from src.ui.save_dialog import SaveDialog
 except ModuleNotFoundError:
     import pathlib, sys as _sys
+
     # Add two levels up (project root) to sys.path
     _project_root = pathlib.Path(__file__).resolve().parents[2]
     if str(_project_root) not in _sys.path:
         _sys.path.append(str(_project_root))
     from src.core.utils import resource_path
-    from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CustomNavButton, SmoothTableWidget
+    from src.ui.custom_widgets import (
+        CustomLineEdit,
+        AutoScrollArea,
+        CustomNavButton,
+        SmoothTableWidget,
+    )
     from src.ui.components import EnhancedTableMixin
 
 
 # Dialog for Editing Records (Moved from HomeUnitCalculator.py)
 class EditRecordDialog(ResponsiveDialog):
-    def __init__(self, record_id, main_data, room_data_list, parent=None): # parent is now the main window
+    def __init__(
+        self, record_id, main_data, room_data_list, parent=None
+    ):  # parent is now the main window
         super().__init__(parent)
-        self.record_id = record_id 
-        self.main_window = parent # parent is now the main window directly
-        self.supabase_manager = self.main_window.supabase_manager # Get supabase manager from main_window
-        self.room_edit_widgets = [] 
-        self.meter_diff_edit_widgets = [] 
-        
+        self.record_id = record_id
+        self.main_window = parent  # parent is now the main window directly
+        self.supabase_manager = (
+            self.main_window.supabase_manager
+        )  # Get supabase manager from main_window
+        self.room_edit_widgets = []
+        self.meter_diff_edit_widgets = []
+
         self.setWindowTitle("Edit Calculation Record")
         # self.setMinimumWidth(600) # Removed for responsiveness
         # self.setMinimumHeight(500) # Removed for responsiveness
-        
+
         # Enable translucent background for rounded corners
         self.setAttribute(Qt.WA_TranslucentBackground)
 
@@ -100,15 +142,15 @@ class EditRecordDialog(ResponsiveDialog):
                 background-color: rgba(61, 61, 61, 0.3);
             }
         """)
-        
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(container)
-        
+
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(0)
-        
+
         # Custom title bar with dark theme
         title_bar = QWidget()
         title_bar.setStyleSheet("""
@@ -121,30 +163,47 @@ class EditRecordDialog(ResponsiveDialog):
         title_bar_layout = QHBoxLayout(title_bar)
         title_bar_layout.setContentsMargins(10, 8, 8, 8)
         title_bar_layout.setSpacing(8)
-        
+
         # App icon (try to load from main window or use calculator icon)
         app_icon_label = QLabel()
         try:
             from src.core.utils import resource_path
+
             icon_path = resource_path("icons/icon.png")
             if os.path.exists(icon_path):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
-                    app_icon_label.setPixmap(pixmap.scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    app_icon_label.setPixmap(
+                        pixmap.scaled(
+                            18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        )
+                    )
                 else:
-                    app_icon_label.setPixmap(FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18))
+                    app_icon_label.setPixmap(
+                        FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(
+                            18, 18
+                        )
+                    )
             else:
-                app_icon_label.setPixmap(FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18))
+                app_icon_label.setPixmap(
+                    FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(
+                        18, 18
+                    )
+                )
         except:
-            app_icon_label.setPixmap(FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18))
+            app_icon_label.setPixmap(
+                FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18)
+            )
         title_bar_layout.addWidget(app_icon_label)
-        
+
         # Title text
         title_text = QLabel("Edit Calculation Record")
-        title_text.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 13px; background: transparent;")
+        title_text.setStyleSheet(
+            "color: #ffffff; font-weight: bold; font-size: 13px; background: transparent;"
+        )
         title_bar_layout.addWidget(title_text)
         title_bar_layout.addStretch()
-        
+
         # Close button with visible X - always red background
         close_btn_container = QPushButton("×")
         close_btn_container.setFixedSize(32, 32)
@@ -170,16 +229,16 @@ class EditRecordDialog(ResponsiveDialog):
                 background-color: #a02315;
             }
         """)
-        
+
         title_bar_layout.addWidget(close_btn_container)
-        
+
         # Make title bar draggable
         title_bar.mousePressEvent = self.title_bar_mouse_press
         title_bar.mouseMoveEvent = self.title_bar_mouse_move
         self._drag_pos = None
-        
+
         container_layout.addWidget(title_bar)
-        
+
         # Content container with padding and rounded bottom corners
         content_widget = QWidget()
         content_widget.setStyleSheet("""
@@ -192,11 +251,13 @@ class EditRecordDialog(ResponsiveDialog):
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(15, 15, 15, 15)
         container_layout.addWidget(content_widget)
-        
+
         button_layout = QHBoxLayout()
 
         # Title with purple color, much larger size, center aligned
-        self.month_year_label = TitleLabel(f"Record for: {main_data.get('month', '')} {main_data.get('year', '')}")
+        self.month_year_label = TitleLabel(
+            f"Record for: {main_data.get('month', '')} {main_data.get('year', '')}"
+        )
         self.month_year_label.setAlignment(Qt.AlignCenter)
         self.month_year_label.setStyleSheet("""
             color: #6C5CE7; 
@@ -205,21 +266,23 @@ class EditRecordDialog(ResponsiveDialog):
             padding-bottom: 3px;
         """)
         content_layout.addWidget(self.month_year_label)
-        
+
         # Purple divider line for main header
         header_divider = QFrame()
         header_divider.setFrameShape(QFrame.HLine)
-        header_divider.setStyleSheet("background-color: #6C5CE7; min-height: 3px; max-height: 3px;")
+        header_divider.setStyleSheet(
+            "background-color: #6C5CE7; min-height: 3px; max-height: 3px;"
+        )
         content_layout.addWidget(header_divider)
         content_layout.addSpacing(5)
 
         # Horizontal layout for side-by-side sections
         sections_layout = QHBoxLayout()
-        
+
         # LEFT SECTION: Main Calculation Data
         main_group = StaticCardWidget()
         main_group_vbox = QVBoxLayout(main_group)
-        
+
         # Section title with purple color, center aligned
         main_section_label = TitleLabel("Main calculation data")
         main_section_label.setAlignment(Qt.AlignCenter)
@@ -230,14 +293,16 @@ class EditRecordDialog(ResponsiveDialog):
             padding-bottom: 2px;
         """)
         main_group_vbox.addWidget(main_section_label)
-        
+
         # Purple divider line
         main_divider = QFrame()
         main_divider.setFrameShape(QFrame.HLine)
-        main_divider.setStyleSheet("background-color: #6C5CE7; min-height: 2px; max-height: 2px;")
+        main_divider.setStyleSheet(
+            "background-color: #6C5CE7; min-height: 2px; max-height: 2px;"
+        )
         main_group_vbox.addWidget(main_divider)
         main_group_vbox.addSpacing(3)
-        
+
         main_scroll_area = AutoScrollArea()
         main_scroll_area.setWidgetResizable(True)
         main_scroll_widget = QWidget()
@@ -245,21 +310,27 @@ class EditRecordDialog(ResponsiveDialog):
         main_group_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
         main_scroll_area.setWidget(main_scroll_widget)
         main_group_vbox.addWidget(main_scroll_area)
-        
-        self.meter1_edit = CustomLineEdit(); self.meter1_edit.setObjectName("dialog_meter1_edit")
-        self.meter2_edit = CustomLineEdit(); self.meter2_edit.setObjectName("dialog_meter2_edit")
-        self.meter3_edit = CustomLineEdit(); self.meter3_edit.setObjectName("dialog_meter3_edit")
-        self.diff1_edit = CustomLineEdit(); self.diff1_edit.setObjectName("dialog_diff1_edit")
-        self.diff2_edit = CustomLineEdit(); self.diff2_edit.setObjectName("dialog_diff2_edit")
-        self.diff3_edit = CustomLineEdit(); self.diff3_edit.setObjectName("dialog_diff3_edit")
-        
+
+        self.meter1_edit = CustomLineEdit()
+        self.meter1_edit.setObjectName("dialog_meter1_edit")
+        self.meter2_edit = CustomLineEdit()
+        self.meter2_edit.setObjectName("dialog_meter2_edit")
+        self.meter3_edit = CustomLineEdit()
+        self.meter3_edit.setObjectName("dialog_meter3_edit")
+        self.diff1_edit = CustomLineEdit()
+        self.diff1_edit.setObjectName("dialog_diff1_edit")
+        self.diff2_edit = CustomLineEdit()
+        self.diff2_edit.setObjectName("dialog_diff2_edit")
+        self.diff3_edit = CustomLineEdit()
+        self.diff3_edit.setObjectName("dialog_diff3_edit")
+
         # Extract data from main_data JSONB structure
         meter_values = main_data.get("meter_readings", [])
         diff_values = main_data.get("diff_readings", [])
-        
+
         # Ensure at least 3 pairs for backward compatibility or if extra readings make it longer.
         num_pairs = max(3, len(meter_values), len(diff_values))
-        
+
         # Create labels with purple color
         for i in range(num_pairs):
             if i < 3:
@@ -267,35 +338,45 @@ class EditRecordDialog(ResponsiveDialog):
                 diff_edit = [self.diff1_edit, self.diff2_edit, self.diff3_edit][i]
             else:
                 meter_edit = CustomLineEdit()
-                meter_edit.setObjectName(f"dialog_meter{i+1}_edit")
+                meter_edit.setObjectName(f"dialog_meter{i + 1}_edit")
                 diff_edit = CustomLineEdit()
-                diff_edit.setObjectName(f"dialog_diff{i+1}_edit")
-            
+                diff_edit.setObjectName(f"dialog_diff{i + 1}_edit")
+
             # Create labels with bold white styling (like main tab)
-            meter_label = QLabel(f"Meter {i+1} Reading:")
-            meter_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
-            diff_label = QLabel(f"Difference {i+1}:")
-            diff_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
-            
+            meter_label = QLabel(f"Meter {i + 1} Reading:")
+            meter_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff; font-size: 12px;"
+            )
+            diff_label = QLabel(f"Difference {i + 1}:")
+            diff_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff; font-size: 12px;"
+            )
+
             main_group_layout.addRow(meter_label, meter_edit)
             main_group_layout.addRow(diff_label, diff_edit)
-            
-            self.meter_diff_edit_widgets.append({'meter_edit': meter_edit, 'diff_edit': diff_edit, 'index': i})
-        
+
+            self.meter_diff_edit_widgets.append(
+                {"meter_edit": meter_edit, "diff_edit": diff_edit, "index": i}
+            )
+
         self.additional_amount_edit = CustomLineEdit()
         self.additional_amount_edit.setObjectName("dialog_additional_amount_edit")
-        self.additional_amount_edit.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
-        
+        self.additional_amount_edit.setValidator(
+            QRegExpValidator(QRegExp(r"^\d*\.?\d*$"))
+        )
+
         additional_label = QLabel("Additional Amount:")
-        additional_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+        additional_label.setStyleSheet(
+            "font-weight: bold; color: #ffffff; font-size: 12px;"
+        )
         main_group_layout.addRow(additional_label, self.additional_amount_edit)
-        
+
         sections_layout.addWidget(main_group)
 
         # RIGHT SECTION: Room Calculation Data
         self.rooms_group = StaticCardWidget()
         rooms_main_layout = QVBoxLayout(self.rooms_group)
-        
+
         # Section title with purple color, center aligned
         room_section_label = TitleLabel("Room calculation data")
         room_section_label.setAlignment(Qt.AlignCenter)
@@ -306,43 +387,45 @@ class EditRecordDialog(ResponsiveDialog):
             padding-bottom: 2px;
         """)
         rooms_main_layout.addWidget(room_section_label)
-        
+
         # Purple divider line
         room_divider = QFrame()
         room_divider.setFrameShape(QFrame.HLine)
-        room_divider.setStyleSheet("background-color: #6C5CE7; min-height: 2px; max-height: 2px;")
+        room_divider.setStyleSheet(
+            "background-color: #6C5CE7; min-height: 2px; max-height: 2px;"
+        )
         rooms_main_layout.addWidget(room_divider)
         rooms_main_layout.addSpacing(3)
-        
+
         scroll_area_rooms = AutoScrollArea()
         scroll_area_rooms.setWidgetResizable(True)
         scroll_content_widget = QWidget()
-        
+
         # Grid layout for rooms (3 columns)
         self.rooms_edit_layout = QGridLayout(scroll_content_widget)
         self.rooms_edit_layout.setSpacing(10)
-        
+
         scroll_area_rooms.setWidget(scroll_content_widget)
         rooms_main_layout.addWidget(scroll_area_rooms)
 
         sections_layout.addWidget(self.rooms_group)
         content_layout.addLayout(sections_layout)
-        
+
         # Store original month/year for update
-        self.original_month = main_data.get('month')
-        self.original_year = main_data.get('year')
+        self.original_month = main_data.get("month")
+        self.original_year = main_data.get("year")
 
         # Populate rooms in 3-column grid
         for i, room_data in enumerate(room_data_list):
             # Handle nested room_data dict returned from SupabaseManager
-            nested = room_data.get('room_data') if isinstance(room_data, dict) else None
+            nested = room_data.get("room_data") if isinstance(room_data, dict) else None
             rd = nested if isinstance(nested, dict) else room_data
-            room_name = rd.get('room_name', 'Unknown Room')
-            
+            room_name = rd.get("room_name", "Unknown Room")
+
             # Create room card
             room_edit_group = StaticCardWidget()
             room_edit_main_layout = QVBoxLayout(room_edit_group)
-            
+
             # Room title with purple color, center aligned
             room_title = TitleLabel(room_name)
             room_title.setAlignment(Qt.AlignCenter)
@@ -353,14 +436,16 @@ class EditRecordDialog(ResponsiveDialog):
                 padding-bottom: 2px;
             """)
             room_edit_main_layout.addWidget(room_title)
-            
+
             # Purple divider line for room
             room_title_divider = QFrame()
             room_title_divider.setFrameShape(QFrame.HLine)
-            room_title_divider.setStyleSheet("background-color: #6C5CE7; min-height: 2px; max-height: 2px;")
+            room_title_divider.setStyleSheet(
+                "background-color: #6C5CE7; min-height: 2px; max-height: 2px;"
+            )
             room_edit_main_layout.addWidget(room_title_divider)
             room_edit_main_layout.addSpacing(3)
-            
+
             form_widget = QWidget()
             room_edit_form_layout = QFormLayout(form_widget)
             room_edit_main_layout.addWidget(form_widget)
@@ -369,8 +454,10 @@ class EditRecordDialog(ResponsiveDialog):
             present_edit = CustomLineEdit()
             present_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_present")
             previous_edit = CustomLineEdit()
-            previous_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_previous")
-            room_id = room_data.get('id') 
+            previous_edit.setObjectName(
+                f"dialog_room_{room_data.get('id', i)}_previous"
+            )
+            room_id = room_data.get("id")
 
             gas_bill_edit = CustomLineEdit()
             gas_bill_edit.setObjectName(f"dialog_room_{room_data.get('id', i)}_gas")
@@ -381,15 +468,25 @@ class EditRecordDialog(ResponsiveDialog):
 
             # Create labels with bold white styling (like main tab)
             present_label = QLabel("Present Reading:")
-            present_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            present_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff; font-size: 12px;"
+            )
             previous_label = QLabel("Previous Reading:")
-            previous_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            previous_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff; font-size: 12px;"
+            )
             gas_label = QLabel("Gas Bill:")
-            gas_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            gas_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff; font-size: 12px;"
+            )
             water_label = QLabel("Water Bill:")
-            water_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            water_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff; font-size: 12px;"
+            )
             rent_label = QLabel("House Rent:")
-            rent_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px;")
+            rent_label.setStyleSheet(
+                "font-weight: bold; color: #ffffff; font-size: 12px;"
+            )
 
             room_edit_form_layout.addRow(present_label, present_edit)
             room_edit_form_layout.addRow(previous_label, previous_edit)
@@ -401,20 +498,27 @@ class EditRecordDialog(ResponsiveDialog):
             row = i // 3
             col = i % 3
             self.rooms_edit_layout.addWidget(room_edit_group, row, col)
-            
-            self.room_edit_widgets.append({
-                "room_id": room_id, "name": room_name,
-                "present_edit": present_edit, "previous_edit": previous_edit,
-                "gas_edit": gas_bill_edit, "water_edit": water_bill_edit,
-                "rent_edit": house_rent_edit
-            })
-            
+
+            self.room_edit_widgets.append(
+                {
+                    "room_id": room_id,
+                    "name": room_name,
+                    "present_edit": present_edit,
+                    "previous_edit": previous_edit,
+                    "gas_edit": gas_bill_edit,
+                    "water_edit": water_bill_edit,
+                    "rent_edit": house_rent_edit,
+                }
+            )
+
         if not room_data_list:
-             no_rooms_label = QLabel("No room data associated with this record.")
-             self.rooms_edit_layout.addWidget(no_rooms_label, 0, 0)
+            no_rooms_label = QLabel("No room data associated with this record.")
+            self.rooms_edit_layout.addWidget(no_rooms_label, 0, 0)
 
         self.save_button = PrimaryPushButton("Save Changes")
-        self.save_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.save_button.setIcon(
+            FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255))
+        )
         self.save_button.setIconSize(QSize(20, 20))
         self.save_button.setFixedHeight(36)
         self.save_button.setStyleSheet("""
@@ -439,9 +543,11 @@ class EditRecordDialog(ResponsiveDialog):
                 margin-right: 8px;
             }
         """)
-        
+
         self.cancel_button = PrimaryPushButton("Cancel")
-        self.cancel_button.setIcon(FluentIcon.CANCEL_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.cancel_button.setIcon(
+            FluentIcon.CANCEL_MEDIUM.icon(color=QColor(255, 255, 255))
+        )
         self.cancel_button.setIconSize(QSize(20, 20))
         self.cancel_button.setFixedHeight(36)
         self.cancel_button.setStyleSheet("""
@@ -495,25 +601,33 @@ class EditRecordDialog(ResponsiveDialog):
         # ----------------- gather editable widgets -----------------
         meter_diff_seq: list[CustomLineEdit] = []
         for pair in self.meter_diff_edit_widgets:
-            meter_diff_seq.extend([pair['meter_edit'], pair['diff_edit']])
+            meter_diff_seq.extend([pair["meter_edit"], pair["diff_edit"]])
 
         aa = self.additional_amount_edit
 
         room_seq: list[CustomLineEdit] = []
         for room_set in self.room_edit_widgets:
-            room_seq.extend([
-                room_set["present_edit"],
-                room_set["previous_edit"],
-                room_set["gas_edit"],
-                room_set["water_edit"],
-                room_set["rent_edit"],
-            ])
+            room_seq.extend(
+                [
+                    room_set["present_edit"],
+                    room_set["previous_edit"],
+                    room_set["gas_edit"],
+                    room_set["water_edit"],
+                    room_set["rent_edit"],
+                ]
+            )
 
         enter_sequence = meter_diff_seq + [aa] + room_seq
 
         # Ensure every widget starts with a clean slate
         for w in enter_sequence:
-            for attr in ("next_widget_on_enter", "up_widget", "down_widget", "left_widget", "right_widget"):
+            for attr in (
+                "next_widget_on_enter",
+                "up_widget",
+                "down_widget",
+                "left_widget",
+                "right_widget",
+            ):
                 setattr(w, attr, None)
 
         if isinstance(save_btn, CustomNavButton):
@@ -521,7 +635,9 @@ class EditRecordDialog(ResponsiveDialog):
 
         # ----------------- Enter key mapping -----------------
         for idx, w in enumerate(enter_sequence):
-            w.next_widget_on_enter = enter_sequence[idx + 1] if idx < len(enter_sequence) - 1 else save_btn
+            w.next_widget_on_enter = (
+                enter_sequence[idx + 1] if idx < len(enter_sequence) - 1 else save_btn
+            )
 
         if isinstance(save_btn, CustomNavButton):
             save_btn.next_widget_on_enter = enter_sequence[0]
@@ -530,7 +646,7 @@ class EditRecordDialog(ResponsiveDialog):
         length = len(enter_sequence)
         for idx, w in enumerate(enter_sequence):
             w.down_widget = enter_sequence[(idx + 1) % length]
-            w.up_widget   = enter_sequence[(idx - 1 + length) % length]
+            w.up_widget = enter_sequence[(idx - 1 + length) % length]
 
         # ----------------- initial focus -----------------
         if enter_sequence:
@@ -541,12 +657,12 @@ class EditRecordDialog(ResponsiveDialog):
         # The data is stored as individual meter_1, meter_2, diff_1, diff_2 keys
         meter_values = []
         diff_values = []
-        
+
         # Extract meter and diff values from individual keys
         for i in range(1, 11):  # Check up to 10 meters/diffs
             meter_key = f"meter_{i}"
             diff_key = f"diff_{i}"
-            
+
             # Get meter value
             meter_val = main_data.get(meter_key)
             if meter_val is not None and str(meter_val).strip():
@@ -555,7 +671,7 @@ class EditRecordDialog(ResponsiveDialog):
                 # If we find an empty meter, still add it but don't continue beyond this point
                 # unless there are more non-empty meters later
                 meter_values.append(0)
-            
+
             # Get diff value
             diff_val = main_data.get(diff_key)
             if diff_val is not None and str(diff_val).strip():
@@ -564,13 +680,13 @@ class EditRecordDialog(ResponsiveDialog):
                 # If we find an empty diff, still add it but don't continue beyond this point
                 # unless there are more non-empty diffs later
                 diff_values.append(0)
-        
+
         # Remove trailing zeros to avoid showing unnecessary empty fields
         while meter_values and meter_values[-1] == 0:
             meter_values.pop()
         while diff_values and diff_values[-1] == 0:
             diff_values.pop()
-        
+
         # Ensure we have at least 3 values for the basic UI
         while len(meter_values) < 3:
             meter_values.append(0)
@@ -579,29 +695,43 @@ class EditRecordDialog(ResponsiveDialog):
 
         # Populate the meter and diff edit widgets
         for i, pair_widgets in enumerate(self.meter_diff_edit_widgets):
-            if i < len(meter_values) and pair_widgets['meter_edit']: 
+            if i < len(meter_values) and pair_widgets["meter_edit"]:
                 value = meter_values[i] if meter_values[i] != 0 else ""
-                pair_widgets['meter_edit'].setText(str(value))
-            if i < len(diff_values) and pair_widgets['diff_edit']: 
+                pair_widgets["meter_edit"].setText(str(value))
+            if i < len(diff_values) and pair_widgets["diff_edit"]:
                 value = diff_values[i] if diff_values[i] != 0 else ""
-                pair_widgets['diff_edit'].setText(str(value))
-                
+                pair_widgets["diff_edit"].setText(str(value))
+
         # Support both new and legacy key names
-        aa_val = main_data.get("added_amount") if "added_amount" in main_data else main_data.get("additional_amount", "")
+        aa_val = (
+            main_data.get("added_amount")
+            if "added_amount" in main_data
+            else main_data.get("additional_amount", "")
+        )
         self.additional_amount_edit.setText(str(aa_val or ""))
-        
+
         for i, room_widget_set in enumerate(self.room_edit_widgets):
             if i < len(room_data_list):
                 room_record = room_data_list[i]
                 # Extract data from room_data JSONB structure
                 room_data_jsonb = room_record.get("room_data", {})
-                
-                room_widget_set["present_edit"].setText(str(room_data_jsonb.get("present_unit", "") or ""))
-                room_widget_set["previous_edit"].setText(str(room_data_jsonb.get("previous_unit", "") or ""))
-                room_widget_set["gas_edit"].setText(str(room_data_jsonb.get("gas_bill", "") or ""))
-                room_widget_set["water_edit"].setText(str(room_data_jsonb.get("water_bill", "") or ""))
-                room_widget_set["rent_edit"].setText(str(room_data_jsonb.get("house_rent", "") or ""))
-                
+
+                room_widget_set["present_edit"].setText(
+                    str(room_data_jsonb.get("present_unit", "") or "")
+                )
+                room_widget_set["previous_edit"].setText(
+                    str(room_data_jsonb.get("previous_unit", "") or "")
+                )
+                room_widget_set["gas_edit"].setText(
+                    str(room_data_jsonb.get("gas_bill", "") or "")
+                )
+                room_widget_set["water_edit"].setText(
+                    str(room_data_jsonb.get("water_bill", "") or "")
+                )
+                room_widget_set["rent_edit"].setText(
+                    str(room_data_jsonb.get("house_rent", "") or "")
+                )
+
                 # Store entire original room_data for later preservation
                 room_widget_set["original_room_data"] = room_data_jsonb
                 # Store image paths for later use in save_changes
@@ -611,7 +741,7 @@ class EditRecordDialog(ResponsiveDialog):
                 room_widget_set["police_form_path"] = room_record.get("police_form_url")
 
     def save_changes(self):
-        def _s_int(v_str, default=0): 
+        def _s_int(v_str, default=0):
             try:
                 if not v_str or not v_str.strip():
                     return default
@@ -619,24 +749,35 @@ class EditRecordDialog(ResponsiveDialog):
                 return int(float(v_str.strip()))
             except (ValueError, TypeError):
                 return default
-        def _s_float(v_str, default=0.0): 
-            try: 
+
+        def _s_float(v_str, default=0.0):
+            try:
                 return float(v_str) if v_str and v_str.strip() else default
-            except (ValueError, TypeError): 
+            except (ValueError, TypeError):
                 return default
 
         try:
-            meter_vals = [_s_int(pair['meter_edit'].text()) for pair in self.meter_diff_edit_widgets]
-            diff_vals = [_s_int(pair['diff_edit'].text()) for pair in self.meter_diff_edit_widgets]
-            
+            meter_vals = [
+                _s_int(pair["meter_edit"].text())
+                for pair in self.meter_diff_edit_widgets
+            ]
+            diff_vals = [
+                _s_int(pair["diff_edit"].text())
+                for pair in self.meter_diff_edit_widgets
+            ]
+
             # Pad with zeros if fewer than 3 entries were dynamically created
-            while len(meter_vals) < 3: meter_vals.append(0)
-            while len(diff_vals) < 3: diff_vals.append(0)
+            while len(meter_vals) < 3:
+                meter_vals.append(0)
+            while len(diff_vals) < 3:
+                diff_vals.append(0)
 
             additional_amount = _s_float(self.additional_amount_edit.text())
             total_unit_cost = sum(meter_vals)
             total_diff_units = sum(diff_vals)
-            per_unit_cost_calc = (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0
+            per_unit_cost_calc = (
+                (total_unit_cost / total_diff_units) if total_diff_units != 0 else 0.0
+            )
             grand_total_bill = total_unit_cost + additional_amount
 
             # Prepare main_data for JSONB column with keys matching HistoryTab expectations
@@ -648,47 +789,58 @@ class EditRecordDialog(ResponsiveDialog):
             }
 
             for idx, val in enumerate(meter_vals):
-                updated_main_data_jsonb[f"meter_{idx+1}"] = val
+                updated_main_data_jsonb[f"meter_{idx + 1}"] = val
             for idx, val in enumerate(diff_vals):
-                updated_main_data_jsonb[f"diff_{idx+1}"] = val
+                updated_main_data_jsonb[f"diff_{idx + 1}"] = val
 
-            updated_main_data_jsonb.update({
-                "total_unit_cost": total_unit_cost,
-                "total_diff_units": total_diff_units,
-                "per_unit_cost": per_unit_cost_calc,
-                "added_amount": additional_amount,
-                "grand_total": grand_total_bill,
-            })
+            updated_main_data_jsonb.update(
+                {
+                    "total_unit_cost": total_unit_cost,
+                    "total_diff_units": total_diff_units,
+                    "per_unit_cost": per_unit_cost_calc,
+                    "added_amount": additional_amount,
+                    "grand_total": grand_total_bill,
+                }
+            )
 
             updated_room_records_for_supabase = []
             for rws in self.room_edit_widgets:
-                present = _s_int(rws["present_edit"].text()) # Use _s_int for consistency with meter readings
-                previous = _s_int(rws["previous_edit"].text()) # Use _s_int for consistency with meter readings
+                present = _s_int(
+                    rws["present_edit"].text()
+                )  # Use _s_int for consistency with meter readings
+                previous = _s_int(
+                    rws["previous_edit"].text()
+                )  # Use _s_int for consistency with meter readings
                 if present < previous:
-                    QMessageBox.warning(self, "Input Error",
-                                        f"Present reading ({present}) cannot be less than previous reading "
-                                        f"({previous}) for room '{rws['name']}'.")
-                    return # Do not proceed with saving if validation fails
+                    QMessageBox.warning(
+                        self,
+                        "Input Error",
+                        f"Present reading ({present}) cannot be less than previous reading "
+                        f"({previous}) for room '{rws['name']}'.",
+                    )
+                    return  # Do not proceed with saving if validation fails
                 units_consumed = present - previous
                 cost = units_consumed * per_unit_cost_calc
                 gas_bill_val = _s_float(rws["gas_edit"].text(), default=0.0)
                 water_bill_val = _s_float(rws["water_edit"].text(), default=0.0)
                 rent_val = _s_float(rws["rent_edit"].text(), default=0.0)
                 grand_total_room = cost + gas_bill_val + water_bill_val + rent_val
-                
+
                 # Start from original room_data to preserve non-edited fields
                 room_data_jsonb = dict(rws.get("original_room_data", {}))
-                room_data_jsonb.update({
-                    "room_name": rws["name"],
-                    "present_unit": present,
-                    "previous_unit": previous,
-                    "real_unit": units_consumed,
-                    "unit_bill": cost,
-                    "gas_bill": gas_bill_val,
-                    "water_bill": water_bill_val,
-                    "house_rent": rent_val,
-                    "grand_total": grand_total_room,
-                })
+                room_data_jsonb.update(
+                    {
+                        "room_name": rws["name"],
+                        "present_unit": present,
+                        "previous_unit": previous,
+                        "real_unit": units_consumed,
+                        "unit_bill": cost,
+                        "gas_bill": gas_bill_val,
+                        "water_bill": water_bill_val,
+                        "house_rent": rent_val,
+                        "grand_total": grand_total_room,
+                    }
+                )
 
                 # Include local image paths (which are actually URLs from Supabase Storage)
                 # SupabaseManager will handle re-upload if paths change, or keep existing if same.
@@ -697,20 +849,24 @@ class EditRecordDialog(ResponsiveDialog):
                     "photo_path": rws.get("photo_path"),
                     "nid_front_path": rws.get("nid_front_path"),
                     "nid_back_path": rws.get("nid_back_path"),
-                    "police_form_path": rws.get("police_form_path")
+                    "police_form_path": rws.get("police_form_path"),
                 }
-                
+
                 # If this is an existing room record, include its ID
                 if rws.get("room_id"):
                     room_record_to_save["id"] = rws["room_id"]
-                
+
                 updated_room_records_for_supabase.append(room_record_to_save)
 
             # Update main_calculations using SupabaseManager
-            main_update_success = self.supabase_manager.save_main_calculation(updated_main_data_jsonb)
-            
+            main_update_success = self.supabase_manager.save_main_calculation(
+                updated_main_data_jsonb
+            )
+
             if not main_update_success:
-                QMessageBox.critical(self, "Supabase Error", "Failed to update main calculation data.")
+                QMessageBox.critical(
+                    self, "Supabase Error", "Failed to update main calculation data."
+                )
                 return
 
             # Save room calculations using SupabaseManager
@@ -719,65 +875,75 @@ class EditRecordDialog(ResponsiveDialog):
                     self.record_id, updated_room_records_for_supabase
                 )
                 if not rooms_update_success:
-                    QMessageBox.critical(self, "Supabase Error", "Failed to update room calculation data.")
+                    QMessageBox.critical(
+                        self,
+                        "Supabase Error",
+                        "Failed to update room calculation data.",
+                    )
                     return
 
             QMessageBox.information(self, "Success", "Record updated successfully.")
-            self.accept() # Close dialog on success
+            self.accept()  # Close dialog on success
         except Exception as e:
-            QMessageBox.critical(self, "Update Error", f"An unexpected error occurred during update: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "Update Error",
+                f"An unexpected error occurred during update: {e}\n{traceback.format_exc()}",
+            )
 
 
 class HistoryTab(QWidget, EnhancedTableMixin):
     MONTH_ORDER = {
-        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
-        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12
+        "January": 1,
+        "February": 2,
+        "March": 3,
+        "April": 4,
+        "May": 5,
+        "June": 6,
+        "July": 7,
+        "August": 8,
+        "September": 9,
+        "October": 10,
+        "November": 11,
+        "December": 12,
     }
-    
+
     # Define priority columns that should have larger font sizes
     PRIORITY_COLUMNS = {
-        'main_table': ['MONTH', 'TOTAL UNIT COST', 'PER UNIT COST', 'GRAND TOTAL'],
-        'room_table': ['MONTH', 'ROOM NUMBER', 'UNIT BILL', 'GRAND TOTAL']
+        "main_table": ["MONTH", "TOTAL UNIT COST", "PER UNIT COST", "GRAND TOTAL"],
+        "room_table": ["MONTH", "ROOM NUMBER", "UNIT BILL", "GRAND TOTAL"],
     }
-    
+
     # Column icons for better visual hierarchy using FluentIcon
     COLUMN_ICONS = {
-        'MONTH': FluentIcon.CALENDAR,
-        'METER': FluentIcon.SPEED_HIGH,  # For Meter-1, Meter-2, etc.
-        'DIFF': FluentIcon.CONSTRACT,   # For Diff-1, Diff-2, etc.
-        'TOTAL_UNIT_COST': FluentIcon.SHOPPING_CART,
-        'TOTAL_DIFF_UNITS': FluentIcon.CONSTRACT,
-        'PER_UNIT_COST': FluentIcon.SHOPPING_CART,
-        'ADDED_AMOUNT': FluentIcon.ADD_TO,
-        'GRAND_TOTAL': FluentIcon.SHOPPING_CART,
-        'ROOM_NUMBER': FluentIcon.HOME,
-        'PRESENT_UNIT': FluentIcon.UP,
-        'PREVIOUS_UNIT': FluentIcon.DOWN,
-        'REAL_UNIT': FluentIcon.UNIT,
-        'UNIT_BILL': FluentIcon.SHOPPING_CART,
-        'GAS_BILL': FluentIcon.FRIGID,
-        'WATER_BILL': FluentIcon.BRIGHTNESS,
-        'HOUSE_RENT': FluentIcon.HOME,
+        "MONTH": FluentIcon.CALENDAR,
+        "METER": FluentIcon.SPEED_HIGH,  # For Meter-1, Meter-2, etc.
+        "DIFF": FluentIcon.CONSTRACT,  # For Diff-1, Diff-2, etc.
+        "TOTAL_UNIT_COST": FluentIcon.SHOPPING_CART,
+        "TOTAL_DIFF_UNITS": FluentIcon.CONSTRACT,
+        "PER_UNIT_COST": FluentIcon.SHOPPING_CART,
+        "ADDED_AMOUNT": FluentIcon.ADD_TO,
+        "GRAND_TOTAL": FluentIcon.SHOPPING_CART,
+        "ROOM_NUMBER": FluentIcon.HOME,
+        "PRESENT_UNIT": FluentIcon.UP,
+        "PREVIOUS_UNIT": FluentIcon.DOWN,
+        "REAL_UNIT": FluentIcon.UNIT,
+        "UNIT_BILL": FluentIcon.SHOPPING_CART,
+        "GAS_BILL": FluentIcon.FRIGID,
+        "WATER_BILL": FluentIcon.BRIGHTNESS,
+        "HOUSE_RENT": FluentIcon.HOME,
         # Totals table headers
-        'TOTAL_HOUSE_RENT': FluentIcon.HOME,
-        'TOTAL_WATER_BILL': FluentIcon.BRIGHTNESS,
-        'TOTAL_GAS_BILL': FluentIcon.FRIGID,
-        'TOTAL_ROOM_UNIT_BILL': FluentIcon.SHOPPING_CART
+        "TOTAL_HOUSE_RENT": FluentIcon.HOME,
+        "TOTAL_WATER_BILL": FluentIcon.BRIGHTNESS,
+        "TOTAL_GAS_BILL": FluentIcon.FRIGID,
+        "TOTAL_ROOM_UNIT_BILL": FluentIcon.SHOPPING_CART,
     }
-    
+
     # Font size configuration for different column types
-    FONT_SIZES = {
-        'priority_columns': 12,
-        'regular_columns': 10,
-        'headers': 13
-    }
-    
-    FONT_WEIGHTS = {
-        'priority_columns': 600,
-        'regular_columns': 500,
-        'headers': 700
-    }
-    
+    FONT_SIZES = {"priority_columns": 12, "regular_columns": 10, "headers": 13}
+
+    FONT_WEIGHTS = {"priority_columns": 600, "regular_columns": 500, "headers": 700}
+
     # Scroll behavior configuration
     SCROLL_STEP_DIVISOR = 15  # Adjust for scroll sensitivity (lower = faster scroll)
 
@@ -799,7 +965,11 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self._font_metrics_cache = {}  # Cache for font metrics to optimize text width calculations
         self._content_width_cache = {}  # Cache for calculated content widths
         self._table_content_hash = {}  # Track table content changes for cache invalidation
-        self._cache_statistics = {'hits': 0, 'misses': 0, 'invalidations': 0}  # Performance monitoring
+        self._cache_statistics = {
+            "hits": 0,
+            "misses": 0,
+            "invalidations": 0,
+        }  # Performance monitoring
         # load_history_source_combo is accessed via self.main_window
 
         # Track spinboxes with no-select behavior (like main tab)
@@ -828,7 +998,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             self._no_focus_spinboxes.add(spinbox)
             spinbox.installEventFilter(self)
             le = None
-            if hasattr(spinbox, 'lineEdit'):
+            if hasattr(spinbox, "lineEdit"):
                 try:
                     le = spinbox.lineEdit()
                 except Exception:
@@ -848,6 +1018,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 le.setPalette(pal)
             except Exception:
                 pass
+
             # Clear selection
             def _clear_sel():
                 try:
@@ -855,6 +1026,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     le.setCursorPosition(len(le.text()))
                 except Exception:
                     pass
+
             _clear_sel()
             # Connect to selectionChanged signal to auto-clear
             try:
@@ -863,26 +1035,44 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 pass
             # When arrows change value, clear selection/focus
             try:
-                spinbox.valueChanged.connect(lambda *_: QTimer.singleShot(0, lambda: (spinbox.clearFocus(), _clear_sel())))
+                spinbox.valueChanged.connect(
+                    lambda *_: QTimer.singleShot(
+                        0, lambda: (spinbox.clearFocus(), _clear_sel())
+                    )
+                )
             except Exception:
                 pass
         except Exception:
             pass
-    
+
     def eventFilter(self, obj, event):
         """Event filter for spinboxes"""
         # Block focus and mouse events for no-select spinboxes
         if obj in self._no_focus_spinboxes:
-            if event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+            if event.type() in (
+                QEvent.FocusIn,
+                QEvent.MouseButtonPress,
+                QEvent.MouseButtonDblClick,
+            ):
                 return True
         # Also check if obj is a line edit child of a no-select spinbox
         for spinbox in self._no_focus_spinboxes:
             try:
-                le = spinbox.lineEdit() if hasattr(spinbox, 'lineEdit') else None
+                le = spinbox.lineEdit() if hasattr(spinbox, "lineEdit") else None
                 if le and obj == le:
-                    if event.type() in (QEvent.FocusIn, QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+                    if event.type() in (
+                        QEvent.FocusIn,
+                        QEvent.MouseButtonPress,
+                        QEvent.MouseButtonDblClick,
+                    ):
                         # Clear any selection
-                        QTimer.singleShot(0, lambda: (le.deselect(), le.setCursorPosition(len(le.text()))))
+                        QTimer.singleShot(
+                            0,
+                            lambda: (
+                                le.deselect(),
+                                le.setCursorPosition(len(le.text())),
+                            ),
+                        )
                         return True
             except:
                 pass
@@ -905,7 +1095,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         try:
             # Avoid overlapping passes; reschedule if one is in progress
             if getattr(self, "_resizing_in_progress", False):
-                if hasattr(self, '_resize_debounce_timer'):
+                if hasattr(self, "_resize_debounce_timer"):
                     self._resize_debounce_timer.start(self.RESIZE_DEBOUNCE_DELAY)
                 return
 
@@ -914,9 +1104,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
             # Collect tables if present
             tables = []
-            for _name in ('main_history_table', 'room_history_table', 'totals_table'):
+            for _name in ("main_history_table", "room_history_table", "totals_table"):
                 _t = getattr(self, _name, None)
-                if _t is not None and hasattr(_t, 'columnCount'):
+                if _t is not None and hasattr(_t, "columnCount"):
                     tables.append(_t)
 
             if not tables:
@@ -930,10 +1120,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 _header = None
                 try:
                     _t.setUpdatesEnabled(False)
-                    if hasattr(_t, 'isSortingEnabled'):
+                    if hasattr(_t, "isSortingEnabled"):
                         _sorting_prev = _t.isSortingEnabled()
                         _t.setSortingEnabled(False)
-                    if hasattr(_t, 'horizontalHeader'):
+                    if hasattr(_t, "horizontalHeader"):
                         _header = _t.horizontalHeader()
                         if _header:
                             _header.blockSignals(True)
@@ -943,11 +1133,13 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 finally:
                     if _header:
                         _header.blockSignals(False)
-                    if hasattr(_t, 'setSortingEnabled'):
+                    if hasattr(_t, "setSortingEnabled"):
                         _t.setSortingEnabled(_sorting_prev)
                     _t.setUpdatesEnabled(True)
 
-            self._log_resize_debug(f"Debounced resize completed for {tables_resized} tables")
+            self._log_resize_debug(
+                f"Debounced resize completed for {tables_resized} tables"
+            )
 
         except Exception as e:
             self._log_resize_error("Error in debounced resize", e)
@@ -956,7 +1148,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
     def _trigger_debounced_resize(self):
         """Start or restart the debounced resize timer"""
-        if hasattr(self, '_resize_debounce_timer') and self._resize_debounce_timer.isActive():
+        if (
+            hasattr(self, "_resize_debounce_timer")
+            and self._resize_debounce_timer.isActive()
+        ):
             # Timer already running, restart it
             self._resize_debounce_timer.stop()
 
@@ -972,8 +1167,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
         # 1. Table row changes - invalidate cache and trigger resize
         def on_table_rows_changed():
-            self._log_resize_debug("Table rows changed - invalidating cache and triggering resize")
-            self.invalidate_table_cache(self.sender())  # Invalidate cache for this table
+            self._log_resize_debug(
+                "Table rows changed - invalidating cache and triggering resize"
+            )
+            self.invalidate_table_cache(
+                self.sender()
+            )  # Invalidate cache for this table
             self._trigger_debounced_resize()
 
         # 2. Table column changes - invalidate cache
@@ -990,23 +1189,31 @@ class HistoryTab(QWidget, EnhancedTableMixin):
     def _connect_table_signals(self, row_change_handler, column_change_handler):
         """Connect table signals to cache and resize handlers"""
         try:
-            for table_name in ['main_history_table', 'room_history_table', 'totals_table']:
+            for table_name in [
+                "main_history_table",
+                "room_history_table",
+                "totals_table",
+            ]:
                 table = getattr(self, table_name, None)
                 if table:
                     try:
                         # Connect row changes (these are signals that indicate data changes)
                         # Note: In PyQt5, the signals might be different, but the pattern remains
-                        if hasattr(table.model(), 'rowsInserted'):
+                        if hasattr(table.model(), "rowsInserted"):
                             # For models that support row insertion/emoval
                             table.model().rowsInserted.connect(row_change_handler)
                             table.model().rowsRemoved.connect(row_change_handler)
 
                         # For direct table item changes
-                        if hasattr(table, 'itemChanged'):
-                            table.itemChanged.connect(lambda item, handler=row_change_handler: handler())
+                        if hasattr(table, "itemChanged"):
+                            table.itemChanged.connect(
+                                lambda item, handler=row_change_handler: handler()
+                            )
 
                     except Exception as e:
-                        self._log_resize_error(f"Error connecting signals to {table_name}", e)
+                        self._log_resize_error(
+                            f"Error connecting signals to {table_name}", e
+                        )
 
         except Exception as e:
             self._log_resize_error("Error connecting table signals", e)
@@ -1015,15 +1222,17 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """Override any existing auxiliary resize handlers to use debounced system"""
         # Store original implementations if needed
         original_force_resize = None
-        if hasattr(self, '_force_room_table_resize'):
+        if hasattr(self, "_force_room_table_resize"):
             original_force_resize = self._force_room_table_resize
 
         # Override _force_room_table_resize to use debounced system
         def debounced_force_room_table_resize(source="Consolidated"):
             """Enhanced version using debounced resize system"""
             try:
-                self._log_resize_debug(f"Force room table resize triggered from {source}")
-                table = getattr(self, 'room_history_table', None)
+                self._log_resize_debug(
+                    f"Force room table resize triggered from {source}"
+                )
+                table = getattr(self, "room_history_table", None)
                 if table:
                     self.invalidate_table_cache(table)  # Clear cache for room table
                     self._trigger_debounced_resize()  # Use debounced system
@@ -1036,16 +1245,22 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self._force_room_table_resize = debounced_force_room_table_resize
 
         # Override force_table_resize public method
-        if hasattr(self, 'force_table_resize'):
+        if hasattr(self, "force_table_resize"):
             original_force_table_resize = self.force_table_resize
 
             def debounced_force_table_resize():
                 """Force resize all tables using debounced system"""
                 try:
-                    self._log_resize_debug("Force table resize called - clearing all caches")
+                    self._log_resize_debug(
+                        "Force table resize called - clearing all caches"
+                    )
 
                     # Clear caches for all tables
-                    for table_name in ['main_history_table', 'room_history_table', 'totals_table']:
+                    for table_name in [
+                        "main_history_table",
+                        "room_history_table",
+                        "totals_table",
+                    ]:
                         table = getattr(self, table_name, None)
                         if table:
                             self.invalidate_table_cache(table)
@@ -1066,12 +1281,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
         # Known handlers
         potential_handlers = [
-            '_handle_window_state_change',
-            '_handle_window_resize',
-            '_force_final_resize_after_state_change',
-            '_force_room_table_resize',
-            'force_table_resize',
-            '_on_table_resize'
+            "_handle_window_state_change",
+            "_handle_window_resize",
+            "_force_final_resize_after_state_change",
+            "_force_room_table_resize",
+            "force_table_resize",
+            "_on_table_resize",
         ]
 
         for handler_name in potential_handlers:
@@ -1091,19 +1306,28 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
                 # Get the source code for inspection (limited introspection)
                 # This is a simplified check - in real validation you'd need more sophisticated methods
-                if handler_name in ['_handle_window_state_change', '_handle_window_resize']:
+                if handler_name in [
+                    "_handle_window_state_change",
+                    "_handle_window_resize",
+                ]:
                     # These should be using _trigger_debounced_resize()
-                    issues.append(f"Handler {handler_name} should be validated manually for debounced resize usage")
+                    issues.append(
+                        f"Handler {handler_name} should be validated manually for debounced resize usage"
+                    )
 
             if issues:
                 self._log_resize_debug(f"Handler consistency issues found: {issues}")
             else:
-                self._log_resize_debug("All auxiliary handlers appear to use debounced system")
+                self._log_resize_debug(
+                    "All auxiliary handlers appear to use debounced system"
+                )
 
         except Exception as e:
             self._log_resize_error("Error validating handler consistency", e)
 
-    def _get_cached_font_metrics(self, table: TableWidget, column_name: str, is_priority: bool):
+    def _get_cached_font_metrics(
+        self, table: TableWidget, column_name: str, is_priority: bool
+    ):
         """Get cached font metrics for efficient width calculations"""
         import hashlib
         from PyQt5.QtGui import QFont, QFontMetrics
@@ -1115,8 +1339,16 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         if metrics_hash not in self._font_metrics_cache:
             # Create font based on priority and configuration
             font = QFont()
-            font_size = self.FONT_SIZES['priority_columns'] if is_priority else self.FONT_SIZES['regular_columns']
-            font_weight = self.FONT_WEIGHTS['priority_columns'] if is_priority else self.FONT_WEIGHTS['regular_columns']
+            font_size = (
+                self.FONT_SIZES["priority_columns"]
+                if is_priority
+                else self.FONT_SIZES["regular_columns"]
+            )
+            font_weight = (
+                self.FONT_WEIGHTS["priority_columns"]
+                if is_priority
+                else self.FONT_WEIGHTS["regular_columns"]
+            )
 
             font.setPointSize(font_size)
             font.setWeight(font_weight)
@@ -1132,17 +1364,22 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             # Use the hybrid strategy that stretches when content fits and fixes widths otherwise
             return self._set_intelligent_column_widths(table)
         except Exception as e:
-            self._log_resize_error("Error in _set_intelligent_column_widths_optimized", e)
+            self._log_resize_error(
+                "Error in _set_intelligent_column_widths_optimized", e
+            )
             # Fallback to generic calculation as a last resort
             try:
                 return self._calculate_intelligent_column_widths(table)
             except Exception:
                 return False
 
-    def _get_content_hash(self, table: TableWidget, column: int, rows_to_sample: int = 50):
+    def _get_content_hash(
+        self, table: TableWidget, column: int, rows_to_sample: int = 50
+    ):
         """Generate a hash of table content for cache invalidation"""
         try:
             import hashlib
+
             content_parts = []
 
             # Include header text
@@ -1159,11 +1396,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
             # Create hash
             content_str = "|".join(content_parts)
-            return hashlib.md5(content_str.encode('utf-8')).hexdigest()
+            return hashlib.md5(content_str.encode("utf-8")).hexdigest()
 
         except Exception:
             # Return a random hash on error to force cache miss
             import random
+
             return str(random.random())
 
     def _get_cached_content_width(self, table: TableWidget, column: int):
@@ -1173,19 +1411,20 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             current_hash = self._get_content_hash(table, column)
 
             # Check if cache is valid
-            if (cache_key in self._content_width_cache and
-                cache_key in self._table_content_hash and
-                self._table_content_hash[cache_key] == current_hash):
-
-                self._cache_statistics['hits'] += 1
+            if (
+                cache_key in self._content_width_cache
+                and cache_key in self._table_content_hash
+                and self._table_content_hash[cache_key] == current_hash
+            ):
+                self._cache_statistics["hits"] += 1
                 return self._content_width_cache[cache_key]
 
             # Cache miss - will recalculate
-            self._cache_statistics['misses'] += 1
+            self._cache_statistics["misses"] += 1
             return None
 
         except Exception:
-            self._cache_statistics['misses'] += 1
+            self._cache_statistics["misses"] += 1
             return None
 
     def _set_cached_content_width(self, table: TableWidget, column: int, width: int):
@@ -1233,32 +1472,44 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
     def get_cache_statistics(self):
         """Get cache performance statistics"""
-        total_operations = self._cache_statistics['hits'] + self._cache_statistics['misses']
-        hit_rate = (self._cache_statistics['hits'] / total_operations * 100) if total_operations > 0 else 0
+        total_operations = (
+            self._cache_statistics["hits"] + self._cache_statistics["misses"]
+        )
+        hit_rate = (
+            (self._cache_statistics["hits"] / total_operations * 100)
+            if total_operations > 0
+            else 0
+        )
 
         return {
-            'hits': self._cache_statistics['hits'],
-            'misses': self._cache_statistics['misses'],
-            'invalidations': self._cache_statistics['invalidations'],
-            'hit_rate': f"{hit_rate:.1f}%",
-            'font_cache_size': len(self._font_metrics_cache),
-            'content_cache_size': len(self._content_width_cache)
+            "hits": self._cache_statistics["hits"],
+            "misses": self._cache_statistics["misses"],
+            "invalidations": self._cache_statistics["invalidations"],
+            "hit_rate": f"{hit_rate:.1f}%",
+            "font_cache_size": len(self._font_metrics_cache),
+            "content_cache_size": len(self._content_width_cache),
         }
 
     def invalidate_table_cache(self, table: TableWidget):
         """Invalidate cache for a specific table when content changes"""
         try:
-            table_name = getattr(table, 'objectName', '')
+            table_name = getattr(table, "objectName", "")
 
             # Remove related cache entries
-            keys_to_remove = [k for k in self._content_width_cache.keys() if k.startswith(f"{table_name}_")]
+            keys_to_remove = [
+                k
+                for k in self._content_width_cache.keys()
+                if k.startswith(f"{table_name}_")
+            ]
             for key in keys_to_remove:
                 del self._content_width_cache[key]
                 if key in self._table_content_hash:
                     del self._table_content_hash[key]
 
             # Log invalidation
-            self._log_resize_debug(f"Invalidated cache for {len(keys_to_remove)} entries in {table_name}")
+            self._log_resize_debug(
+                f"Invalidated cache for {len(keys_to_remove)} entries in {table_name}"
+            )
 
         except Exception as e:
             self._log_resize_error("Error during cache invalidation", e)
@@ -1275,28 +1526,48 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             tables_successful = 0
 
             # Process main history table
-            if hasattr(self, 'main_history_table') and self._validate_table_for_resize(self.main_history_table, "_recalculate_all_table_widths"):
+            if hasattr(self, "main_history_table") and self._validate_table_for_resize(
+                self.main_history_table, "_recalculate_all_table_widths"
+            ):
                 tables_processed += 1
-                if self._set_intelligent_column_widths_optimized(self.main_history_table):
+                if self._set_intelligent_column_widths_optimized(
+                    self.main_history_table
+                ):
                     tables_successful += 1
-                    self._log_resize_debug("Successfully refreshed main_history_table widths")
+                    self._log_resize_debug(
+                        "Successfully refreshed main_history_table widths"
+                    )
 
             # Process room history table
-            if hasattr(self, 'room_history_table') and self._validate_table_for_resize(self.room_history_table, "_recalculate_all_table_widths"):
+            if hasattr(self, "room_history_table") and self._validate_table_for_resize(
+                self.room_history_table, "_recalculate_all_table_widths"
+            ):
                 tables_processed += 1
-                if self._set_intelligent_column_widths_optimized(self.room_history_table):
+                if self._set_intelligent_column_widths_optimized(
+                    self.room_history_table
+                ):
                     tables_successful += 1
-                    self._log_resize_debug("Successfully refreshed room_history_table widths")
+                    self._log_resize_debug(
+                        "Successfully refreshed room_history_table widths"
+                    )
 
             # Process totals table
-            if hasattr(self, 'totals_table') and self._validate_table_for_resize(self.totals_table, "_recalculate_all_table_widths"):
+            if hasattr(self, "totals_table") and self._validate_table_for_resize(
+                self.totals_table, "_recalculate_all_table_widths"
+            ):
                 tables_processed += 1
                 if self._set_intelligent_column_widths_optimized(self.totals_table):
                     tables_successful += 1
                     self._log_resize_debug("Successfully refreshed totals_table widths")
 
-            success_rate = (tables_successful / tables_processed) * 100 if tables_processed > 0 else 0
-            self._log_resize_debug(f"Table width recalculation: {tables_successful}/{tables_processed} successful ({success_rate:.1f}%)")
+            success_rate = (
+                (tables_successful / tables_processed) * 100
+                if tables_processed > 0
+                else 0
+            )
+            self._log_resize_debug(
+                f"Table width recalculation: {tables_successful}/{tables_processed} successful ({success_rate:.1f}%)"
+            )
 
             return tables_successful > 0
 
@@ -1310,10 +1581,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         Ensures tables remain functional even with suboptimal sizing.
         """
         try:
-            self._log_resize_debug(f"Executing fallback resize for {type(table).__name__}")
+            self._log_resize_debug(
+                f"Executing fallback resize for {type(table).__name__}"
+            )
 
             # First, try a simplified intelligent resize
-            if hasattr(table, 'horizontalHeader') and table.columnCount() > 0:
+            if hasattr(table, "horizontalHeader") and table.columnCount() > 0:
                 # Use ResizeToContents as fallback - more reliable than custom calculations
                 table.resizeColumnsToContents()
 
@@ -1327,24 +1600,36 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 # Adjust scrollbar based on available space
                 self._adjust_table_scrollbar_for_fallback(table)
 
-                self._log_resize_debug(f"Fallback resize successful for {type(table).__name__}")
+                self._log_resize_debug(
+                    f"Fallback resize successful for {type(table).__name__}"
+                )
                 return True
             else:
-                self._log_resize_error(f"Table not ready for fallback resize: {type(table).__name__}", None)
+                self._log_resize_error(
+                    f"Table not ready for fallback resize: {type(table).__name__}", None
+                )
                 return False
 
         except Exception as e:
-            self._log_resize_error(f"Fallback resize completely failed for {type(table).__name__}", e)
+            self._log_resize_error(
+                f"Fallback resize completely failed for {type(table).__name__}", e
+            )
             return False
 
     def _adjust_table_scrollbar_for_fallback(self, table):
         """Adjust scrollbar settings for fallback resize scenarios"""
         try:
             # Calculate total width needed
-            total_width = sum(table.columnWidth(col) for col in range(table.columnCount()))
+            total_width = sum(
+                table.columnWidth(col) for col in range(table.columnCount())
+            )
 
             # Get available viewport width
-            viewport_width = table.viewport().width() if hasattr(table, 'viewport') else table.width()
+            viewport_width = (
+                table.viewport().width()
+                if hasattr(table, "viewport")
+                else table.width()
+            )
 
             # Enable/disable scrollbar based on content fit
             if total_width > viewport_width:
@@ -1358,16 +1643,20 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
     def _get_table_type(self, table):
         """Override mixin's table type detection for HistoryTab specificity"""
-        table_name = getattr(table, 'objectName', '').lower()
+        table_name = getattr(table, "objectName", "").lower()
 
-        if 'main' in table_name or table is self.main_history_table:
-            return 'main_table'
-        elif 'room' in table_name or table is self.room_history_table:
-            return 'room_table'
-        elif 'totals' in table_name or getattr(self, 'totals_table', None) and table is self.totals_table:
-            return 'totals_table'
+        if "main" in table_name or table is self.main_history_table:
+            return "main_table"
+        elif "room" in table_name or table is self.room_history_table:
+            return "room_table"
+        elif (
+            "totals" in table_name
+            or getattr(self, "totals_table", None)
+            and table is self.totals_table
+        ):
+            return "totals_table"
         else:
-            return 'unknown_table'
+            return "unknown_table"
 
     def eventFilter(self, obj, event):
         """Event filter to forward scroll events from tables to parent scroll area"""
@@ -1375,54 +1664,61 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             # Early exit for non-wheel events to minimize overhead
             if event.type() != QEvent.Wheel:
                 return super().eventFilter(obj, event)
-            
+
             # Ensure tables exist before processing
             if not self.main_history_table:
                 return super().eventFilter(obj, event)
-            
+
             # Use cached table references for performance
             if self._cached_tables is None:
-                self._cached_tables = [self.main_history_table, 
-                                     getattr(self, 'room_history_table', None), 
-                                     getattr(self, 'totals_table', None)]
+                self._cached_tables = [
+                    self.main_history_table,
+                    getattr(self, "room_history_table", None),
+                    getattr(self, "totals_table", None),
+                ]
                 # Filter out None values
                 self._cached_tables = [t for t in self._cached_tables if t is not None]
-            
+
             # Quick object membership check
             if obj not in self._cached_tables:
                 # Check if it's a viewport of one of our tables
-                if not (hasattr(obj, 'parent') and obj.parent() in self._cached_tables):
+                if not (hasattr(obj, "parent") and obj.parent() in self._cached_tables):
                     return super().eventFilter(obj, event)
-            
+
             # Get the actual table object
-            table = obj if hasattr(obj, 'verticalScrollBar') else obj.parent()
-            if not hasattr(table, 'verticalScrollBar'):
+            table = obj if hasattr(obj, "verticalScrollBar") else obj.parent()
+            if not hasattr(table, "verticalScrollBar"):
                 return super().eventFilter(obj, event)
-            
+
             # Get scrollbar and delta once
             v_scrollbar = table.verticalScrollBar()
             if not v_scrollbar:
                 return super().eventFilter(obj, event)
-                
+
             delta = event.angleDelta().y()
-            
+
             # Quick bounds check for scroll capability
             current_value = v_scrollbar.value()
-            can_scroll_vertically = ((delta > 0 and current_value > v_scrollbar.minimum()) or 
-                                   (delta < 0 and current_value < v_scrollbar.maximum()))
-            
+            can_scroll_vertically = (
+                delta > 0 and current_value > v_scrollbar.minimum()
+            ) or (delta < 0 and current_value < v_scrollbar.maximum())
+
             # Forward to parent scroll area if table can't scroll
             if not can_scroll_vertically and self.scroll_area:
                 parent_scrollbar = self.scroll_area.verticalScrollBar()
                 if parent_scrollbar:
                     # Optimized scroll calculation and application
                     scroll_step = -delta // self.SCROLL_STEP_DIVISOR
-                    new_value = max(parent_scrollbar.minimum(), 
-                                  min(parent_scrollbar.maximum(), 
-                                      parent_scrollbar.value() + scroll_step))
+                    new_value = max(
+                        parent_scrollbar.minimum(),
+                        min(
+                            parent_scrollbar.maximum(),
+                            parent_scrollbar.value() + scroll_step,
+                        ),
+                    )
                     parent_scrollbar.setValue(new_value)
                     return True
-            
+
             return super().eventFilter(obj, event)
         except Exception:
             # Fail gracefully - don't break app startup
@@ -1432,32 +1728,50 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """Sync the button display with the actual combo box value"""
         current_source = self.main_window.load_history_source_combo.currentText()
         if current_source == "Load from Cloud":
-            self.load_history_source_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+            self.load_history_source_button.setIcon(
+                FluentIcon.CLOUD.icon(color=QColor(255, 255, 255))
+            )
             self.load_history_source_button.setText("Cloud")
             self._update_source_button_color("Cloud")
         else:
-            self.load_history_source_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+            self.load_history_source_button.setIcon(
+                FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255))
+            )
             self.load_history_source_button.setText("CSV")
             self._update_source_button_color("CSV")
-    
+
     def _is_priority_column(self, table_type: str, column_name: str) -> bool:
         """Check if a column is priority based on table type and column name"""
         priority_columns = self.PRIORITY_COLUMNS.get(table_type, [])
         return column_name.upper() in [col.upper() for col in priority_columns]
-    
+
     def _get_column_name_from_index(self, table_type: str, column_index: int) -> str:
         """Get column name from table index for priority checking"""
-        if table_type == 'main_table':
-            if hasattr(self, 'main_history_table') and self.main_history_table.columnCount() > column_index:
-                return self.main_history_table.horizontalHeaderItem(column_index).text() if self.main_history_table.horizontalHeaderItem(column_index) else ""
-        elif table_type == 'room_table':
-            if hasattr(self, 'room_history_table') and self.room_history_table.columnCount() > column_index:
-                return self.room_history_table.horizontalHeaderItem(column_index).text() if self.room_history_table.horizontalHeaderItem(column_index) else ""
+        if table_type == "main_table":
+            if (
+                hasattr(self, "main_history_table")
+                and self.main_history_table.columnCount() > column_index
+            ):
+                return (
+                    self.main_history_table.horizontalHeaderItem(column_index).text()
+                    if self.main_history_table.horizontalHeaderItem(column_index)
+                    else ""
+                )
+        elif table_type == "room_table":
+            if (
+                hasattr(self, "room_history_table")
+                and self.room_history_table.columnCount() > column_index
+            ):
+                return (
+                    self.room_history_table.horizontalHeaderItem(column_index).text()
+                    if self.room_history_table.horizontalHeaderItem(column_index)
+                    else ""
+                )
         return ""
-    
+
     def _update_source_button_color(self, source_text):
         """Update button color based on selected data source.
-        
+
         Args:
             source_text: The label text of the selected source ("Cloud" or "CSV")
         """
@@ -1517,73 +1831,77 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     right: 8px;
                 }
             """)
-    
-    def _set_table_headers_with_icons(self, table: TableWidget, headers: list, table_type: str):
+
+    def _set_table_headers_with_icons(
+        self, table: TableWidget, headers: list, table_type: str
+    ):
         """Set table headers with icons and priority-aware styling"""
         from PyQt5.QtGui import QFont
         from PyQt5.QtCore import Qt, QSize
-        
+
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
-        
+
         # Configure header view for better icon alignment
         header_view = table.horizontalHeader()
         header_view.setDefaultAlignment(Qt.AlignCenter | Qt.AlignVCenter)
         header_view.setMinimumSectionSize(80)  # Ensure minimum width for icon+text
         header_view.setDefaultSectionSize(120)  # Default width for better spacing
-        header_view.setMinimumHeight(24)  # Absolute minimal height that still shows text
-        
+        header_view.setMinimumHeight(
+            24
+        )  # Absolute minimal height that still shows text
+
         # Icon size setting disabled - no icons being used
         # header_view.setIconSize(QSize(16, 16))
-        
+
         # Apply header styling with icons
         for i, header_text in enumerate(headers):
             header_item = table.horizontalHeaderItem(i)
             if header_item:
                 # Set header font
                 font = QFont()
-                font.setPointSize(self.FONT_SIZES['headers'])
-                font.setWeight(self.FONT_WEIGHTS['headers'])
+                font.setPointSize(self.FONT_SIZES["headers"])
+                font.setWeight(self.FONT_WEIGHTS["headers"])
                 header_item.setFont(font)
-                
+
                 # Set text alignment to center both horizontally and vertically
                 header_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-                
+
                 # Icons disabled per user request
                 # icon_key = self._get_icon_key_for_header(header_text)
                 # if icon_key and icon_key in self.COLUMN_ICONS:
                 #     icon = self.COLUMN_ICONS[icon_key].icon()
                 #     header_item.setIcon(icon)
-                
+
                 # Check if this is a priority column for special styling
                 is_priority = self._is_priority_column(table_type, header_text)
                 if is_priority:
                     # Priority headers get slightly different styling
-                    font.setWeight(self.FONT_WEIGHTS['headers'] + 100)  # Extra bold
+                    font.setWeight(self.FONT_WEIGHTS["headers"] + 100)  # Extra bold
                     header_item.setFont(font)
-        
+
         # Icon alignment disabled - no icons being used
         # self._apply_header_icon_alignment(table)
-    
+
     def _get_icon_key_for_header(self, header_text: str) -> str:
         """Get the appropriate icon key for a header text, handling dynamic headers"""
         header_upper = header_text.upper()
-        
+
         # Handle dynamic meter headers (Meter-1, Meter-2, etc.)
-        if header_upper.startswith('METER-'):
-            return 'METER'
-        
+        if header_upper.startswith("METER-"):
+            return "METER"
+
         # Handle dynamic diff headers (Diff-1, Diff-2, etc.)
-        if header_upper.startswith('DIFF-'):
-            return 'DIFF'
-        
+        if header_upper.startswith("DIFF-"):
+            return "DIFF"
+
         # Handle static headers by converting spaces to underscores
-        return header_upper.replace(' ', '_')
-    
+        return header_upper.replace(" ", "_")
+
     def _apply_header_icon_alignment(self, table: TableWidget):
         """Apply specific styling to ensure headers are properly aligned (icons disabled)"""
         header_view = table.horizontalHeader()
-        
+
         # Basic header styling without icons - minimal padding but readable
         header_style = """
         QHeaderView::section {
@@ -1594,9 +1912,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             min-height: 24px;
         }
         """
-        
+
         header_view.setStyleSheet(header_style)
-    
+
     def _style_table(self, table: TableWidget):
         """Apply comprehensive qfluentwidgets-compatible styling with enhanced visual design"""
         # Basic table properties matching your analysis
@@ -1606,13 +1924,13 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setHighlightSections(False)
         table.verticalHeader().setDefaultSectionSize(35)  # Row height from analysis
-        
+
         # Configure scroll behavior and selection - use consistent policies matching working tabs
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
-        
+
         # Apply custom styling using setCustomStyleSheet
         light_qss = """
         TableWidget {
@@ -1646,7 +1964,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             qproperty-alignment: AlignCenter;
         }
         """
-        
+
         dark_qss = """
         TableWidget {
             background-color: #2b2b2b;
@@ -1682,15 +2000,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             qproperty-alignment: AlignCenter;
         }
         """
-        
+
         setCustomStyleSheet(table, light_qss, dark_qss)
-        
+
         # Configure header alignment
         table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-        
+
         # Enable sorting
         table.setSortingEnabled(True)
-        
+
         # Set minimum section size
         table.horizontalHeader().setMinimumSectionSize(80)
 
@@ -1699,9 +2017,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         try:
             table_name = type(table).__name__
             table_id = (
-                "main" if table == getattr(self, 'main_history_table', None)
-                else "room" if table == getattr(self, 'room_history_table', None)
-                else "totals" if table == getattr(self, 'totals_table', None)
+                "main"
+                if table == getattr(self, "main_history_table", None)
+                else "room"
+                if table == getattr(self, "room_history_table", None)
+                else "totals"
+                if table == getattr(self, "totals_table", None)
                 else "unknown"
             )
 
@@ -1751,7 +2072,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
                 # Calculate minimum width needed for header with proper padding
                 from PyQt5.QtGui import QFontMetrics
-                font_metrics = QFontMetrics(header_item.font() if header_item else table.font())
+
+                font_metrics = QFontMetrics(
+                    header_item.font() if header_item else table.font()
+                )
                 header_width = font_metrics.boundingRect(header_text).width() + 20
 
                 # Check content width for sample rows (sample up to 50 for accuracy)
@@ -1760,7 +2084,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     item = table.item(row, col)
                     if item:
                         content_text = item.text()
-                        content_width = font_metrics.boundingRect(content_text).width() + 16
+                        content_width = (
+                            font_metrics.boundingRect(content_text).width() + 16
+                        )
                         max_content_width = max(max_content_width, content_width)
 
                 # Set minimum widths based on column type to prevent text cutoff
@@ -1769,11 +2095,17 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     content_widths[col] = max(max_content_width, 140)
                 elif any(keyword in header_lower for keyword in ["meter", "diff"]):
                     content_widths[col] = max(max_content_width, 90)
-                elif any(keyword in header_lower for keyword in ["total", "cost", "bill", "amount", "grand"]):
+                elif any(
+                    keyword in header_lower
+                    for keyword in ["total", "cost", "bill", "amount", "grand"]
+                ):
                     content_widths[col] = max(max_content_width, 120)
                 elif any(keyword in header_lower for keyword in ["room", "number"]):
                     content_widths[col] = max(max_content_width, 100)
-                elif any(keyword in header_lower for keyword in ["unit", "gas", "water", "rent"]):
+                elif any(
+                    keyword in header_lower
+                    for keyword in ["unit", "gas", "water", "rent"]
+                ):
                     content_widths[col] = max(max_content_width, 85)
                 else:
                     content_widths[col] = max(max_content_width, 80)
@@ -1801,7 +2133,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 for col in range(column_count):
                     header.setSectionResizeMode(col, QHeaderView.Stretch)
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-                self._log_resize_debug(f"STRETCH MODE: Columns fill {available_width}px")
+                self._log_resize_debug(
+                    f"STRETCH MODE: Columns fill {available_width}px"
+                )
             else:
                 for col in range(column_count):
                     header.setSectionResizeMode(col, QHeaderView.Fixed)
@@ -1809,7 +2143,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
                 table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
                 # Be explicit that horizontal scrollbars are allowed to mitigate text clipping
-                if hasattr(table, 'horizontalScrollBar') and table.horizontalScrollBar():
+                if (
+                    hasattr(table, "horizontalScrollBar")
+                    and table.horizontalScrollBar()
+                ):
                     table.horizontalScrollBar().setVisible(True)
                 table.updateGeometry()
                 table.update()
@@ -1820,7 +2157,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 scrollbar.show()
                 scrollbar.update()
 
-                self._log_resize_debug(f"SCROLL MODE: Fixed widths, total {total_min_width}px")
+                self._log_resize_debug(
+                    f"SCROLL MODE: Fixed widths, total {total_min_width}px"
+                )
 
             header.setMinimumSectionSize(80)
 
@@ -1835,11 +2174,11 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             # Encourage parent to expand
             if table.parent():
                 parent = table.parent()
-                if hasattr(parent, 'setSizePolicy'):
+                if hasattr(parent, "setSizePolicy"):
                     parent_policy = parent.sizePolicy()
                     parent_policy.setHorizontalPolicy(parent_policy.Expanding)
                     parent.setSizePolicy(parent_policy)
-                if hasattr(parent, 'setContentsMargins'):
+                if hasattr(parent, "setContentsMargins"):
                     parent.setContentsMargins(0, 0, 0, 0)
 
             self._log_resize_debug(
@@ -1859,37 +2198,45 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             if table is None:
                 self._log_resize_error(f"Table is None in {operation_name}", None)
                 return False
-                
-            if not hasattr(table, 'columnCount'):
-                self._log_resize_error(f"Table does not have columnCount method in {operation_name}", None)
+
+            if not hasattr(table, "columnCount"):
+                self._log_resize_error(
+                    f"Table does not have columnCount method in {operation_name}", None
+                )
                 return False
-                
-            if not hasattr(table, 'isVisible'):
-                self._log_resize_error(f"Table does not have isVisible method in {operation_name}", None)
+
+            if not hasattr(table, "isVisible"):
+                self._log_resize_error(
+                    f"Table does not have isVisible method in {operation_name}", None
+                )
                 return False
-                
+
             # Check if table is properly initialized
             try:
                 table.columnCount()
                 table.isVisible()
             except Exception as e:
-                self._log_resize_error(f"Table methods are not accessible in {operation_name}", e)
+                self._log_resize_error(
+                    f"Table methods are not accessible in {operation_name}", e
+                )
                 return False
-                
+
             return True
-            
+
         except Exception as e:
-            self._log_resize_error(f"Validation failed for table in {operation_name}", e)
+            self._log_resize_error(
+                f"Validation failed for table in {operation_name}", e
+            )
             return False
-    
+
     def _log_resize_debug(self, message: str):
         """Log debug information for resize operations"""
         try:
-            if getattr(self, '_resize_debug_enabled', False):
+            if getattr(self, "_resize_debug_enabled", False):
                 print(f"[RESIZE DEBUG] {message}")
         except Exception:
             pass  # Silently ignore logging errors
-    
+
     def _log_resize_error(self, message: str, exception: Exception):
         """Log error information for resize operations with meaningful messages"""
         try:
@@ -1898,65 +2245,78 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 # Only print traceback for unexpected errors, not validation failures
                 if not isinstance(exception, (AttributeError, TypeError)):
                     import traceback
+
                     print(f"[RESIZE ERROR] Traceback: {traceback.format_exc()}")
             else:
                 print(f"[RESIZE ERROR] {message}")
         except Exception:
             pass  # Silently ignore logging errors
-    
+
     def _fallback_table_resize(self, table) -> bool:
         """Provide graceful fallback when intelligent resize fails"""
         try:
             if not self._validate_table_for_resize(table, "_fallback_table_resize"):
                 return False
-                
+
             if table.columnCount() == 0:
                 return False
-                
+
             # Simple fallback: set all columns to equal width
             header = table.horizontalHeader()
             if not header:
                 return False
-                
+
             # Get available width safely
             try:
-                viewport_width = table.viewport().width() if table.viewport() else table.width()
+                viewport_width = (
+                    table.viewport().width() if table.viewport() else table.width()
+                )
                 if viewport_width <= 0:
                     viewport_width = 800  # Default fallback width
-                    
+
                 available_width = max(viewport_width - 50, 300)  # Ensure minimum width
                 column_count = table.columnCount()
-                
+
                 if column_count > 0:
-                    equal_width = max(available_width // column_count, 90)  # Minimum 90px per column for readability
-                    
+                    equal_width = max(
+                        available_width // column_count, 90
+                    )  # Minimum 90px per column for readability
+
                     for col in range(column_count):
                         header.setSectionResizeMode(col, QHeaderView.Fixed)
                         table.setColumnWidth(col, equal_width)
-                    
+
                     header.setMinimumSectionSize(90)
                     table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-                    
-                    self._log_resize_debug(f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each")
+
+                    self._log_resize_debug(
+                        f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each"
+                    )
                     return True
-                    
+
             except Exception as e:
-                self._log_resize_error(f"Fallback resize calculation failed for {type(table).__name__}", e)
+                self._log_resize_error(
+                    f"Fallback resize calculation failed for {type(table).__name__}", e
+                )
                 return False
-                
+
         except Exception as e:
-            self._log_resize_error(f"Fallback table resize failed for {type(table).__name__}", e)
+            self._log_resize_error(
+                f"Fallback table resize failed for {type(table).__name__}", e
+            )
             return False
 
     def _apply_month_column_styling(self, table: TableWidget):
         """Apply special styling to the month column for better visual distinction"""
         try:
-            if not self._validate_table_for_resize(table, "_apply_month_column_styling"):
+            if not self._validate_table_for_resize(
+                table, "_apply_month_column_styling"
+            ):
                 return
-                
+
             if table.columnCount() == 0:
                 return
-            
+
             # Find the month column
             month_col_index = -1
             for col in range(table.columnCount()):
@@ -1964,60 +2324,68 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 if header and "month" in header.text().strip().lower():
                     month_col_index = col
                     break
-            
+
             if month_col_index == -1:
                 return
-            
+
             from PyQt5.QtGui import QColor, QBrush, QFont
             from qfluentwidgets import isDarkTheme
-            
+
             # Style the header
             header_item = table.horizontalHeaderItem(month_col_index)
             if header_item:
                 font = header_item.font()
                 font.setWeight(QFont.Bold)
                 header_item.setFont(font)
-            
+
         except Exception as e:
             self._log_resize_error("Failed to apply month column styling", e)
-    
+
     def _validate_table_for_resize(self, table, operation_name: str) -> bool:
         """Validate table state before resize operations"""
         try:
             if table is None:
                 self._log_resize_error(f"Table is None in {operation_name}", None)
                 return False
-                
-            if not hasattr(table, 'columnCount'):
-                self._log_resize_error(f"Table does not have columnCount method in {operation_name}", None)
+
+            if not hasattr(table, "columnCount"):
+                self._log_resize_error(
+                    f"Table does not have columnCount method in {operation_name}", None
+                )
                 return False
-                
-            if not hasattr(table, 'isVisible'):
-                self._log_resize_error(f"Table does not have isVisible method in {operation_name}", None)
+
+            if not hasattr(table, "isVisible"):
+                self._log_resize_error(
+                    f"Table does not have isVisible method in {operation_name}", None
+                )
                 return False
-                
+
             # Check if table is properly initialized
             try:
                 table.columnCount()
                 table.isVisible()
             except Exception as e:
-                self._log_resize_error(f"Table methods are not accessible in {operation_name}", e)
+                self._log_resize_error(
+                    f"Table methods are not accessible in {operation_name}", e
+                )
                 return False
-                
+
             return True
-            
+
         except Exception as e:
-            self._log_resize_error(f"Validation failed for table in {operation_name}", e)
+            self._log_resize_error(
+                f"Validation failed for table in {operation_name}", e
+            )
             return False
-    
+
     def _log_resize_debug(self, message: str):
         """Log debug information for resize operations"""
         try:
-            if getattr(self, '_resize_debug_enabled', False):
+            if getattr(self, "_resize_debug_enabled", False):
                 print(f"[RESIZE DEBUG] {message}")
         except Exception:
             pass  # Silently ignore logging errors
-    
+
     def _log_resize_error(self, message: str, exception: Exception):
         """Log error information for resize operations with meaningful messages"""
         try:
@@ -2026,65 +2394,78 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 # Only print traceback for unexpected errors, not validation failures
                 if not isinstance(exception, (AttributeError, TypeError)):
                     import traceback
+
                     print(f"[RESIZE ERROR] Traceback: {traceback.format_exc()}")
             else:
                 print(f"[RESIZE ERROR] {message}")
         except Exception:
             pass  # Silently ignore logging errors
-    
+
     def _fallback_table_resize(self, table) -> bool:
         """Provide graceful fallback when intelligent resize fails"""
         try:
             if not self._validate_table_for_resize(table, "_fallback_table_resize"):
                 return False
-                
+
             if table.columnCount() == 0:
                 return False
-                
+
             # Simple fallback: set all columns to equal width
             header = table.horizontalHeader()
             if not header:
                 return False
-                
+
             # Get available width safely
             try:
-                viewport_width = table.viewport().width() if table.viewport() else table.width()
+                viewport_width = (
+                    table.viewport().width() if table.viewport() else table.width()
+                )
                 if viewport_width <= 0:
                     viewport_width = 800  # Default fallback width
-                    
+
                 available_width = max(viewport_width - 50, 300)  # Ensure minimum width
                 column_count = table.columnCount()
-                
+
                 if column_count > 0:
-                    equal_width = max(available_width // column_count, 90)  # Minimum 90px per column for readability
-                    
+                    equal_width = max(
+                        available_width // column_count, 90
+                    )  # Minimum 90px per column for readability
+
                     for col in range(column_count):
                         header.setSectionResizeMode(col, QHeaderView.Fixed)
                         table.setColumnWidth(col, equal_width)
-                    
+
                     header.setMinimumSectionSize(90)
                     table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-                    
-                    self._log_resize_debug(f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each")
+
+                    self._log_resize_debug(
+                        f"Applied fallback resize to {type(table).__name__}: {column_count} columns at {equal_width}px each"
+                    )
                     return True
-                    
+
             except Exception as e:
-                self._log_resize_error(f"Fallback resize calculation failed for {type(table).__name__}", e)
+                self._log_resize_error(
+                    f"Fallback resize calculation failed for {type(table).__name__}", e
+                )
                 return False
-                
+
         except Exception as e:
-            self._log_resize_error(f"Fallback table resize failed for {type(table).__name__}", e)
+            self._log_resize_error(
+                f"Fallback table resize failed for {type(table).__name__}", e
+            )
             return False
 
     def _apply_month_column_styling(self, table: TableWidget):
         """Apply special styling to the month column for better visual distinction"""
         try:
-            if not self._validate_table_for_resize(table, "_apply_month_column_styling"):
+            if not self._validate_table_for_resize(
+                table, "_apply_month_column_styling"
+            ):
                 return
-                
+
             if table.columnCount() == 0:
                 return
-            
+
             # Find the month column
             month_col_index = -1
             for col in range(table.columnCount()):
@@ -2092,13 +2473,13 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 if header and "month" in header.text().strip().lower():
                     month_col_index = col
                     break
-            
+
             if month_col_index == -1:
                 return
-            
+
             from PyQt5.QtGui import QColor, QBrush, QFont
             from qfluentwidgets import isDarkTheme
-            
+
             # Style the header
             header_item = table.horizontalHeaderItem(month_col_index)
             if header_item:
@@ -2106,7 +2487,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 font.setBold(True)
                 font.setPointSize(13)  # Slightly larger for month header
                 header_item.setFont(font)
-            
+
             # Style all month column cells with distinct background
             for row in range(table.rowCount()):
                 item = table.item(row, month_col_index)
@@ -2116,91 +2497,116 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     font.setBold(True)
                     font.setPointSize(11)
                     item.setFont(font)
-                    
+
                     # Apply theme-aware background color matching rental info tenant name column exactly
                     if isDarkTheme():
-                        item.setBackground(QBrush(QColor(45, 55, 75)))  # Darker blue background (same as tenant)
-                        item.setForeground(QBrush(QColor(220, 230, 255)))  # Light blue text (same as tenant)
+                        item.setBackground(
+                            QBrush(QColor(45, 55, 75))
+                        )  # Darker blue background (same as tenant)
+                        item.setForeground(
+                            QBrush(QColor(220, 230, 255))
+                        )  # Light blue text (same as tenant)
                     else:
-                        item.setBackground(QBrush(QColor(230, 240, 255)))  # Light blue background (same as tenant)  
-                        item.setForeground(QBrush(QColor(25, 50, 100)))  # Dark blue text (same as tenant)
-                        
+                        item.setBackground(
+                            QBrush(QColor(230, 240, 255))
+                        )  # Light blue background (same as tenant)
+                        item.setForeground(
+                            QBrush(QColor(25, 50, 100))
+                        )  # Dark blue text (same as tenant)
+
         except Exception as e:
-            self._log_resize_error(f"Failed to apply month column styling to {type(table).__name__}", e)
+            self._log_resize_error(
+                f"Failed to apply month column styling to {type(table).__name__}", e
+            )
 
-
-    
-
-
-
-    def _create_centered_item(self, text: str, column_type: str = "", is_priority: bool = False):
+    def _create_centered_item(
+        self, text: str, column_type: str = "", is_priority: bool = False
+    ):
         """Create a centered table item with priority-aware styling"""
         item = QTableWidgetItem(str(text))
         item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        
+
         # Apply priority styling
         font = QFont()
         if is_priority:
-            font.setPointSize(self.FONT_SIZES['priority_columns'])
-            font.setWeight(self.FONT_WEIGHTS['priority_columns'])
+            font.setPointSize(self.FONT_SIZES["priority_columns"])
+            font.setWeight(self.FONT_WEIGHTS["priority_columns"])
         else:
-            font.setPointSize(self.FONT_SIZES['regular_columns'])
-            font.setWeight(self.FONT_WEIGHTS['regular_columns'])
-        
+            font.setPointSize(self.FONT_SIZES["regular_columns"])
+            font.setWeight(self.FONT_WEIGHTS["regular_columns"])
+
         item.setFont(font)
         return item
 
-    def _create_special_item(self, text: str, item_type: str, column_name: str = "", is_priority: bool = False):
+    def _create_special_item(
+        self,
+        text: str,
+        item_type: str,
+        column_name: str = "",
+        is_priority: bool = False,
+    ):
         """Create special styled items for money values, etc."""
-        formatted_text = self._format_number(text) if self._is_numeric_text(text) else text
+        formatted_text = (
+            self._format_number(text) if self._is_numeric_text(text) else text
+        )
         item = self._create_centered_item(formatted_text, column_name, is_priority)
-        
+
         # Special styling for different item types
         if item_type in ["money", "cost", "bill", "rent", "total"]:
             # Add currency formatting if it's a number
             if self._is_numeric_text(text):
                 item.setText(f"{formatted_text} TK")
-        
+
         return item
 
-    def _create_identifier_item(self, text: str, identifier_type: str, is_priority: bool = False):
+    def _create_identifier_item(
+        self, text: str, identifier_type: str, is_priority: bool = False
+    ):
         """Create identifier items (room numbers, etc.) with special styling"""
         item = self._create_centered_item(text, identifier_type, is_priority)
-        
+
         # Special formatting for room identifiers
         if identifier_type == "room" and text.isdigit():
             item.setText(f"Room {text}")
-        
+
         return item
 
     def _format_number(self, text: str) -> str:
         """Format numbers with thousand separators and proper decimals"""
-        if not text or text.lower() in ['n/a', '', 'unknown', '0', '0.0']:
+        if not text or text.lower() in ["n/a", "", "unknown", "0", "0.0"]:
             return text
-        
+
         try:
-            cleaned = str(text).replace(',', '').replace('TK', '').replace('\u09f3', '').strip()
+            cleaned = (
+                str(text)
+                .replace(",", "")
+                .replace("TK", "")
+                .replace("\u09f3", "")
+                .strip()
+            )
             if not cleaned:
                 return text
-            
+
             num = float(cleaned)
-            
+
             if num == 0:
                 return "0.0"
             elif num == int(num):
                 return f"{int(num):,}.0"
             else:
                 return f"{num:,.2f}"
-                
+
         except (ValueError, TypeError):
             return text
 
     def _is_numeric_text(self, text: str) -> bool:
         """Check if text represents a numeric value"""
-        if not text or text.lower() in ['n/a', '', 'unknown']:
+        if not text or text.lower() in ["n/a", "", "unknown"]:
             return False
         try:
-            cleaned = text.replace(',', '').replace('TK', '').replace('\u09f3', '').strip()
+            cleaned = (
+                text.replace(",", "").replace("TK", "").replace("\u09f3", "").strip()
+            )
             float(cleaned)
             return True
         except (ValueError, TypeError):
@@ -2210,16 +2616,16 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         # Create main layout for the tab - matching your analysis structure
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Create AutoScrollArea as main container (from your analysis)
         scroll_area = AutoScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        
+
         # Store reference to scroll area for event forwarding
         self.scroll_area = scroll_area
-        
+
         # Create content widget with QVBoxLayout (spacing: 20, margins: 20,20,20,20)
         content_widget = QWidget()
         layout = QVBoxLayout(content_widget)
@@ -2231,9 +2637,11 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
         # SECTION 1: DATE (Month and Year selectors)
         date_group = StaticCardWidget()
-        date_group.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)  # Minimum size policy
+        date_group.setSizePolicy(
+            QSizePolicy.Minimum, QSizePolicy.Fixed
+        )  # Minimum size policy
         date_outer = QVBoxLayout(date_group)
-        date_outer.setContentsMargins(12,12,12,12)
+        date_outer.setContentsMargins(12, 12, 12, 12)
         date_title = TitleLabel("DATE")
         date_title.setAlignment(Qt.AlignCenter)
         date_title.setStyleSheet("""
@@ -2256,14 +2664,30 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """)
         date_outer.addWidget(date_line)
         date_layout = QHBoxLayout()
-        date_layout.setContentsMargins(12,10,12,10)  # Better padding for fullscreen
+        date_layout.setContentsMargins(12, 10, 12, 10)  # Better padding for fullscreen
         date_layout.setSpacing(12)
         date_layout.addStretch(1)  # Add stretch before controls
         month_label = BodyLabel("Month:")
         month_label.setStyleSheet("font-weight: bold; font-size: 13px;")
         date_layout.addWidget(month_label)
         self.history_month_combo = ComboBox()
-        self.history_month_combo.addItems(["All","January","February","March","April","May","June","July","August","September","October","November","December"])
+        self.history_month_combo.addItems(
+            [
+                "All",
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ]
+        )
         self.history_month_combo.setMinimumWidth(110)
         self.history_month_combo.setMaximumWidth(140)
         self.history_month_combo.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -2273,23 +2697,41 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         year_label.setStyleSheet("font-weight: bold; font-size: 13px;")
         date_layout.addWidget(year_label)
         self.history_year_spinbox = SpinBox()
-        self.history_year_spinbox.setRange(0,2100)
+        self.history_year_spinbox.setRange(0, 2100)
         self.history_year_spinbox.setSpecialValueText("All")
         self.history_year_spinbox.setValue(datetime.now().year)
         self.history_year_spinbox.setMinimumWidth(120)
         self.history_year_spinbox.setMaximumWidth(150)
-        self.history_year_spinbox.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.history_year_spinbox.setSizePolicy(
+            QSizePolicy.Preferred, QSizePolicy.Fixed
+        )
         # Apply exact same config as main tab
         self._apply_no_select_to_spinbox(self.history_year_spinbox)
         self.history_year_spinbox.setFocusPolicy(Qt.NoFocus)
-        QTimer.singleShot(0, lambda: (self.history_year_spinbox.lineEdit() and self.history_year_spinbox.lineEdit().setFocusPolicy(Qt.NoFocus)))
+        QTimer.singleShot(
+            0,
+            lambda: (
+                self.history_year_spinbox.lineEdit()
+                and self.history_year_spinbox.lineEdit().setFocusPolicy(Qt.NoFocus)
+            ),
+        )
         # Make the value bold
         try:
-            le = self.history_year_spinbox.lineEdit() if hasattr(self.history_year_spinbox, 'lineEdit') else None
+            le = (
+                self.history_year_spinbox.lineEdit()
+                if hasattr(self.history_year_spinbox, "lineEdit")
+                else None
+            )
             if le is None:
-                QTimer.singleShot(0, lambda: (
-                    self.history_year_spinbox.lineEdit() and self.history_year_spinbox.lineEdit().setFont(self.history_year_spinbox.lineEdit().font().setBold(True))
-                ))
+                QTimer.singleShot(
+                    0,
+                    lambda: (
+                        self.history_year_spinbox.lineEdit()
+                        and self.history_year_spinbox.lineEdit().setFont(
+                            self.history_year_spinbox.lineEdit().font().setBold(True)
+                        )
+                    ),
+                )
             else:
                 f = le.font()
                 f.setBold(True)
@@ -2306,9 +2748,11 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
         # SECTION 2: Record Actions (Data source selector and Load button)
         record_actions_group = StaticCardWidget()
-        record_actions_group.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)  # Minimum size policy
+        record_actions_group.setSizePolicy(
+            QSizePolicy.Minimum, QSizePolicy.Fixed
+        )  # Minimum size policy
         ra_outer = QVBoxLayout(record_actions_group)
-        ra_outer.setContentsMargins(12,12,12,12)
+        ra_outer.setContentsMargins(12, 12, 12, 12)
         ra_outer.setSpacing(4)
         ra_title = TitleLabel("Record Actions")
         ra_title.setAlignment(Qt.AlignCenter)
@@ -2332,12 +2776,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """)
         ra_outer.addWidget(ra_line)
         ra_layout = QHBoxLayout()
-        ra_layout.setContentsMargins(12,10,12,10)  # Better padding for fullscreen
+        ra_layout.setContentsMargins(12, 10, 12, 10)  # Better padding for fullscreen
         ra_layout.setSpacing(12)
         ra_layout.addStretch(1)  # Add stretch before controls
         # Use Fluent DropDownPushButton instead of plain ComboBox
         self.main_window.load_history_source_combo.setVisible(False)
-        
+
         # Determine initial state based on combo box selection
         current_source = self.main_window.load_history_source_combo.currentText()
         if "Cloud" in current_source:
@@ -2346,40 +2790,70 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         else:
             initial_icon = FluentIcon.DOCUMENT
             initial_label = "CSV"
-        
-        self.load_history_source_button = DropDownPushButton(initial_icon, initial_label)
+
+        self.load_history_source_button = DropDownPushButton(
+            initial_icon, initial_label
+        )
         self.load_history_source_button.setFixedHeight(36)
         # Initial stylesheet will be set by _update_source_button_color below
         try:
-            self.load_history_source_button.setIcon(initial_icon.icon(color=QColor(255, 255, 255)))
+            self.load_history_source_button.setIcon(
+                initial_icon.icon(color=QColor(255, 255, 255))
+            )
         except Exception:
             pass
         self.load_history_source_button.setIconSize(QSize(18, 18))
         self.load_history_source_button.setMinimumWidth(110)
         self.load_history_source_button.setMaximumWidth(130)
-        self.load_history_source_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        
+        self.load_history_source_button.setSizePolicy(
+            QSizePolicy.Fixed, QSizePolicy.Fixed
+        )
+
         menu = RoundMenu(parent=self.load_history_source_button)
+
         def _set_source(text, icon, label):
             self.main_window.load_history_source_combo.setCurrentText(text)
             try:
-                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+                qicon = (
+                    icon.icon(color=QColor(255, 255, 255))
+                    if hasattr(icon, "icon")
+                    else icon
+                )
             except Exception:
                 qicon = icon
             self.load_history_source_button.setIcon(qicon)
             self.load_history_source_button.setText(label)
             # Update button color based on selection
             self._update_source_button_color(label)
-        menu.addAction(Action(FluentIcon.DOCUMENT, "CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT, "CSV")))
-        menu.addAction(Action(FluentIcon.CLOUD, "Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD, "Cloud")))
+
+        menu.addAction(
+            Action(
+                FluentIcon.DOCUMENT,
+                "CSV",
+                triggered=lambda: _set_source(
+                    "Load from PC (CSV)", FluentIcon.DOCUMENT, "CSV"
+                ),
+            )
+        )
+        menu.addAction(
+            Action(
+                FluentIcon.CLOUD,
+                "Cloud",
+                triggered=lambda: _set_source(
+                    "Load from Cloud", FluentIcon.CLOUD, "Cloud"
+                ),
+            )
+        )
         self.load_history_source_button.setMenu(menu)
-        
+
         # Set initial color based on actual selection
         self._update_source_button_color(initial_label)
-        
+
         ra_layout.addWidget(self.load_history_source_button)
         load_history_button = PrimaryPushButton("Load")
-        load_history_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
+        load_history_button.setIcon(
+            FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255))
+        )
         load_history_button.setIconSize(QSize(18, 18))
         load_history_button.clicked.connect(self.load_history)
         load_history_button.setFixedHeight(36)
@@ -2408,10 +2882,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         load_history_button.setMaximumWidth(100)
         load_history_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         ra_layout.addWidget(load_history_button)
-        
+
         # Download CSV button - Green color to differentiate from Load button
         self.download_csv_button = PrimaryPushButton("Download CSV")
-        self.download_csv_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
+        self.download_csv_button.setIcon(
+            FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255))
+        )
         self.download_csv_button.setIconSize(QSize(18, 18))
         self.download_csv_button.clicked.connect(self.download_csv_from_cloud)
         self.download_csv_button.setFixedHeight(36)
@@ -2441,18 +2917,22 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.download_csv_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         ra_layout.addWidget(self.download_csv_button)
         ra_layout.addStretch(1)  # Add stretch after controls
-        
+
         ra_card = StaticCardWidget()
         ra_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         ra_card.setLayout(ra_layout)
         ra_outer.addWidget(ra_card)
-        top_layout.addWidget(record_actions_group, 4)  # Adjusted from 3 to 4 to maintain proportion
+        top_layout.addWidget(
+            record_actions_group, 4
+        )  # Adjusted from 3 to 4 to maintain proportion
 
         # SECTION 3: Modify Actions (Edit and Delete buttons)
         modify_actions_group = StaticCardWidget()
-        modify_actions_group.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)  # Minimum size policy
+        modify_actions_group.setSizePolicy(
+            QSizePolicy.Minimum, QSizePolicy.Fixed
+        )  # Minimum size policy
         ma_outer = QVBoxLayout(modify_actions_group)
-        ma_outer.setContentsMargins(12,12,12,12)
+        ma_outer.setContentsMargins(12, 12, 12, 12)
         ma_outer.setSpacing(4)
         ma_title = TitleLabel("Modify Actions")
         ma_title.setAlignment(Qt.AlignCenter)
@@ -2476,11 +2956,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """)
         ma_outer.addWidget(ma_line)
         modify_actions_layout = QHBoxLayout()
-        modify_actions_layout.setContentsMargins(12,10,12,10)  # Better padding for fullscreen
+        modify_actions_layout.setContentsMargins(
+            12, 10, 12, 10
+        )  # Better padding for fullscreen
         modify_actions_layout.setSpacing(16)
         modify_actions_layout.addStretch(1)  # Add stretch before controls
         self.edit_selected_record_button = PrimaryPushButton("Edit Record")
-        self.edit_selected_record_button.setIcon(FluentIcon.EDIT.icon(color=QColor(255, 255, 255)))
+        self.edit_selected_record_button.setIcon(
+            FluentIcon.EDIT.icon(color=QColor(255, 255, 255))
+        )
         self.edit_selected_record_button.setIconSize(QSize(18, 18))
         self.edit_selected_record_button.setFixedHeight(36)
         self.edit_selected_record_button.setStyleSheet("""
@@ -2511,11 +2995,17 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """)
         self.edit_selected_record_button.setMinimumWidth(110)
         self.edit_selected_record_button.setMaximumWidth(140)
-        self.edit_selected_record_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.edit_selected_record_button.clicked.connect(self.handle_edit_selected_record)
-        
+        self.edit_selected_record_button.setSizePolicy(
+            QSizePolicy.Fixed, QSizePolicy.Fixed
+        )
+        self.edit_selected_record_button.clicked.connect(
+            self.handle_edit_selected_record
+        )
+
         self.delete_selected_record_button = PrimaryPushButton("Delete Record")
-        self.delete_selected_record_button.setIcon(FluentIcon.DELETE.icon(color=QColor(255, 255, 255)))
+        self.delete_selected_record_button.setIcon(
+            FluentIcon.DELETE.icon(color=QColor(255, 255, 255))
+        )
         self.delete_selected_record_button.setIconSize(QSize(18, 18))
         self.delete_selected_record_button.setFixedHeight(36)
         self.delete_selected_record_button.setStyleSheet("""
@@ -2546,8 +3036,12 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """)
         self.delete_selected_record_button.setMinimumWidth(120)
         self.delete_selected_record_button.setMaximumWidth(150)
-        self.delete_selected_record_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.delete_selected_record_button.clicked.connect(self.handle_delete_selected_record)
+        self.delete_selected_record_button.setSizePolicy(
+            QSizePolicy.Fixed, QSizePolicy.Fixed
+        )
+        self.delete_selected_record_button.clicked.connect(
+            self.handle_delete_selected_record
+        )
         # Initially disabled until a row is selected
         self.edit_selected_record_button.setEnabled(False)
         self.delete_selected_record_button.setEnabled(False)
@@ -2556,20 +3050,22 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         modify_actions_layout.addStretch(1)  # Add stretch after controls
         # Wrap in card
         ma_card = StaticCardWidget()
-        
+
         ma_card.setLayout(modify_actions_layout)
         ma_outer.addWidget(ma_card)
-        top_layout.addWidget(modify_actions_group, 3)  # Increased from 2 to 3 for better balance
+        top_layout.addWidget(
+            modify_actions_group, 3
+        )  # Increased from 2 to 3 for better balance
         layout.addLayout(top_layout)
 
         main_calc_group = StaticCardWidget()
         # Force the CardWidget to expand to full width
         main_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         main_calc_group.setMinimumWidth(0)
-        
+
         main_calc_layout = QVBoxLayout(main_calc_group)
         main_calc_layout.setContentsMargins(5, 5, 5, 5)  # Minimal margins
-        
+
         # Create title with emoji icon for consistency
         main_title_text = TitleLabel("⚙️ Main Calculation Info")
         main_title_text.setAlignment(Qt.AlignCenter)
@@ -2583,7 +3079,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             margin: 8px 0px;
         """)
         main_calc_layout.addWidget(main_title_text)
-        
+
         # Add divider
         divider1 = QFrame()
         divider1.setFrameShape(QFrame.HLine)
@@ -2599,24 +3095,34 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.main_history_table = SmoothTableWidget()
         # Clear table cache since main_history_table was recreated
         self.clear_table_cache()
-        
+
         # Initialize main table headers immediately
         main_headers = [
-            "Month", "Meter-1", "Meter-2", "Diff-1", "Diff-2", 
-            "Total Unit Cost", "Total Diff Units", "Per Unit Cost", "Added Amount", "Grand Total"
+            "Month",
+            "Meter-1",
+            "Meter-2",
+            "Diff-1",
+            "Diff-2",
+            "Total Unit Cost",
+            "Total Diff Units",
+            "Per Unit Cost",
+            "Added Amount",
+            "Grand Total",
         ]
-        self._set_table_headers_with_icons(self.main_history_table, main_headers, 'main_table')
-        
+        self._set_table_headers_with_icons(
+            self.main_history_table, main_headers, "main_table"
+        )
+
         # Apply comprehensive table styling from your analysis
         self._style_table(self.main_history_table)
-        
+
         # Configure table properties matching working tabs strategy
         # Use consistent scrollbar policies matching Rental Info and Archived tabs
         self.main_history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.main_history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.main_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        
+
         # Initially set columns to minimum required, will update dynamically on data load
         self.main_history_table.horizontalHeader().sectionResized.connect(
             lambda: self._on_table_resize(self.main_history_table)
@@ -2628,10 +3134,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         # Force room CardWidget to expand to full width
         room_calc_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         room_calc_group.setMinimumWidth(0)
-        
+
         room_calc_layout = QVBoxLayout(room_calc_group)
         room_calc_layout.setContentsMargins(5, 5, 5, 5)  # Minimal margins
-        
+
         room_title = TitleLabel("🏠 Room Calculation Info")
         room_title.setAlignment(Qt.AlignCenter)
         room_title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -2644,7 +3150,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             margin: 8px 0px;
         """)
         room_calc_layout.addWidget(room_title)
-        
+
         # Add divider
         divider2 = QFrame()
         divider2.setFrameShape(QFrame.HLine)
@@ -2662,11 +3168,21 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.clear_table_cache()
         # (moved block above to add connections) -- placeholder to satisfy exact replacement
         room_headers = [
-            "Month", "Room Number", "Present Unit", "Previous Unit", "Real Unit", 
-            "Unit Bill", "Gas Bill", "Water Bill", "House Rent", "Grand Total"
+            "Month",
+            "Room Number",
+            "Present Unit",
+            "Previous Unit",
+            "Real Unit",
+            "Unit Bill",
+            "Gas Bill",
+            "Water Bill",
+            "House Rent",
+            "Grand Total",
         ]
-        self._set_table_headers_with_icons(self.room_history_table, room_headers, 'room_table')
-        # Column widths will be set by _set_intelligent_column_widths method 
+        self._set_table_headers_with_icons(
+            self.room_history_table, room_headers, "room_table"
+        )
+        # Column widths will be set by _set_intelligent_column_widths method
         self.room_history_table.setAlternatingRowColors(True)
         # Use consistent scrollbar policies matching working tabs strategy
         # This matches the successful approach used in Rental Info and Archived tabs
@@ -2675,15 +3191,21 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.room_history_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.room_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         # Set size policy for responsive behavior (same as main table)
-        self.room_history_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.room_history_table.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Minimum
+        )
         self._style_table(self.room_history_table)
         # Enable resize handler for room table to apply intelligent column widths
         self.room_history_table.horizontalHeader().sectionResized.connect(
             lambda: self._on_table_resize(self.room_history_table)
         )
         # Connect selection changed signals to update button states/styles now that tables exist
-        self.main_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
-        self.room_history_table.itemSelectionChanged.connect(self.update_action_buttons_state)
+        self.main_history_table.itemSelectionChanged.connect(
+            self.update_action_buttons_state
+        )
+        self.room_history_table.itemSelectionChanged.connect(
+            self.update_action_buttons_state
+        )
         # Ensure initial button style state
         self.update_action_buttons_state()
         room_calc_layout.addWidget(self.room_history_table)
@@ -2704,7 +3226,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             margin: 8px 0px;
         """)
         totals_layout.addWidget(totals_title)
-        
+
         # Add divider
         divider3 = QFrame()
         divider3.setFrameShape(QFrame.HLine)
@@ -2721,9 +3243,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         # Clear table cache since totals_table was recreated
         self.clear_table_cache()
         totals_headers = [
-            "Month", "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill"
+            "Month",
+            "Total House Rent",
+            "Total Water Bill",
+            "Total Gas Bill",
+            "Total Room Unit Bill",
         ]
-        self._set_table_headers_with_icons(self.totals_table, totals_headers, 'totals_table')
+        self._set_table_headers_with_icons(
+            self.totals_table, totals_headers, "totals_table"
+        )
         # Column widths will be set by _set_intelligent_column_widths method
         self.totals_table.setAlternatingRowColors(True)
         # Remove all height restrictions and let table grow naturally
@@ -2741,29 +3269,29 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         )
         totals_layout.addWidget(self.totals_table)
         layout.addWidget(totals_group)  # No stretch factor - let it size naturally
-        
+
         # Set the content widget to the scroll area and add scroll area to main layout
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
         self.setLayout(main_layout)
-        
+
         # Install event filters on tables to forward scroll events to parent scroll area
         if self.main_history_table:
             self.main_history_table.installEventFilter(self)
             # Also install on viewport to catch scroll events
             self.main_history_table.viewport().installEventFilter(self)
-        
+
         if self.room_history_table:
             self.room_history_table.installEventFilter(self)
             self.room_history_table.viewport().installEventFilter(self)
-        
-        if hasattr(self, 'totals_table') and self.totals_table:
+
+        if hasattr(self, "totals_table") and self.totals_table:
             self.totals_table.installEventFilter(self)
             self.totals_table.viewport().installEventFilter(self)
-        
+
         # Ensure tables are properly sized after initialization
         QTimer.singleShot(100, self._initial_table_resize)
-        
+
         # Update Download CSV button state based on Supabase configuration and internet connectivity
         self._update_download_csv_button_state()
 
@@ -2775,30 +3303,36 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         try:
             # Check if Supabase is configured and internet is available
             supabase_configured = (
-                hasattr(self.main_window, 'supabase_manager') and 
-                self.main_window.supabase_manager and 
-                self.main_window.supabase_manager.is_client_initialized()
+                hasattr(self.main_window, "supabase_manager")
+                and self.main_window.supabase_manager
+                and self.main_window.supabase_manager.is_client_initialized()
             )
-            
+
             internet_available = (
-                hasattr(self.main_window, 'check_internet_connectivity') and 
-                self.main_window.check_internet_connectivity()
+                hasattr(self.main_window, "check_internet_connectivity")
+                and self.main_window.check_internet_connectivity()
             )
-            
+
             # Enable button only if both conditions are met
             should_enable = supabase_configured and internet_available
-            
-            if hasattr(self, 'download_csv_button') and self.download_csv_button:
+
+            if hasattr(self, "download_csv_button") and self.download_csv_button:
                 self.download_csv_button.setEnabled(should_enable)
-                
+
                 # Update tooltip to inform user why button is disabled
                 if not should_enable:
                     if not supabase_configured:
-                        self.download_csv_button.setToolTip("Supabase not configured. Please configure Supabase in Settings.")
+                        self.download_csv_button.setToolTip(
+                            "Supabase not configured. Please configure Supabase in Settings."
+                        )
                     elif not internet_available:
-                        self.download_csv_button.setToolTip("No internet connection. Cannot download from cloud.")
+                        self.download_csv_button.setToolTip(
+                            "No internet connection. Cannot download from cloud."
+                        )
                 else:
-                    self.download_csv_button.setToolTip("Download records from cloud to CSV file")
+                    self.download_csv_button.setToolTip(
+                        "Download records from cloud to CSV file"
+                    )
         except Exception as e:
             # Silently handle errors to avoid breaking the UI
             pass
@@ -2806,7 +3340,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
     def _style_table(self, table: TableWidget):
         """Apply qfluentwidgets-compatible styling with enhanced visual design"""
         from qfluentwidgets import setCustomStyleSheet
-        
+
         # Configure basic table properties
         table.setShowGrid(False)
         table.verticalHeader().setVisible(False)
@@ -2814,18 +3348,20 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         table.setBorderVisible(True)
         table.setBorderRadius(8)
         table.setAlternatingRowColors(True)
-        
+
         header = table.horizontalHeader()
         if hasattr(header, "setTextElideMode"):
             header.setTextElideMode(Qt.ElideNone)
-        
+
         # Set compact row height for better data density
-        table.verticalHeader().setDefaultSectionSize(35)  # More compact for better data density
-        
+        table.verticalHeader().setDefaultSectionSize(
+            35
+        )  # More compact for better data density
+
         # Enable qfluentwidgets-specific features
-        if hasattr(table, 'setSelectRightClickedRow'):
+        if hasattr(table, "setSelectRightClickedRow"):
             table.setSelectRightClickedRow(True)  # Enable right-click row selection
-        
+
         # Apply custom qfluentwidgets-compatible styling with professional enhancements
         light_qss = """
             QTableWidget {
@@ -2877,7 +3413,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 font-weight: 600;
             }
         """
-        
+
         dark_qss = """
             QTableWidget {
                 background-color: #21262d;
@@ -2928,21 +3464,21 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 font-weight: 600;
             }
         """
-        
+
         # Apply theme-aware styling using qfluentwidgets method
         setCustomStyleSheet(table, light_qss, dark_qss)
-        
+
         table.setSortingEnabled(True)
         table.horizontalHeader().setMinimumSectionSize(80)
-        
+
         # Apply center alignment and styling to all cells
         self._apply_center_alignment(table)
         self._apply_accent_colors(table)
         # self._enhance_headers_with_icons(table)  # Disabled - using FluentIcon icons instead
-        
+
         # Center header text
         table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-        
+
         # Set column widths directly
         self._set_intelligent_column_widths(table)
 
@@ -2953,100 +3489,122 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 item = table.item(row, col)
                 if item:
                     item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-                    
-    def _create_centered_item(self, text: str, column_name: str = "", is_priority: bool = False) -> QTableWidgetItem:
+
+    def _create_centered_item(
+        self, text: str, column_name: str = "", is_priority: bool = False
+    ) -> QTableWidgetItem:
         """Create a table widget item with center alignment, number formatting, and priority-aware styling"""
         from PyQt5.QtGui import QColor, QBrush, QFont
         from qfluentwidgets import isDarkTheme
-        
+
         # Format numbers with thousand separators
-        formatted_text = self._format_number(str(text)) if self._is_numeric_text(str(text)) else str(text)
-        
+        formatted_text = (
+            self._format_number(str(text))
+            if self._is_numeric_text(str(text))
+            else str(text)
+        )
+
         item = QTableWidgetItem(formatted_text)
         item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        
+
         # Apply priority-aware font sizing using class constants
         font = item.font()
         if is_priority:
-            font.setPointSize(self.FONT_SIZES['priority_columns'])
-            font.setWeight(self.FONT_WEIGHTS['priority_columns'])
+            font.setPointSize(self.FONT_SIZES["priority_columns"])
+            font.setWeight(self.FONT_WEIGHTS["priority_columns"])
         else:
-            font.setPointSize(self.FONT_SIZES['regular_columns'])
-            font.setWeight(self.FONT_WEIGHTS['regular_columns'])
-        
+            font.setPointSize(self.FONT_SIZES["regular_columns"])
+            font.setWeight(self.FONT_WEIGHTS["regular_columns"])
+
         # Apply modern styling to numeric content
         if self._is_numeric_text(str(text)):
             if is_priority:
                 font.setWeight(QFont.Bold)  # Bold for priority numbers
             else:
                 font.setWeight(QFont.DemiBold)  # Semi-bold for regular numbers
-            
+
             # Theme-aware subtle color enhancement for numbers
             if isDarkTheme():
-                item.setForeground(QBrush(QColor("#B3E5FC")))  # Light blue for dark theme
+                item.setForeground(
+                    QBrush(QColor("#B3E5FC"))
+                )  # Light blue for dark theme
             else:
-                item.setForeground(QBrush(QColor("#1565C0")))  # Dark blue for light theme
-        
+                item.setForeground(
+                    QBrush(QColor("#1565C0"))
+                )  # Dark blue for light theme
+
         item.setFont(font)
         return item
-    
-    def _create_special_item(self, text: str, column_type: str, column_name: str = "", is_priority: bool = False) -> QTableWidgetItem:
+
+    def _create_special_item(
+        self,
+        text: str,
+        column_type: str,
+        column_name: str = "",
+        is_priority: bool = False,
+    ) -> QTableWidgetItem:
         """Create a styled item for special columns with priority-aware formatting and enhanced Material Design colors"""
         from PyQt5.QtGui import QColor, QBrush, QFont
         from qfluentwidgets import isDarkTheme
-        
+
         # Format numbers with thousand separators and add currency symbol for money columns
         formatted_text = str(text)
         if self._is_numeric_text(str(text)):
             formatted_text = self._format_number(str(text))
             # Add currency symbol for money-related columns
-            if column_type in ["grand_total", "unit_bill", "total_unit_cost"] and formatted_text not in ["0.0", "0", ""]:
+            if column_type in [
+                "grand_total",
+                "unit_bill",
+                "total_unit_cost",
+            ] and formatted_text not in ["0.0", "0", ""]:
                 formatted_text = f"৳{formatted_text}"
-        
+
         # Enhanced color mapping with theme awareness
         if isDarkTheme():
             color_map = {
-                "grand_total": "#66BB6A",       # Light Green for dark theme
-                "unit_bill": "#FF7043",         # Light Deep Orange 
-                "total_unit_cost": "#AB47BC",   # Light Purple
-                "per_unit_cost": "#FFA726",     # Light Orange
+                "grand_total": "#66BB6A",  # Light Green for dark theme
+                "unit_bill": "#FF7043",  # Light Deep Orange
+                "total_unit_cost": "#AB47BC",  # Light Purple
+                "per_unit_cost": "#FFA726",  # Light Orange
             }
         else:
             color_map = {
-                "grand_total": "#2E7D32",       # Dark Green for light theme
-                "unit_bill": "#D84315",         # Dark Deep Orange 
-                "total_unit_cost": "#7B1FA2",   # Dark Purple
-                "per_unit_cost": "#EF6C00",     # Dark Orange
+                "grand_total": "#2E7D32",  # Dark Green for light theme
+                "unit_bill": "#D84315",  # Dark Deep Orange
+                "total_unit_cost": "#7B1FA2",  # Dark Purple
+                "per_unit_cost": "#EF6C00",  # Dark Orange
             }
-        
+
         item = QTableWidgetItem(formatted_text)
         item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        
+
         # Apply enhanced styling for special columns
         color = color_map.get(column_type, "#1976D2")  # Default Material Blue
         item.setForeground(QBrush(QColor(color)))
-        
+
         # Priority-aware font sizing and styling
         font = item.font()
         font.setBold(True)
         font.setWeight(QFont.Bold)
-        
+
         if is_priority:
             font.setPointSize(12)  # Priority columns: larger font
         else:
             font.setPointSize(10)  # Regular columns: smaller font
-        
+
         item.setFont(font)
         return item
-    
-    def _create_identifier_item(self, text: str, identifier_type: str) -> QTableWidgetItem:
+
+    def _create_identifier_item(
+        self, text: str, identifier_type: str
+    ) -> QTableWidgetItem:
         """Create a styled item for identifier columns (Month, Room Number) with modern styling"""
         from PyQt5.QtGui import QColor, QBrush, QFont
         from qfluentwidgets import isDarkTheme
-        
+
         item = QTableWidgetItem(str(text))
         item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        
+
         # Enhanced styling for identifier columns
         if isDarkTheme():
             if identifier_type == "month":
@@ -3062,33 +3620,31 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             elif identifier_type == "room":
                 # Sophisticated teal for room identifiers in light theme
                 item.setForeground(QBrush(QColor("#00796B")))  # Teal
-        
+
         # Modern typography - semi-bold with elegant sizing
         font = item.font()
         font.setWeight(QFont.DemiBold)
         font.setPointSizeF(10.5)  # Fixed absolute font size for identifier items
         item.setFont(font)
-        
+
         return item
 
-        
     def _on_table_resize(self, table: SmoothTableWidget):
         """Handle table resize events with error handling"""
         try:
             if not self._validate_table_for_resize(table, "_on_table_resize"):
                 return
-                
+
             # Use debounced resize to avoid excessive calculations during manual column resizing
             self._trigger_debounced_resize()
-            self._log_resize_debug(f"Table resize event for {type(table).__name__} handled with debouncing")
-            
+            self._log_resize_debug(
+                f"Table resize event for {type(table).__name__} handled with debouncing"
+            )
+
         except Exception as e:
-            self._log_resize_error(f"Error in _on_table_resize for {type(table).__name__}", e)
-    
-
-    
-
-        
+            self._log_resize_error(
+                f"Error in _on_table_resize for {type(table).__name__}", e
+            )
 
     def resizeEvent(self, event):
         """Handle widget resize events with debounced resize handling for better performance"""
@@ -3108,56 +3664,85 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             self._update_download_csv_button_state()
         except Exception as e:
             self._log_resize_error("Error in showEvent", e)
-        
+
     def _immediate_table_resize(self):
         """Immediate table resize for quick responsiveness during resize operations"""
         try:
             self._log_resize_debug("Starting immediate table resize")
-            
+
             # Quick resize for immediate visual feedback with proper validation
             tables_resized = 0
-            
-            if hasattr(self, 'main_history_table') and self._validate_table_for_resize(self.main_history_table, "_immediate_table_resize"):
-                if self.main_history_table.isVisible() and self.main_history_table.columnCount() > 0:
+
+            if hasattr(self, "main_history_table") and self._validate_table_for_resize(
+                self.main_history_table, "_immediate_table_resize"
+            ):
+                if (
+                    self.main_history_table.isVisible()
+                    and self.main_history_table.columnCount() > 0
+                ):
                     try:
                         self.main_history_table.resizeColumnsToContents()
                         tables_resized += 1
-                        self._log_resize_debug("Immediate resize applied to main_history_table")
+                        self._log_resize_debug(
+                            "Immediate resize applied to main_history_table"
+                        )
                     except Exception as e:
-                        self._log_resize_error("Failed immediate resize for main_history_table", e)
-                        
-            if hasattr(self, 'room_history_table') and self._validate_table_for_resize(self.room_history_table, "_immediate_table_resize"):
-                if self.room_history_table.isVisible() and self.room_history_table.columnCount() > 0:
+                        self._log_resize_error(
+                            "Failed immediate resize for main_history_table", e
+                        )
+
+            if hasattr(self, "room_history_table") and self._validate_table_for_resize(
+                self.room_history_table, "_immediate_table_resize"
+            ):
+                if (
+                    self.room_history_table.isVisible()
+                    and self.room_history_table.columnCount() > 0
+                ):
                     try:
                         self.room_history_table.resizeColumnsToContents()
                         tables_resized += 1
-                        self._log_resize_debug("Immediate resize applied to room_history_table")
+                        self._log_resize_debug(
+                            "Immediate resize applied to room_history_table"
+                        )
                     except Exception as e:
-                        self._log_resize_error("Failed immediate resize for room_history_table", e)
-                        
-            if hasattr(self, 'totals_table') and self._validate_table_for_resize(self.totals_table, "_immediate_table_resize"):
-                if self.totals_table.isVisible() and self.totals_table.columnCount() > 0:
+                        self._log_resize_error(
+                            "Failed immediate resize for room_history_table", e
+                        )
+
+            if hasattr(self, "totals_table") and self._validate_table_for_resize(
+                self.totals_table, "_immediate_table_resize"
+            ):
+                if (
+                    self.totals_table.isVisible()
+                    and self.totals_table.columnCount() > 0
+                ):
                     try:
                         self.totals_table.resizeColumnsToContents()
                         tables_resized += 1
-                        self._log_resize_debug("Immediate resize applied to totals_table")
+                        self._log_resize_debug(
+                            "Immediate resize applied to totals_table"
+                        )
                     except Exception as e:
-                        self._log_resize_error("Failed immediate resize for totals_table", e)
-            
-            self._log_resize_debug(f"Immediate table resize completed: {tables_resized} tables resized")
-            
+                        self._log_resize_error(
+                            "Failed immediate resize for totals_table", e
+                        )
+
+            self._log_resize_debug(
+                f"Immediate table resize completed: {tables_resized} tables resized"
+            )
+
         except Exception as e:
             self._log_resize_error("Critical error in immediate table resize", e)
-        
+
     def _recalculate_all_table_widths(self):
         """Recalculate column widths for all tables with comprehensive error handling"""
         try:
             self._log_resize_debug("Starting recalculation of all table widths")
 
             tables = []
-            for name in ('main_history_table', 'room_history_table', 'totals_table'):
+            for name in ("main_history_table", "room_history_table", "totals_table"):
                 t = getattr(self, name, None)
-                if t is not None and hasattr(t, 'columnCount'):
+                if t is not None and hasattr(t, "columnCount"):
                     tables.append(t)
 
             tables_successful = 0
@@ -3177,118 +3762,143 @@ class HistoryTab(QWidget, EnhancedTableMixin):
     def _initial_table_resize(self):
         """Initial table resize after UI initialization to ensure proper sizing"""
         try:
-            self._log_resize_debug("Performing initial table resize after UI initialization")
+            self._log_resize_debug(
+                "Performing initial table resize after UI initialization"
+            )
             initial_resize_success = 0
-            for name in ('main_history_table', 'room_history_table', 'totals_table'):
+            for name in ("main_history_table", "room_history_table", "totals_table"):
                 t = getattr(self, name, None)
                 if t is not None and self._set_intelligent_column_widths_optimized(t):
                     initial_resize_success += 1
             self._log_resize_debug(
-                f"Initial table resize completed: {initial_resize_success}/{3 if hasattr(self,'totals_table') else 2} tables successful"
+                f"Initial table resize completed: {initial_resize_success}/{3 if hasattr(self, 'totals_table') else 2} tables successful"
             )
         except Exception as e:
-            self._log_resize_error("Failed initial table resize after UI initialization", e)
-    
+            self._log_resize_error(
+                "Failed initial table resize after UI initialization", e
+            )
 
     def _disconnect_resize_handlers(self):
         """Temporarily disconnect resize handlers to prevent conflicts with comprehensive error handling"""
         try:
             self._log_resize_debug("Disconnecting resize handlers")
             handlers_disconnected = 0
-            
-            if hasattr(self, 'main_history_table') and self.main_history_table:
+
+            if hasattr(self, "main_history_table") and self.main_history_table:
                 try:
-                    if hasattr(self.main_history_table, 'horizontalHeader'):
+                    if hasattr(self.main_history_table, "horizontalHeader"):
                         header = self.main_history_table.horizontalHeader()
-                        if header and hasattr(header, 'sectionResized'):
+                        if header and hasattr(header, "sectionResized"):
                             header.sectionResized.disconnect()
                             handlers_disconnected += 1
-                            self._log_resize_debug("Disconnected main_history_table resize handler")
+                            self._log_resize_debug(
+                                "Disconnected main_history_table resize handler"
+                            )
                 except Exception as e:
-                    self._log_resize_debug(f"Could not disconnect main_history_table handler (may not be connected): {e}")
-                    
-            if hasattr(self, 'room_history_table') and self.room_history_table:
+                    self._log_resize_debug(
+                        f"Could not disconnect main_history_table handler (may not be connected): {e}"
+                    )
+
+            if hasattr(self, "room_history_table") and self.room_history_table:
                 try:
-                    if hasattr(self.room_history_table, 'horizontalHeader'):
+                    if hasattr(self.room_history_table, "horizontalHeader"):
                         header = self.room_history_table.horizontalHeader()
-                        if header and hasattr(header, 'sectionResized'):
+                        if header and hasattr(header, "sectionResized"):
                             header.sectionResized.disconnect()
                             handlers_disconnected += 1
-                            self._log_resize_debug("Disconnected room_history_table resize handler")
+                            self._log_resize_debug(
+                                "Disconnected room_history_table resize handler"
+                            )
                 except Exception as e:
-                    self._log_resize_debug(f"Could not disconnect room_history_table handler (may not be connected): {e}")
-                    
-            if hasattr(self, 'totals_table') and self.totals_table:
+                    self._log_resize_debug(
+                        f"Could not disconnect room_history_table handler (may not be connected): {e}"
+                    )
+
+            if hasattr(self, "totals_table") and self.totals_table:
                 try:
-                    if hasattr(self.totals_table, 'horizontalHeader'):
+                    if hasattr(self.totals_table, "horizontalHeader"):
                         header = self.totals_table.horizontalHeader()
-                        if header and hasattr(header, 'sectionResized'):
+                        if header and hasattr(header, "sectionResized"):
                             header.sectionResized.disconnect()
                             handlers_disconnected += 1
-                            self._log_resize_debug("Disconnected totals_table resize handler")
+                            self._log_resize_debug(
+                                "Disconnected totals_table resize handler"
+                            )
                 except Exception as e:
-                    self._log_resize_debug(f"Could not disconnect totals_table handler (may not be connected): {e}")
-            
-            self._log_resize_debug(f"Resize handler disconnection completed: {handlers_disconnected} handlers disconnected")
-            
+                    self._log_resize_debug(
+                        f"Could not disconnect totals_table handler (may not be connected): {e}"
+                    )
+
+            self._log_resize_debug(
+                f"Resize handler disconnection completed: {handlers_disconnected} handlers disconnected"
+            )
+
         except Exception as e:
             self._log_resize_error("Error in disconnect_resize_handlers", e)
-    
+
     def _reconnect_resize_handlers(self):
         """Reconnect resize handlers after data loading with comprehensive error handling"""
         try:
             self._log_resize_debug("Reconnecting resize handlers")
             handlers_connected = 0
-            
-            if hasattr(self, 'main_history_table') and self.main_history_table:
+
+            if hasattr(self, "main_history_table") and self.main_history_table:
                 try:
-                    if hasattr(self.main_history_table, 'horizontalHeader'):
+                    if hasattr(self.main_history_table, "horizontalHeader"):
                         header = self.main_history_table.horizontalHeader()
-                        if header and hasattr(header, 'sectionResized'):
+                        if header and hasattr(header, "sectionResized"):
                             header.sectionResized.connect(
                                 lambda: self._on_table_resize(self.main_history_table)
                             )
                             handlers_connected += 1
-                            self._log_resize_debug("Reconnected main_history_table resize handler")
+                            self._log_resize_debug(
+                                "Reconnected main_history_table resize handler"
+                            )
                 except Exception as e:
-                    self._log_resize_error("Failed to reconnect main_history_table handler", e)
-                    
+                    self._log_resize_error(
+                        "Failed to reconnect main_history_table handler", e
+                    )
+
             # Skip room table to prevent flickering - month priority maintained by other means
             # Room table resize handler intentionally disabled per existing logic
-            
-            if hasattr(self, 'totals_table') and self.totals_table:
+
+            if hasattr(self, "totals_table") and self.totals_table:
                 try:
-                    if hasattr(self.totals_table, 'horizontalHeader'):
+                    if hasattr(self.totals_table, "horizontalHeader"):
                         header = self.totals_table.horizontalHeader()
-                        if header and hasattr(header, 'sectionResized'):
+                        if header and hasattr(header, "sectionResized"):
                             header.sectionResized.connect(
                                 lambda: self._on_table_resize(self.totals_table)
                             )
                             handlers_connected += 1
-                            self._log_resize_debug("Reconnected totals_table resize handler")
+                            self._log_resize_debug(
+                                "Reconnected totals_table resize handler"
+                            )
                 except Exception as e:
-                    self._log_resize_error("Failed to reconnect totals_table handler", e)
-            
-            self._log_resize_debug(f"Resize handler reconnection completed: {handlers_connected} handlers connected")
-            
+                    self._log_resize_error(
+                        "Failed to reconnect totals_table handler", e
+                    )
+
+            self._log_resize_debug(
+                f"Resize handler reconnection completed: {handlers_connected} handlers connected"
+            )
+
         except Exception as e:
             self._log_resize_error("Error in reconnect_resize_handlers", e)
-    
 
-    
     def _enhance_headers_with_icons(self, table: TableWidget):
         """Add icons to table headers for better visual identification"""
         try:
             from qfluentwidgets import FluentIcon
-            
+
             for col in range(table.columnCount()):
                 header = table.horizontalHeaderItem(col)
                 if not header:
                     continue
-                    
+
                 header_text = header.text().strip().lower()
                 original_text = header.text()
-                
+
                 # Map header types to appropriate icons
                 icon = None
                 if "month" in header_text:
@@ -3309,43 +3919,58 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     icon = "📈"  # Chart for totals
                 elif "grand total" in header_text:
                     icon = "🎯"  # Target for grand totals
-                
+
                 # Apply icon if found
                 if icon:
                     header.setText(f"{icon} {original_text}")
-                    
+
         except ImportError:
             # Fallback to text-only headers if qfluentwidgets icons aren't available
             pass
-    
+
     def _apply_accent_colors(self, table: TableWidget):
         """Apply subtle styling enhancements to table (styling is now handled by create methods)"""
         # This method is now primarily for applying any additional table-wide styling
         # Individual cell styling is handled by _create_centered_item and _create_special_item
         pass
-    
+
     def _is_numeric_column(self, header_text: str) -> bool:
         """Check if a column header indicates numeric content"""
         numeric_indicators = [
-            "meter", "diff", "unit", "cost", "bill", "rent", "amount", "total", "reading"
+            "meter",
+            "diff",
+            "unit",
+            "cost",
+            "bill",
+            "rent",
+            "amount",
+            "total",
+            "reading",
         ]
         header_lower = header_text.lower()
         return any(indicator in header_lower for indicator in numeric_indicators)
-    
+
     def _format_number(self, text: str) -> str:
         """Format numbers with thousand separators and proper decimals"""
-        if not text or text.lower() in ['n/a', '', 'unknown', '0', '0.0']:
+        if not text or text.lower() in ["n/a", "", "unknown", "0", "0.0"]:
             return text
-        
+
         try:
             # Remove existing formatting
-            cleaned = str(text).replace(',', '').replace('$', '').replace('TK', '').replace('৳', '').strip()
+            cleaned = (
+                str(text)
+                .replace(",", "")
+                .replace("$", "")
+                .replace("TK", "")
+                .replace("৳", "")
+                .strip()
+            )
             if not cleaned:
                 return text
-                
+
             # Convert to float
             num = float(cleaned)
-            
+
             # Format with thousand separators
             if num == 0:
                 return "0"
@@ -3353,76 +3978,107 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 return f"{int(num):,}"
             else:  # Has decimals
                 return f"{num:,.2f}"
-                
+
         except (ValueError, TypeError):
             return text
-    
+
     def _is_numeric_text(self, text: str) -> bool:
         """Check if text represents a numeric value"""
-        if not text or text.lower() in ['n/a', '', 'unknown']:
+        if not text or text.lower() in ["n/a", "", "unknown"]:
             return False
         try:
             # Remove common formatting and try to parse as float
-            cleaned = text.replace(',', '').replace('$', '').replace('TK', '').replace('৳', '').strip()
+            cleaned = (
+                text.replace(",", "")
+                .replace("$", "")
+                .replace("TK", "")
+                .replace("৳", "")
+                .strip()
+            )
             float(cleaned)
             return True
         except (ValueError, TypeError):
             return False
-
 
     def resize_table_to_content(self, table):
         """Resize table height to fit all rows without scrolling with error handling"""
         try:
             if not self._validate_table_for_resize(table, "resize_table_to_content"):
                 return
-                
+
             if table.rowCount() == 0:
                 try:
                     # Set a reasonable minimum height instead of fixed height
-                    header_height = table.horizontalHeader().height() if table.horizontalHeader() else 30
+                    header_height = (
+                        table.horizontalHeader().height()
+                        if table.horizontalHeader()
+                        else 30
+                    )
                     table.setMinimumHeight(header_height + 10)
                     table.setMaximumHeight(16777215)  # Remove height constraint
-                    self._log_resize_debug(f"Set minimum height for empty table {type(table).__name__}")
+                    self._log_resize_debug(
+                        f"Set minimum height for empty table {type(table).__name__}"
+                    )
                     return
                 except Exception as empty_table_error:
-                    self._log_resize_error(f"Failed to set height for empty table {type(table).__name__}", empty_table_error)
+                    self._log_resize_error(
+                        f"Failed to set height for empty table {type(table).__name__}",
+                        empty_table_error,
+                    )
                     return
-            
+
             # Calculate total height needed
             try:
-                header_height = table.horizontalHeader().height() if table.horizontalHeader() else 30
+                header_height = (
+                    table.horizontalHeader().height()
+                    if table.horizontalHeader()
+                    else 30
+                )
                 row_height = 0
-                
+
                 # Get the height of all rows
                 for row in range(table.rowCount()):
                     try:
                         row_height += table.rowHeight(row)
                     except Exception as row_error:
-                        self._log_resize_debug(f"Could not get height for row {row}, using default: {row_error}")
+                        self._log_resize_debug(
+                            f"Could not get height for row {row}, using default: {row_error}"
+                        )
                         row_height += 35  # Default row height
-                
+
                 # Add some padding for borders and margins
                 total_height = header_height + row_height + 10
-                
+
                 # Set minimum height but allow expansion
                 table.setMinimumHeight(total_height)
                 table.setMaximumHeight(16777215)  # Remove height constraint
                 table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-                
-                self._log_resize_debug(f"Resized table {type(table).__name__} to content height: {total_height}px")
-                
+
+                self._log_resize_debug(
+                    f"Resized table {type(table).__name__} to content height: {total_height}px"
+                )
+
             except Exception as height_calc_error:
-                self._log_resize_error(f"Failed to calculate height for table {type(table).__name__}", height_calc_error)
+                self._log_resize_error(
+                    f"Failed to calculate height for table {type(table).__name__}",
+                    height_calc_error,
+                )
                 # Fallback to reasonable defaults
                 try:
                     table.setMinimumHeight(200)
                     table.setMaximumHeight(16777215)
                     table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
                 except Exception as fallback_error:
-                    self._log_resize_error(f"Fallback height setting failed for {type(table).__name__}", fallback_error)
-                    
+                    self._log_resize_error(
+                        f"Fallback height setting failed for {type(table).__name__}",
+                        fallback_error,
+                    )
+
         except Exception as e:
-            self._log_resize_error(f"Critical error in resize_table_to_content for {type(table).__name__}", e)
+            self._log_resize_error(
+                f"Critical error in resize_table_to_content for {type(table).__name__}",
+                e,
+            )
 
     def set_main_history_table_columns(self, num_meters):
         # num_meters: number of meter/diff pairs to show, max 10
@@ -3430,78 +4086,165 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         # Fixed columns before meters/diffs
         fixed_columns = ["Month"]
         # Dynamic meter columns
-        meter_columns = [f"Meter-{i+1}" for i in range(num_meters)]
-        diff_columns = [f"Diff-{i+1}" for i in range(num_meters)]
+        meter_columns = [f"Meter-{i + 1}" for i in range(num_meters)]
+        diff_columns = [f"Diff-{i + 1}" for i in range(num_meters)]
         # Fixed columns after meters/diffs
-        fixed_after_columns = ["Total Unit Cost", "Total Diff Units", "Per Unit Cost", "Added Amount", "Grand Total"]
+        fixed_after_columns = [
+            "Total Unit Cost",
+            "Total Diff Units",
+            "Per Unit Cost",
+            "Added Amount",
+            "Grand Total",
+        ]
         all_columns = fixed_columns + meter_columns + diff_columns + fixed_after_columns
-        self._set_table_headers_with_icons(self.main_history_table, all_columns, 'main_table')
+        self._set_table_headers_with_icons(
+            self.main_history_table, all_columns, "main_table"
+        )
         header = self.main_history_table.horizontalHeader()
         # Column widths will be set by _set_intelligent_column_widths method
         # Remove the ResizeToContents override that was causing column width issues
-        
+
         # Apply intelligent column widths after setting headers
         try:
-            self._log_resize_debug("Applying initial column widths to main_history_table")
+            self._log_resize_debug(
+                "Applying initial column widths to main_history_table"
+            )
             if not self._set_intelligent_column_widths(self.main_history_table):
-                self._log_resize_debug("Initial main_history_table resize failed, but continuing with initialization")
+                self._log_resize_debug(
+                    "Initial main_history_table resize failed, but continuing with initialization"
+                )
         except Exception as init_resize_error:
-            self._log_resize_error("Failed to apply initial column widths to main_history_table", init_resize_error)
+            self._log_resize_error(
+                "Failed to apply initial column widths to main_history_table",
+                init_resize_error,
+            )
+
+    def _coerce_json_dict(self, value) -> dict:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    def _prepare_supabase_history_records(
+        self, main_calculations: list[dict]
+    ) -> tuple[list[dict], list[dict]]:
+        room_records_by_main_id = (
+            self.main_window.supabase_manager.get_room_calculations_bulk(
+                [
+                    main_calc.get("id")
+                    for main_calc in main_calculations
+                    if main_calc.get("id")
+                ]
+            )
+        )
+
+        all_records_with_rooms = []
+        all_room_rows = []
+
+        for main_calc in main_calculations:
+            main_calc["main_data"] = self._coerce_json_dict(
+                main_calc.get("main_data", {})
+            )
+
+            room_records = []
+            main_calc_id = main_calc.get("id")
+            if main_calc_id:
+                for room in room_records_by_main_id.get(str(main_calc_id), []):
+                    normalized_room = dict(room)
+                    normalized_room["room_data"] = self._coerce_json_dict(
+                        room.get("room_data", {})
+                    )
+                    normalized_room["month"] = main_calc.get("month")
+                    normalized_room["year"] = main_calc.get("year")
+                    room_records.append(normalized_room)
+
+            all_records_with_rooms.append(
+                {"main_calc": main_calc, "room_records": room_records}
+            )
+            all_room_rows.extend(room_records)
+
+        return all_records_with_rooms, all_room_rows
 
     def load_history(self):
         try:
             selected_month = self.history_month_combo.currentText()
             # Fix the year selection logic - check if value is 0 (minimum) for "All"
-            selected_year_val = None if self.history_year_spinbox.value() == self.history_year_spinbox.minimum() else self.history_year_spinbox.value()
-            source = self.main_window.load_history_source_combo.currentText() # From main_window
-
-
+            selected_year_val = (
+                None
+                if self.history_year_spinbox.value()
+                == self.history_year_spinbox.minimum()
+                else self.history_year_spinbox.value()
+            )
+            source = (
+                self.main_window.load_history_source_combo.currentText()
+            )  # From main_window
 
             if source == "Load from PC (CSV)":
                 self.load_history_tables_from_csv(selected_month, selected_year_val)
             elif source == "Load from Cloud":
-                if self.main_window.supabase_manager and self.main_window.check_internet_connectivity():
+                if (
+                    self.main_window.supabase_manager
+                    and self.main_window.check_internet_connectivity()
+                ):
                     month_filter = None if selected_month == "All" else selected_month
-                    year_filter  = selected_year_val        # already None if "All"
+                    year_filter = selected_year_val  # already None if "All"
                     self.load_history_tables_from_supabase(month_filter, year_filter)
                 elif not self.main_window.supabase_manager:
-                    QMessageBox.warning(self, "Supabase Not Configured", "Supabase is not configured.")
+                    QMessageBox.warning(
+                        self, "Supabase Not Configured", "Supabase is not configured."
+                    )
                 else:
-                    QMessageBox.warning(self, "Network Error", "No internet connection.")
+                    QMessageBox.warning(
+                        self, "Network Error", "No internet connection."
+                    )
             else:
                 QMessageBox.warning(self, "Unknown Source", "Select a valid source.")
         except Exception as e:
-            QMessageBox.critical(self, "Load History Error", f"Error: {e}\n{traceback.format_exc()}")
-
+            QMessageBox.critical(
+                self, "Load History Error", f"Error: {e}\n{traceback.format_exc()}"
+            )
 
     def load_history_tables_from_csv(self, selected_month, selected_year_val):
         filename = "meter_calculation_history.csv"
-        
+
         if not os.path.exists(filename):
             QMessageBox.warning(self, "File Not Found", f"{filename} does not exist.")
             return
 
         try:
-            with open(filename, mode='r', newline='', encoding='utf-8') as file:
+            with open(filename, mode="r", newline="", encoding="utf-8") as file:
                 reader = csv.DictReader(file)
                 all_rows = list(reader)
-                
+
                 def get_csv_value(row_dict, key_name, default_if_missing_or_empty):
                     for k_original, v_original in row_dict.items():
                         if k_original.strip().lower() == key_name.strip().lower():
-                            stripped_v = v_original.strip() if isinstance(v_original, str) else ""
-                            return stripped_v if stripped_v else default_if_missing_or_empty
+                            stripped_v = (
+                                v_original.strip()
+                                if isinstance(v_original, str)
+                                else ""
+                            )
+                            return (
+                                stripped_v
+                                if stripped_v
+                                else default_if_missing_or_empty
+                            )
                     return default_if_missing_or_empty
 
                 # Filter rows based on selected filters
                 filtered_main_rows = []
                 all_room_rows = []
-                
+
                 i = 0
                 while i < len(all_rows):
                     row = all_rows[i]
                     csv_month_year_str = get_csv_value(row, "Month", "")
-                    
+
                     if csv_month_year_str.strip():  # This is a main calculation row
                         # Parse month and year from CSV
                         try:
@@ -3509,34 +4252,44 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                             if len(parts) >= 2:
                                 csv_month = parts[0]
                                 csv_year = int(parts[1])
-                                
+
                                 # Apply filters
-                                month_matches = (selected_month == "All" or csv_month == selected_month)
-                                year_matches = (selected_year_val is None or csv_year == selected_year_val)
-                                
+                                month_matches = (
+                                    selected_month == "All"
+                                    or csv_month == selected_month
+                                )
+                                year_matches = (
+                                    selected_year_val is None
+                                    or csv_year == selected_year_val
+                                )
+
                                 if month_matches and year_matches:
                                     main_row_data = {
-                                        'csv_row': row,
-                                        'month': csv_month,
-                                        'year': csv_year,
-                                        'room_rows': []
+                                        "csv_row": row,
+                                        "month": csv_month,
+                                        "year": csv_year,
+                                        "room_rows": [],
                                     }
-                                    
+
                                     # If this row also contains room data, add it
                                     if get_csv_value(row, "Room Name", ""):
-                                        main_row_data['room_rows'].append(row)
-                                    
+                                        main_row_data["room_rows"].append(row)
+
                                     # Collect subsequent room-only rows
                                     j = i + 1
                                     while j < len(all_rows):
                                         next_row = all_rows[j]
-                                        next_month_val = get_csv_value(next_row, "Month", "")
-                                        if not next_month_val.strip():  # Empty month = room-only row
-                                            main_row_data['room_rows'].append(next_row)
+                                        next_month_val = get_csv_value(
+                                            next_row, "Month", ""
+                                        )
+                                        if (
+                                            not next_month_val.strip()
+                                        ):  # Empty month = room-only row
+                                            main_row_data["room_rows"].append(next_row)
                                             j += 1
                                         else:
                                             break
-                                    
+
                                     filtered_main_rows.append(main_row_data)
                                     # all_room_rows.extend(main_row_data['room_rows']) # Defer populating all_room_rows
                                     i = j - 1  # Skip the room rows we just processed
@@ -3545,7 +4298,10 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     i += 1
 
                 # Sort filtered_main_rows chronologically (most recent first)
-                filtered_main_rows.sort(key=lambda x: (x['year'], self.MONTH_ORDER.get(x['month'], 0)), reverse=True)
+                filtered_main_rows.sort(
+                    key=lambda x: (x["year"], self.MONTH_ORDER.get(x["month"], 0)),
+                    reverse=True,
+                )
 
                 # Clear existing data
                 self.main_history_table.setRowCount(0)
@@ -3555,116 +4311,203 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 all_room_rows_sorted_with_context = []
                 if filtered_main_rows:
                     for main_row_data_sorted in filtered_main_rows:
-                        parent_month = main_row_data_sorted['month']
-                        parent_year = main_row_data_sorted['year']
-                        for room_csv_row_data in main_row_data_sorted['room_rows']:
-                            all_room_rows_sorted_with_context.append({
-                                'csv_row': room_csv_row_data,
-                                'month': parent_month,
-                                'year': parent_year
-                            })
+                        parent_month = main_row_data_sorted["month"]
+                        parent_year = main_row_data_sorted["year"]
+                        for room_csv_row_data in main_row_data_sorted["room_rows"]:
+                            all_room_rows_sorted_with_context.append(
+                                {
+                                    "csv_row": room_csv_row_data,
+                                    "month": parent_month,
+                                    "year": parent_year,
+                                }
+                            )
 
                 if filtered_main_rows:
                     # Determine max number of meters/diffs dynamically (skip zeros)
                     max_meters = 3
                     for main_row_data in filtered_main_rows:
-                        row = main_row_data['csv_row']
+                        row = main_row_data["csv_row"]
                         for i in range(10):  # Check up to 10 meters/diffs
-                            meter_val = get_csv_value(row, f"Meter-{i+1}", "0")
-                            diff_val = get_csv_value(row, f"Diff-{i+1}", "0")
+                            meter_val = get_csv_value(row, f"Meter-{i + 1}", "0")
+                            diff_val = get_csv_value(row, f"Diff-{i + 1}", "0")
                             # Only count if meter or diff is not 0 or empty
-                            if (meter_val not in ["0", "", "0.0"]) or (diff_val not in ["0", "", "0.0"]):
+                            if (meter_val not in ["0", "", "0.0"]) or (
+                                diff_val not in ["0", "", "0.0"]
+                            ):
                                 max_meters = max(max_meters, i + 1)
                     max_meters = min(max_meters, 10)  # Clamp to 10
 
                     self.set_main_history_table_columns(max_meters)
                     self.main_history_table.setRowCount(len(filtered_main_rows))
-                    
+
                     for row_idx, main_row_data in enumerate(filtered_main_rows):
-                        row = main_row_data['csv_row']
-                        
+                        row = main_row_data["csv_row"]
+
                         # Set month column with enhanced styling
-                        month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
-                        month_item = self._create_identifier_item(month_year_str, "month")
-                        row_calc_id = main_row_data['csv_row'].get('id')
-                        month_item.setData(Qt.UserRole, row_calc_id)  # Store the correct id for this row
+                        month_year_str = (
+                            f"{main_row_data['month']} {main_row_data['year']}"
+                        )
+                        month_item = self._create_identifier_item(
+                            month_year_str, "month"
+                        )
+                        row_calc_id = main_row_data["csv_row"].get("id")
+                        month_item.setData(
+                            Qt.UserRole, row_calc_id
+                        )  # Store the correct id for this row
                         self.main_history_table.setItem(row_idx, 0, month_item)
-                        
+
                         # Set meter columns dynamically (skip zeros)
                         for i in range(max_meters):
-                            meter_val = get_csv_value(row, f"Meter-{i+1}", "0")
+                            meter_val = get_csv_value(row, f"Meter-{i + 1}", "0")
                             # Only show non-zero values
-                            display_val = meter_val if meter_val not in ["0", "", "0.0"] else ""
-                            self.main_history_table.setItem(row_idx, 1 + i, self._create_centered_item(display_val))
-                        
+                            display_val = (
+                                meter_val if meter_val not in ["0", "", "0.0"] else ""
+                            )
+                            self.main_history_table.setItem(
+                                row_idx, 1 + i, self._create_centered_item(display_val)
+                            )
+
                         # Set diff columns dynamically (skip zeros)
                         for i in range(max_meters):
-                            diff_val = get_csv_value(row, f"Diff-{i+1}", "0")
+                            diff_val = get_csv_value(row, f"Diff-{i + 1}", "0")
                             # Only show non-zero values
-                            display_val = diff_val if diff_val not in ["0", "", "0.0"] else ""
-                            self.main_history_table.setItem(row_idx, 1 + max_meters + i, self._create_centered_item(display_val))
-                        
+                            display_val = (
+                                diff_val if diff_val not in ["0", "", "0.0"] else ""
+                            )
+                            self.main_history_table.setItem(
+                                row_idx,
+                                1 + max_meters + i,
+                                self._create_centered_item(display_val),
+                            )
+
                         # Set fixed columns after meters/diffs
                         base_col = 1 + max_meters * 2
                         # Handle column name variations between CSV and expected names
-                        total_unit_cost = get_csv_value(row, "Total Unit Cost", "") or get_csv_value(row, "Total Unit", "0")
-                        total_diff_units = get_csv_value(row, "Total Diff Units", "") or get_csv_value(row, "Total Diff", "0")
+                        total_unit_cost = get_csv_value(
+                            row, "Total Unit Cost", ""
+                        ) or get_csv_value(row, "Total Unit", "0")
+                        total_diff_units = get_csv_value(
+                            row, "Total Diff Units", ""
+                        ) or get_csv_value(row, "Total Diff", "0")
                         per_unit_cost = get_csv_value(row, "Per Unit Cost", "0")
                         added_amount = get_csv_value(row, "Added Amount", "0")
                         # Use "In Total" specifically for the main table's grand total
-                        grand_total = get_csv_value(row, "In Total", "0") 
-                        
-                        self.main_history_table.setItem(row_idx, base_col + 0, self._create_special_item(total_unit_cost, "total_unit_cost"))
-                        self.main_history_table.setItem(row_idx, base_col + 1, self._create_centered_item(total_diff_units))
-                        self.main_history_table.setItem(row_idx, base_col + 2, self._create_special_item(per_unit_cost, "per_unit_cost"))
-                        self.main_history_table.setItem(row_idx, base_col + 3, self._create_centered_item(added_amount))
-                        self.main_history_table.setItem(row_idx, base_col + 4, self._create_special_item(grand_total, "grand_total"))
+                        grand_total = get_csv_value(row, "In Total", "0")
+
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 0,
+                            self._create_special_item(
+                                total_unit_cost, "total_unit_cost"
+                            ),
+                        )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 1,
+                            self._create_centered_item(total_diff_units),
+                        )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 2,
+                            self._create_special_item(per_unit_cost, "per_unit_cost"),
+                        )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 3,
+                            self._create_centered_item(added_amount),
+                        )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 4,
+                            self._create_special_item(grand_total, "grand_total"),
+                        )
 
                 # Populate room table
                 if all_room_rows_sorted_with_context:
-                    self.room_history_table.setRowCount(len(all_room_rows_sorted_with_context))
-                    
-                    for row_idx, room_entry in enumerate(all_room_rows_sorted_with_context):
-                        room_csv_data = room_entry['csv_row']
+                    self.room_history_table.setRowCount(
+                        len(all_room_rows_sorted_with_context)
+                    )
+
+                    for row_idx, room_entry in enumerate(
+                        all_room_rows_sorted_with_context
+                    ):
+                        room_csv_data = room_entry["csv_row"]
                         month_year_str = f"{room_entry['month']} {room_entry['year']}"
-                        
+
                         room_name = get_csv_value(room_csv_data, "Room Name", "")
                         present_unit = get_csv_value(room_csv_data, "Present Unit", "0")
-                        previous_unit = get_csv_value(room_csv_data, "Previous Unit", "0")
+                        previous_unit = get_csv_value(
+                            room_csv_data, "Previous Unit", "0"
+                        )
                         real_unit = get_csv_value(room_csv_data, "Real Unit", "0")
                         unit_bill = get_csv_value(room_csv_data, "Unit Bill", "0")
                         gas_bill = get_csv_value(room_csv_data, "Gas Bill", "0")
                         water_bill = get_csv_value(room_csv_data, "Water Bill", "0")
                         house_rent = get_csv_value(room_csv_data, "House Rent", "0")
                         grand_total = get_csv_value(room_csv_data, "Grand Total", "0")
-                        
-                        self.room_history_table.setItem(row_idx, 0, self._create_identifier_item(month_year_str, "month"))
-                        self.room_history_table.setItem(row_idx, 1, self._create_identifier_item(room_name, "room"))
-                        self.room_history_table.setItem(row_idx, 2, self._create_centered_item(present_unit))
-                        self.room_history_table.setItem(row_idx, 3, self._create_centered_item(previous_unit))
-                        self.room_history_table.setItem(row_idx, 4, self._create_centered_item(real_unit))
-                        self.room_history_table.setItem(row_idx, 5, self._create_special_item(unit_bill, "unit_bill"))
-                        self.room_history_table.setItem(row_idx, 6, self._create_centered_item(gas_bill))
-                        self.room_history_table.setItem(row_idx, 7, self._create_centered_item(water_bill))
-                        self.room_history_table.setItem(row_idx, 8, self._create_centered_item(house_rent))
-                        self.room_history_table.setItem(row_idx, 9, self._create_special_item(grand_total, "grand_total"))
-                    
+
+                        self.room_history_table.setItem(
+                            row_idx,
+                            0,
+                            self._create_identifier_item(month_year_str, "month"),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx, 1, self._create_identifier_item(room_name, "room")
+                        )
+                        self.room_history_table.setItem(
+                            row_idx, 2, self._create_centered_item(present_unit)
+                        )
+                        self.room_history_table.setItem(
+                            row_idx, 3, self._create_centered_item(previous_unit)
+                        )
+                        self.room_history_table.setItem(
+                            row_idx, 4, self._create_centered_item(real_unit)
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            5,
+                            self._create_special_item(unit_bill, "unit_bill"),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx, 6, self._create_centered_item(gas_bill)
+                        )
+                        self.room_history_table.setItem(
+                            row_idx, 7, self._create_centered_item(water_bill)
+                        )
+                        self.room_history_table.setItem(
+                            row_idx, 8, self._create_centered_item(house_rent)
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            9,
+                            self._create_special_item(grand_total, "grand_total"),
+                        )
+
                     # Apply responsive column widths after populating room data
                     try:
-                        self._log_resize_debug("Applying column widths to room table after CSV room data population")
+                        self._log_resize_debug(
+                            "Applying column widths to room table after CSV room data population"
+                        )
                         # Force immediate resize without timer to ensure it works
                         self._force_room_table_resize("CSV")
                         # Also schedule a delayed resize as backup
-                        QTimer.singleShot(100, lambda: self._force_room_table_resize("CSV-delayed"))
+                        QTimer.singleShot(
+                            100, lambda: self._force_room_table_resize("CSV-delayed")
+                        )
                     except Exception as room_csv_resize_error:
-                        self._log_resize_error("Failed to resize room table after CSV room data population", room_csv_resize_error)
+                        self._log_resize_error(
+                            "Failed to resize room table after CSV room data population",
+                            room_csv_resize_error,
+                        )
 
                 # Calculate and display totals using the filtered main rows instead of all room rows
-                self.calculate_and_display_totals_from_main_rows(filtered_main_rows, get_csv_value)
+                self.calculate_and_display_totals_from_main_rows(
+                    filtered_main_rows, get_csv_value
+                )
 
                 # Temporarily disconnect resize handlers to prevent conflicts during setup
                 self._disconnect_resize_handlers()
-                
+
                 try:
                     # Resize tables to fit content after loading data
                     self.resize_table_to_content(self.main_history_table)
@@ -3673,7 +4516,9 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
                     # Re-apply column widths after data load (styling already applied at initialization)
                     try:
-                        self._log_resize_debug("Applying column widths after CSV data load")
+                        self._log_resize_debug(
+                            "Applying column widths after CSV data load"
+                        )
                         resize_success = 0
                         if self._set_intelligent_column_widths(self.main_history_table):
                             resize_success += 1
@@ -3681,34 +4526,49 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                             resize_success += 1
                         if self._set_intelligent_column_widths(self.totals_table):
                             resize_success += 1
-                        self._log_resize_debug(f"Column width application completed: {resize_success}/3 tables successful")
-                        
+                        self._log_resize_debug(
+                            f"Column width application completed: {resize_success}/3 tables successful"
+                        )
+
                         # Apply month column styling after data is loaded
                         self._apply_month_column_styling(self.main_history_table)
                         self._apply_month_column_styling(self.room_history_table)
-                        
+
                     except Exception as resize_error:
-                        self._log_resize_error("Failed to apply column widths after CSV data load", resize_error)
+                        self._log_resize_error(
+                            "Failed to apply column widths after CSV data load",
+                            resize_error,
+                        )
                 finally:
                     # Reconnect resize handlers
                     self._reconnect_resize_handlers()
 
                 if not filtered_main_rows:
-                    QMessageBox.information(self, "No Data", "No records found for the selected filters in CSV.")
+                    QMessageBox.information(
+                        self,
+                        "No Data",
+                        "No records found for the selected filters in CSV.",
+                    )
                 else:
-                    QMessageBox.information(self, "Load Successful", f"Loaded {len(filtered_main_rows)} main records and {len(all_room_rows_sorted_with_context)} room records from CSV.")
-                
+                    QMessageBox.information(
+                        self,
+                        "Load Successful",
+                        f"Loaded {len(filtered_main_rows)} main records and {len(all_room_rows_sorted_with_context)} room records from CSV.",
+                    )
+
                 # Reset styling flags before applying new styling
-                if hasattr(self.main_history_table, '_month_styled'):
+                if hasattr(self.main_history_table, "_month_styled"):
                     self.main_history_table._month_styled = False
-                if hasattr(self.room_history_table, '_month_styled'):
+                if hasattr(self.room_history_table, "_month_styled"):
                     self.room_history_table._month_styled = False
-                if hasattr(self.totals_table, '_month_styled'):
+                if hasattr(self.totals_table, "_month_styled"):
                     self.totals_table._month_styled = False
-                
+
                 # Apply responsive column widths after loading data
                 try:
-                    self._log_resize_debug("Final column width application after CSV load")
+                    self._log_resize_debug(
+                        "Final column width application after CSV load"
+                    )
                     final_resize_success = 0
                     if self._set_intelligent_column_widths(self.main_history_table):
                         final_resize_success += 1
@@ -3716,25 +4576,42 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         final_resize_success += 1
                     if self._set_intelligent_column_widths(self.totals_table):
                         final_resize_success += 1
-                    self._log_resize_debug(f"Final column width application completed: {final_resize_success}/3 tables successful")
-                    
+                    self._log_resize_debug(
+                        f"Final column width application completed: {final_resize_success}/3 tables successful"
+                    )
+
                     # Ensure resize is triggered after CSV data loading completes
                     QTimer.singleShot(50, self.force_table_resize)
                 except Exception as final_resize_error:
-                    self._log_resize_error("Failed final column width application after CSV load", final_resize_error)
-                
+                    self._log_resize_error(
+                        "Failed final column width application after CSV load",
+                        final_resize_error,
+                    )
+
                 # Force table resize after data is loaded to ensure proper sizing
                 try:
                     QTimer.singleShot(100, self.force_table_resize)
                 except Exception as timer_error:
-                    self._log_resize_error("Failed to schedule force table resize", timer_error)
+                    self._log_resize_error(
+                        "Failed to schedule force table resize", timer_error
+                    )
 
         except Exception as e:
-            QMessageBox.critical(self, "Load History Error", f"Failed to load history from CSV: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "Load History Error",
+                f"Failed to load history from CSV: {e}\n{traceback.format_exc()}",
+            )
 
-    def load_history_tables_from_supabase(self, month_filter: str | None, year_filter: int | None):
+    def load_history_tables_from_supabase(
+        self, month_filter: str | None, year_filter: int | None
+    ):
         if not self.main_window.supabase_manager.is_client_initialized():
-            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in the Supabase Config tab.")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Supabase not configured. Please configure Supabase in the Supabase Config tab.",
+            )
             return
 
         try:
@@ -3750,8 +4627,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             self.totals_table.setRowCount(0)
 
             main_calculations = self.main_window.supabase_manager.get_main_calculations(
-                month=actual_month_filter,
-                year=actual_year_filter
+                month=actual_month_filter, year=actual_year_filter
             )
 
             # NEW: Sort the results chronologically so that months appear in natural order
@@ -3759,130 +4635,203 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                 main_calculations.sort(
                     key=lambda m: (
                         m.get("year", 0),
-                        self.MONTH_ORDER.get(m.get("month", ""), 0)
+                        self.MONTH_ORDER.get(m.get("month", ""), 0),
                     )
                 )
 
-            # Build room rows AFTER sorting main_calculations so room data follows the same order
-            all_room_rows = []
-            for main_calc in main_calculations:
-                main_calc_id = main_calc.get("id")
-                if main_calc_id:
-                    room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
-                    
-                    # Add parent month/year context to each room record
-                    for room in room_records:
-                        room['month'] = main_calc.get('month')
-                        room['year'] = main_calc.get('year')
-                    
-                    all_room_rows.extend(room_records)
+            _, all_room_rows = self._prepare_supabase_history_records(main_calculations)
 
             if main_calculations:
                 self.main_history_table.setRowCount(len(main_calculations))
-                
+
                 # Determine max_meters from the fetched data
-                max_meters = 3 # default
+                max_meters = 3  # default
                 for calc in main_calculations:
                     main_data = calc.get("main_data", {})
-                    if isinstance(main_data, str):
-                        try:
-                            main_data = json.loads(main_data)
-                        except json.JSONDecodeError:
-                            main_data = {}
-                    
+
                     for i in range(10):
-                        meter_key = f"meter_{i+1}"
-                        diff_key = f"diff_{i+1}"
+                        meter_key = f"meter_{i + 1}"
+                        diff_key = f"diff_{i + 1}"
                         if main_data.get(meter_key) or main_data.get(diff_key):
                             max_meters = max(max_meters, i + 1)
-                
+
                 self.set_main_history_table_columns(max_meters)
 
                 for row_idx, calc in enumerate(main_calculations):
                     main_data = calc.get("main_data", {})
-                    # Handle if main_data is a JSON string
-                    if isinstance(main_data, str):
-                        try:
-                            main_data = json.loads(main_data)
-                        except json.JSONDecodeError:
-                            main_data = {}
 
                     month_year = f"{calc.get('month', 'N/A')} {calc.get('year', 'N/A')}"
                     month_item = self._create_identifier_item(month_year, "month")
                     row_calc_id = calc.get("id")
-                    month_item.setData(Qt.UserRole, row_calc_id)  # Store the correct id for this row
+                    month_item.setData(
+                        Qt.UserRole, row_calc_id
+                    )  # Store the correct id for this row
                     self.main_history_table.setItem(row_idx, 0, month_item)
 
                     for i in range(max_meters):
-                        meter_val = str(main_data.get(f"meter_{i+1}", ""))
-                        diff_val = str(main_data.get(f"diff_{i+1}", ""))
-                        self.main_history_table.setItem(row_idx, 1 + i, self._create_centered_item(meter_val))
-                        self.main_history_table.setItem(row_idx, 1 + max_meters + i, self._create_centered_item(diff_val))
+                        meter_val = str(main_data.get(f"meter_{i + 1}", ""))
+                        diff_val = str(main_data.get(f"diff_{i + 1}", ""))
+                        self.main_history_table.setItem(
+                            row_idx, 1 + i, self._create_centered_item(meter_val)
+                        )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            1 + max_meters + i,
+                            self._create_centered_item(diff_val),
+                        )
 
                     base_col = 1 + max_meters * 2
-                    self.main_history_table.setItem(row_idx, base_col + 0, self._create_special_item(str(main_data.get("total_unit_cost", "")), "total_unit_cost"))
-                    self.main_history_table.setItem(row_idx, base_col + 1, self._create_centered_item(str(main_data.get("total_diff_units", ""))))
-                    self.main_history_table.setItem(row_idx, base_col + 2, self._create_special_item(str(main_data.get("per_unit_cost", "")), "per_unit_cost"))
-                    self.main_history_table.setItem(row_idx, base_col + 3, self._create_centered_item(str(main_data.get("added_amount", ""))))
-                    self.main_history_table.setItem(row_idx, base_col + 4, self._create_special_item(str(main_data.get("grand_total", "")), "grand_total"))
+                    self.main_history_table.setItem(
+                        row_idx,
+                        base_col + 0,
+                        self._create_special_item(
+                            str(main_data.get("total_unit_cost", "")), "total_unit_cost"
+                        ),
+                    )
+                    self.main_history_table.setItem(
+                        row_idx,
+                        base_col + 1,
+                        self._create_centered_item(
+                            str(main_data.get("total_diff_units", ""))
+                        ),
+                    )
+                    self.main_history_table.setItem(
+                        row_idx,
+                        base_col + 2,
+                        self._create_special_item(
+                            str(main_data.get("per_unit_cost", "")), "per_unit_cost"
+                        ),
+                    )
+                    self.main_history_table.setItem(
+                        row_idx,
+                        base_col + 3,
+                        self._create_centered_item(
+                            str(main_data.get("added_amount", ""))
+                        ),
+                    )
+                    self.main_history_table.setItem(
+                        row_idx,
+                        base_col + 4,
+                        self._create_special_item(
+                            str(main_data.get("grand_total", "")), "grand_total"
+                        ),
+                    )
 
             if all_room_rows:
                 # Ensure room rows follow the same chronological order
                 all_room_rows.sort(
                     key=lambda r: (
                         r.get("year", 0),
-                        self.MONTH_ORDER.get(r.get("month", ""), 0)
+                        self.MONTH_ORDER.get(r.get("month", ""), 0),
                     )
                 )
 
                 self.room_history_table.setRowCount(len(all_room_rows))
-                
+
                 for row_idx, room in enumerate(all_room_rows):
                     room_data = room.get("room_data", {})
-                    if isinstance(room_data, str):
-                        try:
-                            room_data = json.loads(room_data)
-                        except json.JSONDecodeError:
-                            room_data = {}
-                    
+
                     month_year = f"{room.get('month', 'N/A')} {room.get('year', 'N/A')}"
 
-                    self.room_history_table.setItem(row_idx, 0, self._create_identifier_item(month_year, "month"))
-                    self.room_history_table.setItem(row_idx, 1, self._create_identifier_item(str(room_data.get("room_name", "")), "room"))
-                    self.room_history_table.setItem(row_idx, 2, self._create_centered_item(str(room_data.get("present_unit", ""))))
-                    self.room_history_table.setItem(row_idx, 3, self._create_centered_item(str(room_data.get("previous_unit", ""))))
-                    self.room_history_table.setItem(row_idx, 4, self._create_centered_item(str(room_data.get("real_unit", ""))))
-                    self.room_history_table.setItem(row_idx, 5, self._create_special_item(str(room_data.get("unit_bill", "")), "unit_bill"))
-                    self.room_history_table.setItem(row_idx, 6, self._create_centered_item(str(room_data.get("gas_bill", ""))))
-                    self.room_history_table.setItem(row_idx, 7, self._create_centered_item(str(room_data.get("water_bill", ""))))
-                    self.room_history_table.setItem(row_idx, 8, self._create_centered_item(str(room_data.get("house_rent", ""))))
-                    self.room_history_table.setItem(row_idx, 9, self._create_special_item(str(room_data.get("grand_total", "")), "grand_total"))
-            
+                    self.room_history_table.setItem(
+                        row_idx, 0, self._create_identifier_item(month_year, "month")
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        1,
+                        self._create_identifier_item(
+                            str(room_data.get("room_name", "")), "room"
+                        ),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        2,
+                        self._create_centered_item(
+                            str(room_data.get("present_unit", ""))
+                        ),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        3,
+                        self._create_centered_item(
+                            str(room_data.get("previous_unit", ""))
+                        ),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        4,
+                        self._create_centered_item(str(room_data.get("real_unit", ""))),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        5,
+                        self._create_special_item(
+                            str(room_data.get("unit_bill", "")), "unit_bill"
+                        ),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        6,
+                        self._create_centered_item(str(room_data.get("gas_bill", ""))),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        7,
+                        self._create_centered_item(
+                            str(room_data.get("water_bill", ""))
+                        ),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        8,
+                        self._create_centered_item(
+                            str(room_data.get("house_rent", ""))
+                        ),
+                    )
+                    self.room_history_table.setItem(
+                        row_idx,
+                        9,
+                        self._create_special_item(
+                            str(room_data.get("grand_total", "")), "grand_total"
+                        ),
+                    )
+
             # Apply responsive column widths after populating room data
             if all_room_rows:
                 try:
-                    self._log_resize_debug("Applying column widths to room table after Supabase data population")
+                    self._log_resize_debug(
+                        "Applying column widths to room table after Supabase data population"
+                    )
                     # Force immediate resize without timer to ensure it works
                     self._force_room_table_resize("Supabase")
                     # Also schedule a delayed resize as backup
-                    QTimer.singleShot(100, lambda: self._force_room_table_resize("Supabase-delayed"))
+                    QTimer.singleShot(
+                        100, lambda: self._force_room_table_resize("Supabase-delayed")
+                    )
                 except Exception as room_resize_error:
-                    self._log_resize_error("Failed to resize room table after Supabase data population", room_resize_error)
+                    self._log_resize_error(
+                        "Failed to resize room table after Supabase data population",
+                        room_resize_error,
+                    )
 
-            self.calculate_and_display_totals_from_supabase_records(main_calculations, all_room_rows)
-            
+            self.calculate_and_display_totals_from_supabase_records(
+                main_calculations, all_room_rows
+            )
+
             # Temporarily disconnect resize handlers to prevent conflicts during setup
             self._disconnect_resize_handlers()
-            
+
             try:
                 # Resize tables to fit content
                 self.resize_table_to_content(self.main_history_table)
                 self.resize_table_to_content(self.room_history_table)
                 self.resize_table_to_content(self.totals_table)
-                
+
                 # Re-apply column widths after data load
                 try:
-                    self._log_resize_debug("Re-applying column widths after Supabase data load")
+                    self._log_resize_debug(
+                        "Re-applying column widths after Supabase data load"
+                    )
                     supabase_resize_success = 0
                     if self._set_intelligent_column_widths(self.main_history_table):
                         supabase_resize_success += 1
@@ -3890,31 +4839,42 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         supabase_resize_success += 1
                     if self._set_intelligent_column_widths(self.totals_table):
                         supabase_resize_success += 1
-                    self._log_resize_debug(f"Supabase data load column width application: {supabase_resize_success}/3 tables successful")
-                    
+                    self._log_resize_debug(
+                        f"Supabase data load column width application: {supabase_resize_success}/3 tables successful"
+                    )
+
                     # Apply month column styling after Supabase data is loaded
                     self._apply_month_column_styling(self.main_history_table)
                     self._apply_month_column_styling(self.room_history_table)
-                    
+
                 except Exception as supabase_resize_error:
-                    self._log_resize_error("Failed to re-apply column widths after Supabase data load", supabase_resize_error)
+                    self._log_resize_error(
+                        "Failed to re-apply column widths after Supabase data load",
+                        supabase_resize_error,
+                    )
             finally:
                 # Reconnect resize handlers
                 self._reconnect_resize_handlers()
 
-            QMessageBox.information(self, "Load Successful", f"Loaded {len(main_calculations)} main records and {len(all_room_rows)} room records from Supabase.")
-            
+            QMessageBox.information(
+                self,
+                "Load Successful",
+                f"Loaded {len(main_calculations)} main records and {len(all_room_rows)} room records from Supabase.",
+            )
+
             # Reset styling flags before applying new styling
-            if hasattr(self.main_history_table, '_month_styled'):
+            if hasattr(self.main_history_table, "_month_styled"):
                 self.main_history_table._month_styled = False
-            if hasattr(self.room_history_table, '_month_styled'):
+            if hasattr(self.room_history_table, "_month_styled"):
                 self.room_history_table._month_styled = False
-            if hasattr(self.totals_table, '_month_styled'):
+            if hasattr(self.totals_table, "_month_styled"):
                 self.totals_table._month_styled = False
-            
+
             # Apply responsive column widths after loading data
             try:
-                self._log_resize_debug("Final column width application after Supabase load")
+                self._log_resize_debug(
+                    "Final column width application after Supabase load"
+                )
                 final_supabase_resize_success = 0
                 if self._set_intelligent_column_widths(self.main_history_table):
                     final_supabase_resize_success += 1
@@ -3922,35 +4882,54 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     final_supabase_resize_success += 1
                 if self._set_intelligent_column_widths(self.totals_table):
                     final_supabase_resize_success += 1
-                self._log_resize_debug(f"Final Supabase column width application: {final_supabase_resize_success}/3 tables successful")
-                
+                self._log_resize_debug(
+                    f"Final Supabase column width application: {final_supabase_resize_success}/3 tables successful"
+                )
+
                 # Ensure resize is triggered after Supabase data loading completes
                 QTimer.singleShot(50, self.force_table_resize)
             except Exception as final_supabase_resize_error:
-                self._log_resize_error("Failed final column width application after Supabase load", final_supabase_resize_error)
-            
+                self._log_resize_error(
+                    "Failed final column width application after Supabase load",
+                    final_supabase_resize_error,
+                )
+
             # Force table resize after data is loaded to ensure proper sizing
             try:
                 QTimer.singleShot(100, self.force_table_resize)
             except Exception as timer_error:
-                self._log_resize_error("Failed to schedule force table resize after Supabase load", timer_error)
+                self._log_resize_error(
+                    "Failed to schedule force table resize after Supabase load",
+                    timer_error,
+                )
 
         except Exception as e:
             # Check if it's a paused project error
             from src.core.supabase_error_handler import SupabaseErrorHandler
+
             error_type = SupabaseErrorHandler.detect_error_type(e)
-            
+
             if error_type == "paused_project":
                 # Show friendly paused project message
-                supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
-                title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+                supabase_url = getattr(
+                    self.main_window.supabase_manager, "supabase_url", None
+                )
+                title, msg, _ = SupabaseErrorHandler.get_error_message(
+                    "paused_project", supabase_url
+                )
                 QMessageBox.warning(self, title, msg)
             else:
                 # Show generic error
-                QMessageBox.critical(self, "Load History Error", f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}")
-            
+                QMessageBox.critical(
+                    self,
+                    "Load History Error",
+                    f"An unexpected error occurred loading history from Supabase: {e}\n{traceback.format_exc()}",
+                )
+
             # Clear tables on error to avoid displaying partial data
-            self.calculate_and_display_totals_from_supabase_records([], []) # Clear totals
+            self.calculate_and_display_totals_from_supabase_records(
+                [], []
+            )  # Clear totals
 
     def download_csv_from_cloud(self):
         """
@@ -3959,293 +4938,322 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         """
         # Check Supabase connection and internet connectivity
         if not self.main_window.supabase_manager.is_client_initialized():
-            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in Settings.")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Supabase not configured. Please configure Supabase in Settings.",
+            )
             return
-        
+
         if not self.main_window.check_internet_connectivity():
-            QMessageBox.warning(self, "Error", "No internet connection. Cannot download from cloud.")
+            QMessageBox.warning(
+                self, "Error", "No internet connection. Cannot download from cloud."
+            )
             return
-        
+
         try:
             # Get current date filter values from UI controls
             selected_month = self.history_month_combo.currentText()
             selected_year_val = self.history_year_spinbox.value()
-            
+
             # Handle "All" vs specific month/year selections
             actual_month_filter = None if selected_month == "All" else selected_month
             actual_year_filter = None if selected_year_val == 0 else selected_year_val
-            
+
             # Fetch records from Supabase with filters
             main_calculations = self.main_window.supabase_manager.get_main_calculations(
-                month=actual_month_filter,
-                year=actual_year_filter
+                month=actual_month_filter, year=actual_year_filter
             )
-            
+
             # Handle empty results gracefully
             if not main_calculations:
-                QMessageBox.information(self, "No Data", "No records found for the selected filters.")
+                QMessageBox.information(
+                    self, "No Data", "No records found for the selected filters."
+                )
                 return
-            
-            # For each main calculation, fetch associated room calculations
-            all_records_with_rooms = []
-            for main_calc in main_calculations:
-                main_calc_id = main_calc.get("id")
-                if main_calc_id:
-                    room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
-                    all_records_with_rooms.append({
-                        'main_calc': main_calc,
-                        'room_records': room_records
-                    })
-            
+
+            all_records_with_rooms, _ = self._prepare_supabase_history_records(
+                main_calculations
+            )
+
             # Sort records chronologically (most recent first)
             all_records_with_rooms.sort(
                 key=lambda r: (
-                    r['main_calc'].get("year", 0),
-                    self.MONTH_ORDER.get(r['main_calc'].get("month", ""), 0)
+                    r["main_calc"].get("year", 0),
+                    self.MONTH_ORDER.get(r["main_calc"].get("month", ""), 0),
                 ),
-                reverse=True
+                reverse=True,
             )
-            
+
             # Determine dynamic column count for meters/diffs
             max_meters = 3  # minimum of 3 pairs
             for record in all_records_with_rooms:
-                main_data = record['main_calc'].get("main_data", {})
-                if isinstance(main_data, str):
-                    try:
-                        main_data = json.loads(main_data)
-                    except json.JSONDecodeError:
-                        main_data = {}
-                
+                main_data = record["main_calc"].get("main_data", {})
+
                 # Scan all meter/diff pairs to find max
                 for i in range(10):  # maximum of 10 pairs
-                    meter_key = f"meter_{i+1}"
-                    diff_key = f"diff_{i+1}"
+                    meter_key = f"meter_{i + 1}"
+                    diff_key = f"diff_{i + 1}"
                     meter_val = main_data.get(meter_key)
                     diff_val = main_data.get(diff_key)
-                    
+
                     # Only count if meter or diff is not 0 or empty
-                    if (meter_val and str(meter_val).strip() and str(meter_val) != "0") or \
-                       (diff_val and str(diff_val).strip() and str(diff_val) != "0"):
+                    if (
+                        meter_val and str(meter_val).strip() and str(meter_val) != "0"
+                    ) or (diff_val and str(diff_val).strip() and str(diff_val) != "0"):
                         max_meters = max(max_meters, i + 1)
-            
+
             max_meters = min(max_meters, 10)  # maximum of 10 pairs
-            
+
             # Ask user where to save the file using modern dialog
             default_filename = "meter_calculation_history.csv"
             filename = SaveDialog.get_save_filename(
                 parent=self,
                 title="Save CSV File",
                 default_filename=default_filename,
-                file_filter="CSV Files (*.csv);;All Files (*)"
+                file_filter="CSV Files (*.csv);;All Files (*)",
             )
-            
+
             # If user cancelled the dialog, return
             if not filename:
                 return
-            
+
             # Ensure the filename has .csv extension
-            if not filename.lower().endswith('.csv'):
-                filename += '.csv'
-            
+            if not filename.lower().endswith(".csv"):
+                filename += ".csv"
+
             # Write CSV file with proper structure
-            with open(filename, mode='w', newline='', encoding='utf-8') as file:
+            with open(filename, mode="w", newline="", encoding="utf-8") as file:
                 writer = csv.writer(file)
-                
+
                 # Write header row with dynamic Meter-1 through Meter-N and Diff-1 through Diff-N columns
                 header = ["Month"]
                 for i in range(max_meters):
-                    header.append(f"Meter-{i+1}")
+                    header.append(f"Meter-{i + 1}")
                 for i in range(max_meters):
-                    header.append(f"Diff-{i+1}")
-                header.extend([
-                    "Total Unit Cost", "Total Diff Units", "Per Unit Cost", "Added Amount", "In Total",
-                    "Total House Rent", "Total Water Bill", "Total Gas Bill", "Total Room Unit Bill",
-                    "Room Name", "Present Unit", "Previous Unit", "Real Unit", "Unit Bill",
-                    "Gas Bill", "Water Bill", "House Rent", "Grand Total"
-                ])
+                    header.append(f"Diff-{i + 1}")
+                header.extend(
+                    [
+                        "Total Unit Cost",
+                        "Total Diff Units",
+                        "Per Unit Cost",
+                        "Added Amount",
+                        "In Total",
+                        "Total House Rent",
+                        "Total Water Bill",
+                        "Total Gas Bill",
+                        "Total Room Unit Bill",
+                        "Room Name",
+                        "Present Unit",
+                        "Previous Unit",
+                        "Real Unit",
+                        "Unit Bill",
+                        "Gas Bill",
+                        "Water Bill",
+                        "House Rent",
+                        "Grand Total",
+                    ]
+                )
                 writer.writerow(header)
-                
+
                 # For each main calculation, write main row with all meter/diff values
                 for record in all_records_with_rooms:
-                    main_calc = record['main_calc']
+                    main_calc = record["main_calc"]
                     main_data = main_calc.get("main_data", {})
-                    if isinstance(main_data, str):
-                        try:
-                            main_data = json.loads(main_data)
-                        except json.JSONDecodeError:
-                            main_data = {}
-                    
+
                     # Calculate totals from room records for this main calculation
                     total_house_rent = 0.0
                     total_water_bill = 0.0
                     total_gas_bill = 0.0
                     total_room_unit_bill = 0.0
-                    
-                    for room_record in record['room_records']:
+
+                    for room_record in record["room_records"]:
                         room_data = room_record.get("room_data", {})
-                        if isinstance(room_data, str):
-                            try:
-                                room_data = json.loads(room_data)
-                            except json.JSONDecodeError:
-                                room_data = {}
-                        
+
                         try:
-                            total_house_rent += float(room_data.get("house_rent", 0) or 0)
-                            total_water_bill += float(room_data.get("water_bill", 0) or 0)
+                            total_house_rent += float(
+                                room_data.get("house_rent", 0) or 0
+                            )
+                            total_water_bill += float(
+                                room_data.get("water_bill", 0) or 0
+                            )
                             total_gas_bill += float(room_data.get("gas_bill", 0) or 0)
-                            total_room_unit_bill += float(room_data.get("unit_bill", 0) or 0)
+                            total_room_unit_bill += float(
+                                room_data.get("unit_bill", 0) or 0
+                            )
                         except (ValueError, TypeError):
                             pass
-                    
+
                     # Build main row
-                    month_year = f"{main_calc.get('month', '')} {main_calc.get('year', '')}"
+                    month_year = (
+                        f"{main_calc.get('month', '')} {main_calc.get('year', '')}"
+                    )
                     row = [month_year]
-                    
+
                     # Add meter values
                     for i in range(max_meters):
-                        meter_val = main_data.get(f"meter_{i+1}", "0")
+                        meter_val = main_data.get(f"meter_{i + 1}", "0")
                         row.append(str(meter_val) if meter_val else "0")
-                    
+
                     # Add diff values
                     for i in range(max_meters):
-                        diff_val = main_data.get(f"diff_{i+1}", "0")
+                        diff_val = main_data.get(f"diff_{i + 1}", "0")
                         row.append(str(diff_val) if diff_val else "0")
-                    
+
                     # Add fixed columns including totals
-                    row.extend([
-                        str(main_data.get("total_unit_cost", "0")),
-                        str(main_data.get("total_diff_units", "0")),
-                        str(main_data.get("per_unit_cost", "0")),
-                        str(main_data.get("added_amount", "0")),
-                        str(main_data.get("grand_total", "0")),
-                        f"{total_house_rent:.2f}",  # Total House Rent
-                        f"{total_water_bill:.2f}",  # Total Water Bill
-                        f"{total_gas_bill:.2f}",    # Total Gas Bill
-                        f"{total_room_unit_bill:.2f}",  # Total Room Unit Bill
-                        "",  # Room Name (empty for main row)
-                        "",  # Present Unit
-                        "",  # Previous Unit
-                        "",  # Real Unit
-                        "",  # Unit Bill
-                        "",  # Gas Bill
-                        "",  # Water Bill
-                        "",  # House Rent
-                        ""   # Grand Total (room)
-                    ])
-                    
+                    row.extend(
+                        [
+                            str(main_data.get("total_unit_cost", "0")),
+                            str(main_data.get("total_diff_units", "0")),
+                            str(main_data.get("per_unit_cost", "0")),
+                            str(main_data.get("added_amount", "0")),
+                            str(main_data.get("grand_total", "0")),
+                            f"{total_house_rent:.2f}",  # Total House Rent
+                            f"{total_water_bill:.2f}",  # Total Water Bill
+                            f"{total_gas_bill:.2f}",  # Total Gas Bill
+                            f"{total_room_unit_bill:.2f}",  # Total Room Unit Bill
+                            "",  # Room Name (empty for main row)
+                            "",  # Present Unit
+                            "",  # Previous Unit
+                            "",  # Real Unit
+                            "",  # Unit Bill
+                            "",  # Gas Bill
+                            "",  # Water Bill
+                            "",  # House Rent
+                            "",  # Grand Total (room)
+                        ]
+                    )
+
                     writer.writerow(row)
-                    
+
                     # For each room calculation under main calculation, write room row with empty Month column
-                    for room_record in record['room_records']:
+                    for room_record in record["room_records"]:
                         room_data = room_record.get("room_data", {})
-                        if isinstance(room_data, str):
-                            try:
-                                room_data = json.loads(room_data)
-                            except json.JSONDecodeError:
-                                room_data = {}
-                        
+
                         # Build room row with empty Month column
                         room_row = [""]  # Empty month column
-                        
+
                         # Empty meter columns
                         for i in range(max_meters):
                             room_row.append("")
-                        
+
                         # Empty diff columns
                         for i in range(max_meters):
                             room_row.append("")
-                        
+
                         # Empty fixed columns from main calculation (5 columns)
                         room_row.extend(["", "", "", "", ""])
-                        
+
                         # Empty totals columns (4 columns)
                         room_row.extend(["", "", "", ""])
-                        
+
                         # Add room-specific data
-                        room_row.extend([
-                            str(room_data.get("room_name", "")),
-                            str(room_data.get("present_unit", "0")),
-                            str(room_data.get("previous_unit", "0")),
-                            str(room_data.get("real_unit", "0")),
-                            str(room_data.get("unit_bill", "0")),
-                            str(room_data.get("gas_bill", "0")),
-                            str(room_data.get("water_bill", "0")),
-                            str(room_data.get("house_rent", "0")),
-                            str(room_data.get("grand_total", "0"))
-                        ])
-                        
+                        room_row.extend(
+                            [
+                                str(room_data.get("room_name", "")),
+                                str(room_data.get("present_unit", "0")),
+                                str(room_data.get("previous_unit", "0")),
+                                str(room_data.get("real_unit", "0")),
+                                str(room_data.get("unit_bill", "0")),
+                                str(room_data.get("gas_bill", "0")),
+                                str(room_data.get("water_bill", "0")),
+                                str(room_data.get("house_rent", "0")),
+                                str(room_data.get("grand_total", "0")),
+                            ]
+                        )
+
                         writer.writerow(room_row)
-            
+
             # Display success message with count of downloaded records
-            total_room_count = sum(len(r['room_records']) for r in all_records_with_rooms)
-            QMessageBox.information(
-                self, 
-                "Download Successful", 
-                f"Downloaded {len(all_records_with_rooms)} main records and {total_room_count} room records to {filename}"
+            total_room_count = sum(
+                len(r["room_records"]) for r in all_records_with_rooms
             )
-            
+            QMessageBox.information(
+                self,
+                "Download Successful",
+                f"Downloaded {len(all_records_with_rooms)} main records and {total_room_count} room records to {filename}",
+            )
+
         except APIError as e:
             # Handle Supabase connection errors with appropriate warning
-            QMessageBox.critical(self, "Download Error", f"Failed to fetch records from cloud: {e}")
+            QMessageBox.critical(
+                self, "Download Error", f"Failed to fetch records from cloud: {e}"
+            )
         except IOError as e:
             # Handle file write errors (permissions, disk space)
             QMessageBox.critical(self, "File Error", f"Failed to write CSV file: {e}")
         except Exception as e:
             # Handle unexpected errors
-            QMessageBox.critical(self, "Download Error", f"Unexpected error: {e}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "Download Error",
+                f"Unexpected error: {e}\n{traceback.format_exc()}",
+            )
 
-    def calculate_and_display_totals_from_supabase_records(self, main_calculations: list[dict], all_room_rows: list[dict]):
+    def calculate_and_display_totals_from_supabase_records(
+        self, main_calculations: list[dict], all_room_rows: list[dict]
+    ):
         grouped = {}
         for room in all_room_rows:
             month = room.get("month")
             year = room.get("year")
             key = f"{month} {year}" if (month and year) else "Unknown"
 
-            room_data = room.get("room_data", {})
-            if isinstance(room_data, str):
-                try:
-                    room_data = json.loads(room_data)
-                except json.JSONDecodeError:
-                    room_data = {}
+            room_data = self._coerce_json_dict(room.get("room_data", {}))
 
             try:
-                grp = grouped.setdefault(key, {"house":0.0,"water":0.0,"gas":0.0,"unit":0.0})
+                grp = grouped.setdefault(
+                    key, {"house": 0.0, "water": 0.0, "gas": 0.0, "unit": 0.0}
+                )
                 grp["house"] += float(room_data.get("house_rent", 0) or 0)
                 grp["water"] += float(room_data.get("water_bill", 0) or 0)
-                grp["gas"]   += float(room_data.get("gas_bill", 0) or 0)
-                grp["unit"]  += float(room_data.get("unit_bill", 0) or 0)
+                grp["gas"] += float(room_data.get("gas_bill", 0) or 0)
+                grp["unit"] += float(room_data.get("unit_bill", 0) or 0)
             except (ValueError, TypeError):
                 continue
 
         # sort keys by year then month
         def month_key(m):
-            parts=m.split();
-            if len(parts)==2:
-                mon,yr=parts; return (int(yr), self.MONTH_ORDER.get(mon,0))
-            return (0,0)
-        skeys=sorted(grouped.keys(), key=month_key)
+            parts = m.split()
+            if len(parts) == 2:
+                mon, yr = parts
+                return (int(yr), self.MONTH_ORDER.get(mon, 0))
+            return (0, 0)
+
+        skeys = sorted(grouped.keys(), key=month_key)
 
         self.totals_table.setRowCount(len(skeys))
-        for idx,k in enumerate(skeys):
-            self.totals_table.setItem(idx,0,self._create_identifier_item(k, "month"))
-            t=grouped[k]
-            self.totals_table.setItem(idx,1,self._create_centered_item(f"{t['house']:.2f}"))
-            self.totals_table.setItem(idx,2,self._create_centered_item(f"{t['water']:.2f}"))
-            self.totals_table.setItem(idx,3,self._create_centered_item(f"{t['gas']:.2f}"))
-            self.totals_table.setItem(idx,4,self._create_centered_item(f"{t['unit']:.2f}"))
-        
+        for idx, k in enumerate(skeys):
+            self.totals_table.setItem(idx, 0, self._create_identifier_item(k, "month"))
+            t = grouped[k]
+            self.totals_table.setItem(
+                idx, 1, self._create_centered_item(f"{t['house']:.2f}")
+            )
+            self.totals_table.setItem(
+                idx, 2, self._create_centered_item(f"{t['water']:.2f}")
+            )
+            self.totals_table.setItem(
+                idx, 3, self._create_centered_item(f"{t['gas']:.2f}")
+            )
+            self.totals_table.setItem(
+                idx, 4, self._create_centered_item(f"{t['unit']:.2f}")
+            )
+
         # Force table resize after totals data is populated
         try:
             QTimer.singleShot(100, self.force_table_resize)
         except Exception as timer_error:
-            self._log_resize_error("Failed to schedule force table resize after Supabase totals calculation", timer_error)
+            self._log_resize_error(
+                "Failed to schedule force table resize after Supabase totals calculation",
+                timer_error,
+            )
 
     def _is_click_inside_history_tables(self, global_pos):
         """Return True if the widget at the given global position is within any of the history tables."""
         w = QApplication.widgetAt(global_pos)
         if not w:
             return False
-        
+
         # Check if click is inside any of the tables or their children
         tables = [self.main_history_table, self.room_history_table, self.totals_table]
         for table in tables:
@@ -4255,9 +5263,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
     def mousePressEvent(self, event):
         """Clear table selections when the user clicks anywhere outside the history tables."""
-        if event.button() == Qt.LeftButton and not self._is_click_inside_history_tables(event.globalPos()):
+        if event.button() == Qt.LeftButton and not self._is_click_inside_history_tables(
+            event.globalPos()
+        ):
             # Clear selections and update buttons
-            tables_to_clear = [self.main_history_table, self.room_history_table, self.totals_table]
+            tables_to_clear = [
+                self.main_history_table,
+                self.room_history_table,
+                self.totals_table,
+            ]
             for table in tables_to_clear:
                 if table:
                     table.clearSelection()
@@ -4267,116 +5281,182 @@ class HistoryTab(QWidget, EnhancedTableMixin):
 
     def update_action_buttons_state(self):
         """Enable buttons when at least one row is selected and apply color styles."""
-        has_selection = (self.main_history_table.selectionModel().hasSelection() or 
-                        self.room_history_table.selectionModel().hasSelection())
-        
+        has_selection = (
+            self.main_history_table.selectionModel().hasSelection()
+            or self.room_history_table.selectionModel().hasSelection()
+        )
+
         if has_selection:
             self.edit_selected_record_button.setEnabled(True)
-            
+
             self.delete_selected_record_button.setEnabled(True)
         else:
             self.edit_selected_record_button.setEnabled(False)
             self.delete_selected_record_button.setEnabled(False)
-            
 
     def handle_edit_selected_record(self):
         selected_items = self.main_history_table.selectedItems()
         if not selected_items:
-            QMessageBox.information(self, "No Selection", "Please select a record to edit.")
+            QMessageBox.information(
+                self, "No Selection", "Please select a record to edit."
+            )
             return
         selected_row = selected_items[0].row()
         month_item = self.main_history_table.item(selected_row, 0)
         record_id = month_item.data(Qt.UserRole) if month_item else None
-        
+
         if record_id:
-            if self.main_window.load_history_source_combo.currentText() == "Load from Cloud":
+            if (
+                self.main_window.load_history_source_combo.currentText()
+                == "Load from Cloud"
+            ):
                 self.handle_edit_record(record_id)
             else:
-                QMessageBox.information(self, "Not Supported", "Editing CSV records directly is not supported here.")
+                QMessageBox.information(
+                    self,
+                    "Not Supported",
+                    "Editing CSV records directly is not supported here.",
+                )
         else:
-            QMessageBox.warning(self, "No Record ID", "Record ID not found for selection.")
+            QMessageBox.warning(
+                self, "No Record ID", "Record ID not found for selection."
+            )
 
     def handle_delete_selected_record(self):
         selected_items = self.main_history_table.selectedItems()
         if not selected_items:
-            QMessageBox.information(self, "No Selection", "Please select a record to delete.")
+            QMessageBox.information(
+                self, "No Selection", "Please select a record to delete."
+            )
             return
         selected_row = selected_items[0].row()
         first_item_in_row = self.main_history_table.item(selected_row, 0)
-        if not first_item_in_row: return
+        if not first_item_in_row:
+            return
         record_id = first_item_in_row.data(Qt.UserRole)
         if record_id:
-            if self.main_window.load_history_source_combo.currentText() == "Load from Cloud":
+            if (
+                self.main_window.load_history_source_combo.currentText()
+                == "Load from Cloud"
+            ):
                 self.handle_delete_record(record_id)
             else:
-                QMessageBox.information(self, "Not Supported", "Deleting CSV records directly is not supported here.")
+                QMessageBox.information(
+                    self,
+                    "Not Supported",
+                    "Deleting CSV records directly is not supported here.",
+                )
         else:
-            QMessageBox.warning(self, "No Record ID", "Record ID not found for selection.")
+            QMessageBox.warning(
+                self, "No Record ID", "Record ID not found for selection."
+            )
 
-    def handle_edit_record(self, record_id): # Actual logic for editing
+    def handle_edit_record(self, record_id):  # Actual logic for editing
         if not self.main_window.supabase_manager.is_client_initialized():
-            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in the Supabase Config tab.")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Supabase not configured. Please configure Supabase in the Supabase Config tab.",
+            )
             return
         try:
             # Fetch main calculation data using SupabaseManager
-            main_record = self.main_window.supabase_manager.get_main_calculations_by_id(record_id) # New method needed in SupabaseManager
+            main_record = self.main_window.supabase_manager.get_main_calculations_by_id(
+                record_id
+            )  # New method needed in SupabaseManager
             if not main_record:
-                QMessageBox.critical(self, "Error", "Main calculation record not found.")
+                QMessageBox.critical(
+                    self, "Error", "Main calculation record not found."
+                )
                 return
-            main_data = main_record.get("main_data", {}) # Extract JSONB data
+            main_data = main_record.get("main_data", {})  # Extract JSONB data
 
             # Fetch room calculation data using SupabaseManager
-            room_data_list = self.main_window.supabase_manager.get_room_calculations(record_id)
+            room_data_list = self.main_window.supabase_manager.get_room_calculations(
+                record_id
+            )
 
-            dialog = EditRecordDialog(record_id, main_data, room_data_list, parent=self.main_window)
+            dialog = EditRecordDialog(
+                record_id, main_data, room_data_list, parent=self.main_window
+            )
             if dialog.exec_() == QDialog.Accepted:
-                self.load_history() # Refresh the table after changes are saved
+                self.load_history()  # Refresh the table after changes are saved
         except Exception as e:
             # Check if it's a paused project error
             from src.core.supabase_error_handler import SupabaseErrorHandler
+
             error_type = SupabaseErrorHandler.detect_error_type(e)
-            
+
             if error_type == "paused_project":
                 # Show friendly paused project message
-                supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
-                title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+                supabase_url = getattr(
+                    self.main_window.supabase_manager, "supabase_url", None
+                )
+                title, msg, _ = SupabaseErrorHandler.get_error_message(
+                    "paused_project", supabase_url
+                )
                 QMessageBox.warning(self, title, msg)
             else:
                 # Show generic error
                 QMessageBox.critical(
                     self,
                     "Edit Record Error",
-                    f"An unexpected error occurred while editing record: {e}\n{traceback.format_exc()}"
+                    f"An unexpected error occurred while editing record: {e}\n{traceback.format_exc()}",
                 )
 
-    def handle_delete_record(self, record_id): # Actual logic for deleting
+    def handle_delete_record(self, record_id):  # Actual logic for deleting
         if not self.main_window.supabase_manager.is_client_initialized():
-            QMessageBox.warning(self, "Error", "Supabase not configured. Please configure Supabase in the Supabase Config tab.")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Supabase not configured. Please configure Supabase in the Supabase Config tab.",
+            )
             return
-        reply = QMessageBox.question(self, "Confirm Delete",
-                                     "Are you sure you want to delete this record and all associated room data?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            "Are you sure you want to delete this record and all associated room data?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
         if reply == QMessageBox.Yes:
             try:
-                delete_success = self.main_window.supabase_manager.delete_calculation_record(record_id) # New method needed
+                delete_success = (
+                    self.main_window.supabase_manager.delete_calculation_record(
+                        record_id
+                    )
+                )  # New method needed
                 if delete_success:
-                    QMessageBox.information(self, "Delete Successful", "Record deleted successfully.")
-                    self.load_history() # Refresh the table
+                    QMessageBox.information(
+                        self, "Delete Successful", "Record deleted successfully."
+                    )
+                    self.load_history()  # Refresh the table
                 else:
-                    QMessageBox.critical(self, "Supabase Error", "Failed to delete record from Supabase.")
+                    QMessageBox.critical(
+                        self, "Supabase Error", "Failed to delete record from Supabase."
+                    )
             except Exception as e:
                 # Check if it's a paused project error
                 from src.core.supabase_error_handler import SupabaseErrorHandler
+
                 error_type = SupabaseErrorHandler.detect_error_type(e)
-                
+
                 if error_type == "paused_project":
                     # Show friendly paused project message
-                    supabase_url = getattr(self.main_window.supabase_manager, 'supabase_url', None)
-                    title, msg, _ = SupabaseErrorHandler.get_error_message("paused_project", supabase_url)
+                    supabase_url = getattr(
+                        self.main_window.supabase_manager, "supabase_url", None
+                    )
+                    title, msg, _ = SupabaseErrorHandler.get_error_message(
+                        "paused_project", supabase_url
+                    )
                     QMessageBox.warning(self, title, msg)
                 else:
                     # Show generic error
-                    QMessageBox.critical(self, "Delete Error", f"An unexpected error occurred during delete: {e}\n{traceback.format_exc()}")
+                    QMessageBox.critical(
+                        self,
+                        "Delete Error",
+                        f"An unexpected error occurred during delete: {e}\n{traceback.format_exc()}",
+                    )
 
     def calculate_and_display_totals(self, room_rows, get_csv_value):
         """Calculate and display totals for house rent, water bill, gas bill, and unit bill"""
@@ -4390,107 +5470,144 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         house = float(get_csv_value(room_row, "Total House Rent", "0"))
                         water = float(get_csv_value(room_row, "Total Water Bill", "0"))
                         gas = float(get_csv_value(room_row, "Total Gas Bill", "0"))
-                        unit = float(get_csv_value(room_row, "Total Room Unit Bill", "0"))
+                        unit = float(
+                            get_csv_value(room_row, "Total Room Unit Bill", "0")
+                        )
                     except ValueError:
                         continue
-                    grp = grouped.setdefault(key,{"house":0.0,"water":0.0,"gas":0.0,"unit":0.0})
-                    grp["house"]+=house; grp["water"]+=water; grp["gas"]+=gas; grp["unit"]+=unit
+                    grp = grouped.setdefault(
+                        key, {"house": 0.0, "water": 0.0, "gas": 0.0, "unit": 0.0}
+                    )
+                    grp["house"] += house
+                    grp["water"] += water
+                    grp["gas"] += gas
+                    grp["unit"] += unit
 
             # sort keys by year then month
             def month_key(m):
-                parts=m.split();
-                if len(parts)==2:
-                    mon,yr=parts; return (int(yr), self.MONTH_ORDER.get(mon,0))
-                return (0,0)
-            skeys=sorted(grouped.keys(), key=month_key)
+                parts = m.split()
+                if len(parts) == 2:
+                    mon, yr = parts
+                    return (int(yr), self.MONTH_ORDER.get(mon, 0))
+                return (0, 0)
+
+            skeys = sorted(grouped.keys(), key=month_key)
 
             self.totals_table.setRowCount(len(skeys))
-            for idx,k in enumerate(skeys):
-                self.totals_table.setItem(idx,0,QTableWidgetItem(k))
-                t=grouped[k]
-                self.totals_table.setItem(idx,1,QTableWidgetItem(f"{t['house']:.2f}"))
-                self.totals_table.setItem(idx,2,QTableWidgetItem(f"{t['water']:.2f}"))
-                self.totals_table.setItem(idx,3,QTableWidgetItem(f"{t['gas']:.2f}"))
-                self.totals_table.setItem(idx,4,QTableWidgetItem(f"{t['unit']:.2f}"))
-            
+            for idx, k in enumerate(skeys):
+                self.totals_table.setItem(idx, 0, QTableWidgetItem(k))
+                t = grouped[k]
+                self.totals_table.setItem(idx, 1, QTableWidgetItem(f"{t['house']:.2f}"))
+                self.totals_table.setItem(idx, 2, QTableWidgetItem(f"{t['water']:.2f}"))
+                self.totals_table.setItem(idx, 3, QTableWidgetItem(f"{t['gas']:.2f}"))
+                self.totals_table.setItem(idx, 4, QTableWidgetItem(f"{t['unit']:.2f}"))
+
             # Force table resize after totals data is populated
             try:
                 QTimer.singleShot(100, self.force_table_resize)
             except Exception as timer_error:
-                self._log_resize_error("Failed to schedule force table resize after totals calculation", timer_error)
-            
+                self._log_resize_error(
+                    "Failed to schedule force table resize after totals calculation",
+                    timer_error,
+                )
+
         except Exception as e:
             # If there's an error calculating totals, just clear the table
             self.totals_table.setRowCount(0)
             print(f"Error calculating totals: {e}")
 
-    def calculate_and_display_totals_from_main_rows(self, filtered_main_rows, get_csv_value):
+    def calculate_and_display_totals_from_main_rows(
+        self, filtered_main_rows, get_csv_value
+    ):
         """Calculate and display totals from filtered main calculation rows"""
         try:
             # Clear existing totals
             self.totals_table.setRowCount(0)
-            
+
             if not filtered_main_rows:
                 return
-            
+
             # Set the number of rows to match the number of filtered main rows
             self.totals_table.setRowCount(len(filtered_main_rows))
-            
+
             # Add totals for each main calculation row
             for row_idx, main_row_data in enumerate(filtered_main_rows):
-                row = main_row_data['csv_row']
-                
+                row = main_row_data["csv_row"]
+
                 # Set the month/year in the first column
                 month_year_str = f"{main_row_data['month']} {main_row_data['year']}"
-                self.totals_table.setItem(row_idx, 0, self._create_identifier_item(month_year_str, "month"))
-                
+                self.totals_table.setItem(
+                    row_idx, 0, self._create_identifier_item(month_year_str, "month")
+                )
+
                 # Extract pre-calculated totals from the main calculation row
                 csv_total_house_rent = get_csv_value(row, "Total House Rent", "0")
                 csv_total_water_bill = get_csv_value(row, "Total Water Bill", "0")
                 csv_total_gas_bill = get_csv_value(row, "Total Gas Bill", "0")
                 csv_total_unit_bill = get_csv_value(row, "Total Room Unit Bill", "0")
-                
+
                 # Set the totals for this row (shifted by 1 column due to month column)
                 try:
                     house_rent = float(csv_total_house_rent or "0")
                     water_bill = float(csv_total_water_bill or "0")
                     gas_bill = float(csv_total_gas_bill or "0")
                     unit_bill = float(csv_total_unit_bill or "0")
-                    
-                    self.totals_table.setItem(row_idx, 1, self._create_centered_item(f"{house_rent:.2f}"))
-                    self.totals_table.setItem(row_idx, 2, self._create_centered_item(f"{water_bill:.2f}"))
-                    self.totals_table.setItem(row_idx, 3, self._create_centered_item(f"{gas_bill:.2f}"))
-                    self.totals_table.setItem(row_idx, 4, self._create_centered_item(f"{unit_bill:.2f}"))
+
+                    self.totals_table.setItem(
+                        row_idx, 1, self._create_centered_item(f"{house_rent:.2f}")
+                    )
+                    self.totals_table.setItem(
+                        row_idx, 2, self._create_centered_item(f"{water_bill:.2f}")
+                    )
+                    self.totals_table.setItem(
+                        row_idx, 3, self._create_centered_item(f"{gas_bill:.2f}")
+                    )
+                    self.totals_table.setItem(
+                        row_idx, 4, self._create_centered_item(f"{unit_bill:.2f}")
+                    )
                 except (ValueError, TypeError):
                     # If conversion fails, set zeros for this row
-                    self.totals_table.setItem(row_idx, 1, self._create_centered_item("0.00"))
-                    self.totals_table.setItem(row_idx, 2, self._create_centered_item("0.00"))
-                    self.totals_table.setItem(row_idx, 3, self._create_centered_item("0.00"))
-                    self.totals_table.setItem(row_idx, 4, self._create_centered_item("0.00"))
-            
+                    self.totals_table.setItem(
+                        row_idx, 1, self._create_centered_item("0.00")
+                    )
+                    self.totals_table.setItem(
+                        row_idx, 2, self._create_centered_item("0.00")
+                    )
+                    self.totals_table.setItem(
+                        row_idx, 3, self._create_centered_item("0.00")
+                    )
+                    self.totals_table.setItem(
+                        row_idx, 4, self._create_centered_item("0.00")
+                    )
+
             # Force table resize after totals data is populated
             try:
                 QTimer.singleShot(100, self.force_table_resize)
             except Exception as timer_error:
-                self._log_resize_error("Failed to schedule force table resize after main rows totals calculation", timer_error)
-            
+                self._log_resize_error(
+                    "Failed to schedule force table resize after main rows totals calculation",
+                    timer_error,
+                )
+
         except Exception as e:
             # If there's an error calculating totals, just clear the table
             self.totals_table.setRowCount(0)
             print(f"Error calculating totals from main rows: {e}")
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = QApplication(sys.argv)
-    class DummyMainWindow(QWidget): # Using QWidget for simplicity in dummy
+
+    class DummyMainWindow(QWidget):  # Using QWidget for simplicity in dummy
         def __init__(self):
             super().__init__()
             self.load_history_source_combo = QComboBox()
-            self.load_history_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
-            self.supabase = None # Mock if needed
-            self.check_internet_connectivity = lambda: True # Mock
-            self.db_manager = None # Mock if needed
+            self.load_history_source_combo.addItems(
+                ["Load from PC (CSV)", "Load from Cloud"]
+            )
+            self.supabase = None  # Mock if needed
+            self.check_internet_connectivity = lambda: True  # Mock
+            self.db_manager = None  # Mock if needed
 
     dummy_main_window = DummyMainWindow()
     history_tab_widget = HistoryTab(dummy_main_window)

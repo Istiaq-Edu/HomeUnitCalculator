@@ -43,7 +43,17 @@ jobs:
         shell: pwsh
       
       - name: Build one-directory executable (optimized for fast startup)
-        run: pyinstaller --noconsole --onedir --icon=icons/icon.ico --add-data "icons;icons" src/core/HomeUnitCalculator.py
+        run: python -m PyInstaller -y HomeUnitCalculator.spec
+
+      - name: Smoke test packaged app
+        run: |
+          $proc = Start-Process "dist\HomeUnitCalculator\HomeUnitCalculator.exe" -PassThru
+          Start-Sleep -Seconds 5
+          if ($proc.HasExited) {
+            throw "Packaged app exited early with code $($proc.ExitCode)"
+          }
+          Stop-Process -Id $proc.Id -Force
+        shell: pwsh
 
       - name: Create portable zip
         run: |
