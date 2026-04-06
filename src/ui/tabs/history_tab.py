@@ -3194,6 +3194,8 @@ class HistoryTab(QWidget, EnhancedTableMixin):
         self.room_history_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.room_history_table._prefer_internal_vertical_scroll = True
         self.room_history_table._disable_smooth_wheel = True
+        self.room_history_table._minimum_visible_rows = 11
+        self.room_history_table._maximum_visible_rows = 11
         # Set size policy for responsive behavior (same as main table)
         self.room_history_table.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Minimum
@@ -4018,10 +4020,15 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                         else 30
                     )
                     row_height = table.verticalHeader().defaultSectionSize() or 35
-                    visible_rows = max(6, min(table.rowCount() or 0, 12))
+                    min_visible_rows = int(getattr(table, "_minimum_visible_rows", 6))
+                    max_visible_rows = int(getattr(table, "_maximum_visible_rows", 12))
+                    visible_rows = max(
+                        min_visible_rows,
+                        min(max_visible_rows, table.rowCount() or 0),
+                    )
                     bounded_height = header_height + (row_height * visible_rows) + 12
                     table.setMinimumHeight(
-                        header_height + (row_height * min(6, visible_rows)) + 12
+                        header_height + (row_height * min_visible_rows) + 12
                     )
                     table.setMaximumHeight(bounded_height)
                     table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
