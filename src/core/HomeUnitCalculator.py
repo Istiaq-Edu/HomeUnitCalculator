@@ -1521,10 +1521,10 @@ class MeterCalculationApp(FluentWindow):
             )
 
         if hasattr(self.navigationInterface, "setCollapsible"):
-            self.navigationInterface.setCollapsible(False)
+            self.navigationInterface.setCollapsible(True)
 
         if hasattr(self.navigationInterface, "setMenuButtonVisible"):
-            self.navigationInterface.setMenuButtonVisible(False)
+            self.navigationInterface.setMenuButtonVisible(True)
 
     def on_current_interface_changed(self, index):
         """Handle tab change: set focus appropriately."""
