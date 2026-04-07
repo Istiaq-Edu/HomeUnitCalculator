@@ -12,6 +12,7 @@ This is the living implementation plan for improving the Home Unit Calculator ap
 Related follow-on plan:
 
 - `docs/plans/2026-04-06-realtime-ui-responsiveness-plan.md`
+- `docs/plans/2026-04-07-startup-flicker-fix-plan.md`
 
 This plan is based on:
 
@@ -675,3 +676,4 @@ Only unresolved items that materially affect implementation should stay here.
 23. Closed the remaining delta room-cache stale-child gap for changed parents during incremental syncs.
 24. Tuned SQLite connection behavior and indexes for the app's current cache-heavy hot paths, and cleaned the remaining owned UTC deprecation warnings.
 25. Created a dedicated follow-on plan for realtime data propagation, cross-tab UI consistency, and UI responsiveness under live updates.
+26. Implemented a dedicated startup flicker stabilization fix and recorded the assessment and validation in a separate startup-flicker plan.

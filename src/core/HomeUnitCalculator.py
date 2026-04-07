@@ -274,6 +274,7 @@ class MeterCalculationApp(FluentWindow):
         }
         self._route_to_tab = {}
         self._pending_tab_refreshes = set()
+        self._startup_visuals_stable = False
 
         # Table layout stabilization is now handled directly in the tab files
 
@@ -881,13 +882,13 @@ class MeterCalculationApp(FluentWindow):
             color: white !important;
         }
 
-        /* Enhanced tooltips */
+        /* Global tooltips, matching the dashboard dark overlay style */
         QToolTip {
-            background-color: #3d3d3d;
             color: #ffffff;
-            border: 1px solid #5a5a5a;
-            border-radius: 6px;
-            padding: 8px 12px;
+            background-color: rgba(0, 0, 0, 220);
+            border: 1px solid rgba(255, 255, 255, 40);
+            border-radius: 8px;
+            padding: 9px 10px;
             font-size: 12px;
         }
 
@@ -1378,6 +1379,16 @@ class MeterCalculationApp(FluentWindow):
     def _ensure_current_interface_loaded(self):
         return self._ensure_interface_loaded(self.stackedWidget.currentWidget())
 
+    def _prepare_initial_interface_for_show(self):
+        dashboard_interface = self._tab_interfaces.get("dashboard")
+        if dashboard_interface is None:
+            return
+
+        if getattr(dashboard_interface, "_hmc_loaded_widget", None) is not None:
+            return
+
+        self._mount_lazy_tab("dashboard", dashboard_interface)
+
     def init_navigation(self):
         self._tab_interfaces["dashboard"].setObjectName("DashboardId")
         self._tab_interfaces["main"].setObjectName("CalculatorId")
@@ -1436,6 +1447,7 @@ class MeterCalculationApp(FluentWindow):
         )
 
         self._fit_navigation_width(navigation_labels)
+        self._prepare_initial_interface_for_show()
 
         # Enable scroll area for navigation items if needed
         self._setup_navigation_scroll_area()
@@ -1495,9 +1507,9 @@ class MeterCalculationApp(FluentWindow):
             default=0,
         )
 
-        # Account for icon space, item padding, selection indicator, and margin,
-        # but keep the rail as compact as possible while fitting the longest label.
-        target_width = max(156, min(176, max_text_width + 58))
+        # Account for icon space, item padding, selection indicator, and right margin.
+        # Keep it narrower than the original rail, but wide enough for the longest label.
+        target_width = max(214, min(236, max_text_width + 104))
 
         if hasattr(self.navigationInterface, "setExpandWidth"):
             self.navigationInterface.setExpandWidth(target_width)
@@ -1535,9 +1547,14 @@ class MeterCalculationApp(FluentWindow):
         if hasattr(active_widget, "force_table_resize"):
             QTimer.singleShot(150, active_widget.force_table_resize)
 
-        # QFluentWidgets sometimes resets the TitleBar icon to the current page's FluentIcon
-        # (e.g., HOME). Re-apply our app icon right after the page switch.
-        QTimer.singleShot(0, self._set_title_bar_icon)
+        if self._startup_visuals_stable:
+            # QFluentWidgets sometimes resets the TitleBar icon to the current page's FluentIcon
+            # (e.g., HOME). Re-apply our app icon right after later page switches.
+            QTimer.singleShot(0, self._set_title_bar_icon)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._startup_visuals_stable = True
 
     def save_to_pdf(self):
         from src.ui.save_dialog import SaveDialog

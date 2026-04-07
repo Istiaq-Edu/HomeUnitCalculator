@@ -436,27 +436,6 @@ class DashboardTab(QWidget):
 
     def _configure_tooltips(self):
         QToolTip.setFont(QFont("Segoe UI", 12))
-        app = QApplication.instance()
-        if not app:
-            return
-        tooltip_qss = """
-            /* dashboard-tooltip */
-            QToolTip {
-                color: #ffffff;
-                background-color: rgba(0, 0, 0, 220);
-                border: 1px solid rgba(255, 255, 255, 40);
-                border-radius: 8px;
-                padding: 9px 10px;
-                font-size: 12px;
-            }
-        """
-        existing = app.styleSheet() or ""
-        if "dashboard-tooltip" in existing:
-            start = existing.rfind("/* dashboard-tooltip */")
-            end = existing.find("}", start)
-            if start >= 0 and end >= 0:
-                existing = existing[:start] + existing[end + 1 :]
-        app.setStyleSheet(existing + "\n" + tooltip_qss)
 
     def _notify(self, level: str, title: str, content: str, duration: int = 4000):
         c = (content or "").strip()
