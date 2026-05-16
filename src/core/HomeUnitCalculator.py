@@ -257,7 +257,6 @@ class MeterCalculationApp(FluentWindow):
         self.tab_loader = LazyTabLoader(self)
         self.tab_loader.register_tab("dashboard", self._create_dashboard_tab)
         self.tab_loader.register_tab("main", self._create_main_tab)
-        self.tab_loader.register_tab("rooms", self._create_rooms_tab)
         self.tab_loader.register_tab("history", self._create_history_tab)
         self.tab_loader.register_tab("rental", self._create_rental_tab)
         self.tab_loader.register_tab("archived", self._create_archived_tab)
@@ -266,7 +265,6 @@ class MeterCalculationApp(FluentWindow):
         self._tab_interfaces = {
             "dashboard": self.tab_loader.get_placeholder("dashboard"),
             "main": self.tab_loader.get_placeholder("main"),
-            "rooms": self.tab_loader.get_placeholder("rooms"),
             "history": self.tab_loader.get_placeholder("history"),
             "rental": self.tab_loader.get_placeholder("rental"),
             "archived": self.tab_loader.get_placeholder("archived"),
@@ -1251,11 +1249,6 @@ class MeterCalculationApp(FluentWindow):
 
         return MainTab(self)
 
-    def _create_rooms_tab(self):
-        from src.ui.tabs.rooms_tab import RoomsTab
-
-        return RoomsTab(self.main_tab_instance, self)
-
     def _create_rental_tab(self):
         from src.ui.tabs.rental_info_tab import RentalInfoTab
 
@@ -1281,7 +1274,8 @@ class MeterCalculationApp(FluentWindow):
 
     @property
     def rooms_tab_instance(self):
-        return self.tab_loader.get_tab("rooms")
+        # After merge, room functionality lives in MainTab
+        return self.main_tab_instance
 
     @property
     def history_tab_instance(self):
@@ -1395,7 +1389,6 @@ class MeterCalculationApp(FluentWindow):
     def init_navigation(self):
         self._tab_interfaces["dashboard"].setObjectName("DashboardId")
         self._tab_interfaces["main"].setObjectName("CalculatorId")
-        self._tab_interfaces["rooms"].setObjectName("RoomsId")
         self._tab_interfaces["history"].setObjectName("HistoryId")
         self._tab_interfaces["rental"].setObjectName("RentalId")
         self._tab_interfaces["archived"].setObjectName("ArchivedId")
@@ -1404,7 +1397,6 @@ class MeterCalculationApp(FluentWindow):
         self._route_to_tab = {
             "DashboardId": "dashboard",
             "CalculatorId": "main",
-            "RoomsId": "rooms",
             "HistoryId": "history",
             "RentalId": "rental",
             "ArchivedId": "archived",
@@ -1417,7 +1409,6 @@ class MeterCalculationApp(FluentWindow):
         navigation_labels = [
             "Dashboard",
             "Calculator",
-            "Room Calculations",
             "Calculation History",
             "Rental Info",
             "Archived Info",
@@ -1429,9 +1420,6 @@ class MeterCalculationApp(FluentWindow):
         )
         self.addSubInterface(
             self._tab_interfaces["main"], FluentIcon.EDIT, "Calculator"
-        )
-        self.addSubInterface(
-            self._tab_interfaces["rooms"], FluentIcon.APPLICATION, "Room Calculations"
         )
         self.addSubInterface(
             self._tab_interfaces["history"], FluentIcon.HISTORY, "Calculation History"
@@ -2458,11 +2446,6 @@ class MeterCalculationApp(FluentWindow):
 
         if route_key == "CalculatorId" and self.tab_loader.is_loaded("main"):
             self.main_tab_instance.meter_entries[0].setFocus()
-            return
-
-        if route_key == "RoomsId" and self.tab_loader.is_loaded("rooms"):
-            if getattr(self.rooms_tab_instance, "room_entries", None):
-                self.rooms_tab_instance.room_entries[0]["present_entry"].setFocus()
             return
 
         if route_key == "HistoryId" and self.tab_loader.is_loaded("history"):

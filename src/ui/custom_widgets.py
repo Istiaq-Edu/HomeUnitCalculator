@@ -35,6 +35,8 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     IconWidget,
+    FluentIcon,
+    PrimaryPushButton,
 )
 
 from src.core.utils import resource_path
@@ -1481,3 +1483,181 @@ class SimpleBarChartWidget(QWidget):
             painter.drawText(plot.left() - w - 8, y + int(fm.ascent() / 2), s)
 
         painter.end()
+
+
+# ==================================================================
+# CollapsibleSection — expandable container with frosted glass header
+# ==================================================================
+class CollapsibleSection(QWidget):
+    """A collapsible section with a clickable header and toggleable content area.
+
+    Uses frosted glass styling on the header. Content widget is shown/hidden
+    on header click. Starts expanded by default.
+    """
+
+    def __init__(self, title: str, content_widget: QWidget, expanded: bool = True, parent=None):
+        super().__init__(parent)
+        self._expanded = expanded
+        self._content_widget = content_widget
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Header ──
+        self._header = QWidget()
+        self._header.setCursor(Qt.PointingHandCursor)
+        self._header.setFixedHeight(44)
+        self._header.setStyleSheet("""
+            QWidget {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+            }
+            QWidget:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+            }
+        """)
+
+        header_layout = QHBoxLayout(self._header)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+        header_layout.setSpacing(8)
+
+        self._title_label = BodyLabel(title)
+        self._title_label.setStyleSheet(
+            "font-size: 15px; font-weight: 600; color: #ffffff; background: transparent; border: none;"
+        )
+
+        self._chevron = IconWidget(FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT)
+        self._chevron.setFixedSize(16, 16)
+        self._chevron.setStyleSheet("background: transparent; border: none;")
+
+        header_layout.addWidget(self._title_label)
+        header_layout.addStretch()
+        header_layout.addWidget(self._chevron)
+
+        self._header.mousePressEvent = lambda _: self._toggle()
+
+        root.addWidget(self._header)
+
+        # ── Content ──
+        self._content_widget.setVisible(expanded)
+        root.addWidget(self._content_widget)
+
+    def _toggle(self):
+        self._expanded = not self._expanded
+        self._content_widget.setVisible(self._expanded)
+        self._chevron.setIcon(FluentIcon.CHEVRON_DOWN_MED if self._expanded else FluentIcon.CHEVRON_RIGHT)
+
+    def set_expanded(self, expanded: bool):
+        self._expanded = expanded
+        self._content_widget.setVisible(expanded)
+        self._chevron.setIcon(FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT)
+
+    def is_expanded(self) -> bool:
+        return self._expanded
+
+
+# ==================================================================
+# KpiChipBar — horizontal row of color-coded KPI chips
+# ==================================================================
+class KpiChipBar(QWidget):
+    """A horizontal bar of KPI chips with frosted glass styling.
+
+    Each chip has an emoji icon, label, and value. The container uses
+    glass-morphism with a subtle shadow.
+
+    Usage:
+        bar = KpiChipBar()
+        bar.set_kpis([
+            {"emoji": "🔢", "label": "Total Units", "value": "N/A", "color": "#4FC3F7"},
+            ...
+        ])
+        bar.update_kpi(0, "450")
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._chips: list = []
+        self._value_labels: list = []
+
+        self._root = QHBoxLayout(self)
+        self._root.setContentsMargins(12, 10, 12, 10)
+        self._root.setSpacing(8)
+
+        self.setStyleSheet("""
+            KpiChipBar {
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 12px;
+            }
+        """)
+
+        # Shadow
+        try:
+            from PyQt5.QtWidgets import QGraphicsDropShadowEffect
+            shadow = QGraphicsDropShadowEffect(self)
+            shadow.setBlurRadius(20)
+            shadow.setOffset(0, 2)
+            shadow.setColor(QColor(0, 0, 0, 60))
+            self.setGraphicsEffect(shadow)
+        except Exception:
+            pass
+
+    def set_kpis(self, kpis: list):
+        """Set KPI definitions. Each dict: {emoji, label, value, color}."""
+        # Clear existing
+        while self._root.count():
+            item = self._root.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._chips.clear()
+        self._value_labels.clear()
+
+        for kpi in kpis:
+            chip = self._create_chip(kpi["emoji"], kpi["label"], kpi.get("value", "N/A"), kpi["color"])
+            self._chips.append(chip)
+            self._root.addWidget(chip)
+
+    def _create_chip(self, emoji: str, label: str, value: str, color: str) -> QWidget:
+        chip = QWidget()
+        r, g, b = _hex_to_rgb(color)
+        chip.setStyleSheet(f"""
+            QWidget {{
+                background-color: rgba({r}, {g}, {b}, 0.14);
+                border: 1px solid rgba({r}, {g}, {b}, 0.35);
+                border-radius: 8px;
+            }}
+        """)
+
+        layout = QHBoxLayout(chip)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(6)
+
+        emoji_label = BodyLabel(emoji)
+        emoji_label.setStyleSheet("font-size: 16px; background: transparent; border: none;")
+
+        name_label = CaptionLabel(label)
+        name_label.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.7); "
+            f"background: transparent; border: none;"
+        )
+
+        value_label = BodyLabel(value)
+        value_label.setStyleSheet(
+            f"font-size: 15px; font-weight: 700; color: {color}; "
+            f"background: transparent; border: none;"
+        )
+
+        layout.addWidget(emoji_label)
+        layout.addWidget(name_label)
+        layout.addWidget(value_label)
+
+        self._value_labels.append(value_label)
+        return chip
+
+    def update_kpi(self, index: int, value: str):
+        """Update the value of a KPI chip by index."""
+        if 0 <= index < len(self._value_labels):
+            self._value_labels[index].setText(value)

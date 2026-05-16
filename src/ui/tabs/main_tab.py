@@ -20,12 +20,13 @@ from qfluentwidgets import (
     CardWidget, TitleLabel, BodyLabel, CaptionLabel,
     FluentIcon, PushButton, DropDownPushButton, RoundMenu, Action,
     ScrollArea,
-    FluentIconBase
+    FluentIconBase, StrongBodyLabel
 )
 
 from src.core.utils import resource_path
 from src.core.add_month_manager import AddMonthManager
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea
+from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CollapsibleSection, KpiChipBar
+from src.ui.flow_layout import FlowLayout
 
 def _clamp(v, lo=0, hi=255):
     return max(lo, min(hi, int(round(v))))
@@ -778,17 +779,19 @@ class MainTab(QWidget):
         self._no_select_lineedits = set()
         self._no_focus_spinboxes = set()
 
+        # Room calculation attributes
+        self.room_entries = []
+        self.rooms_scroll_layout = None
+        self.rooms_scroll_area = None
+        self.num_rooms_spinbox = None
+        self.calculate_rooms_button = None
+
         self.init_ui()
 
     def resizeEvent(self, event):
         """Handle window resize events to adjust layout responsively."""
         super().resizeEvent(event)
         self.adjust_responsive_layout()
-        # Re-lock results group's height to its content after resize
-        try:
-            QTimer.singleShot(0, self._lock_results_group_height)
-        except Exception:
-            pass
         # Re-apply pairs scroll exact height to prevent vertical drift
         try:
             QTimer.singleShot(0, self.update_pairs_scroll_height)
@@ -796,73 +799,8 @@ class MainTab(QWidget):
             pass
 
     def adjust_responsive_layout(self):
-        """Adjust layout based on current window size for responsive behavior."""
-        if not (self.left_column_widget and self.right_column_widget and self.content_layout):
-            return
-            
-        # Get current window width (account for scroll area if present)
-        window_width = self.main_scroll_area.width() if self.main_scroll_area else self.width()
-        
-        # Adjust column proportions based on window width
-        if window_width < 1200:  # Narrow window
-            # Give more space to left column for input controls
-            self.content_layout.setStretchFactor(self.left_column_widget, 4)  # 67% of space
-            self.content_layout.setStretchFactor(self.right_column_widget, 2)  # 33% of space
-            
-            # Reduce minimum widths for narrow windows
-            self.left_column_widget.setMinimumWidth(400)
-            self.right_column_widget.setMinimumWidth(350)
-            
-            # Adjust card heights for narrow windows
-            self._adjust_card_sizes_for_narrow_window()
-            
-        elif window_width > 1600:  # Wide window
-            # More balanced distribution for wide windows
-            self.content_layout.setStretchFactor(self.left_column_widget, 5)  # 56% of space
-            self.content_layout.setStretchFactor(self.right_column_widget, 4)  # 44% of space
-            
-            # Increase minimum widths for wide windows
-            self.left_column_widget.setMinimumWidth(500)
-            self.right_column_widget.setMinimumWidth(450)
-            
-            # Adjust card heights for wide windows
-            self._adjust_card_sizes_for_wide_window()
-            
-        else:  # Normal window size
-            # Default proportions
-            self.content_layout.setStretchFactor(self.left_column_widget, 3)  # 60% of space
-            self.content_layout.setStretchFactor(self.right_column_widget, 2)  # 40% of space
-            
-            # Standard minimum widths
-            self.left_column_widget.setMinimumWidth(450)
-            self.right_column_widget.setMinimumWidth(400)
-            
-            # Reset card heights to default
-            self._adjust_card_sizes_for_normal_window()
-    
-    def _adjust_card_sizes_for_narrow_window(self):
-        """Adjust card sizes for narrow windows to maintain usability."""
-        # Keep constant heights (do not scale with window size)
-        for child in self.right_column_widget.findChildren(ResultCard):
-            child.setFixedHeight(90)
-        if hasattr(self, 'final_amount_card'):
-            self.final_amount_card.setFixedHeight(120)
-    
-    def _adjust_card_sizes_for_wide_window(self):
-        """Adjust card sizes for wide windows to utilize extra space."""
-        # Keep constant heights to prevent the parent group from stretching in fullscreen
-        for child in self.right_column_widget.findChildren(ResultCard):
-            child.setFixedHeight(90)
-        if hasattr(self, 'final_amount_card'):
-            self.final_amount_card.setFixedHeight(120)
-    
-    def _adjust_card_sizes_for_normal_window(self):
-        """Reset card sizes to default for normal window size."""
-        # Keep constant heights
-        for child in self.right_column_widget.findChildren(ResultCard):
-            child.setFixedHeight(90)
-        if hasattr(self, 'final_amount_card'):
-            self.final_amount_card.setFixedHeight(120)
+        """Adjust layout based on current window size. Vertical flow layout needs no column adjustments."""
+        pass
     
     def ensure_widget_visible(self, widget):
         """Ensure a widget is visible in the most appropriate scroll area."""
@@ -962,349 +900,132 @@ class MainTab(QWidget):
             pass
 
     def init_ui(self):
-        # Root layout for the main tab
+        # ── Root layout ─────────────────────────────────────────────────
         root_layout = QVBoxLayout(self)
         root_layout.setSpacing(0)
         root_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create scroll area for the entire main tab content using QFluentWidgets' ScrollArea
+        # ── Scroll area ─────────────────────────────────────────────────
         self.main_scroll_area = ScrollArea()
         self.main_scroll_area.setWidgetResizable(True)
         self.main_scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # Allow vertical scrolling (prevents stacking); scrollbar remains invisible via QSS
         self.main_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        # Use QFluentWidgets' default styling (no custom QSS)
-        
-        # Create scrollable content widget
+
         scroll_content_widget = QWidget()
         scroll_content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        
-        # Main layout for scrollable content – use tighter default spacing / margins for a less "airy" look
+
         main_layout = QVBoxLayout(scroll_content_widget)
-        main_layout.setSpacing(8)
-        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(24)
+        main_layout.setContentsMargins(16, 16, 16, 16)
 
-        # Create two-column content layout with responsive behavior
-        content_layout = QHBoxLayout()
-        content_layout.setSpacing(12)
-
-        # Left column layout with minimum width constraints
-        left_column_layout = QVBoxLayout()
-        left_column_layout.setSpacing(8)
-        
-        # Create left column container with minimum width
-        self.left_column_widget = QWidget()
-        self.left_column_widget.setLayout(left_column_layout)
-        self.left_column_widget.setMinimumWidth(450)  # Prevent collapse of input controls
-        self.left_column_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-
-        # Create unified "Billing Period And Meter Reading" card
-        billing_and_reading_group = self.create_billing_and_reading_container()
-        left_column_layout.addWidget(billing_and_reading_group)
-
-        # Right column layout with minimum width constraints
-        right_column_layout = QVBoxLayout()
-        right_column_layout.setSpacing(8)
-        
-        # Create right column container with minimum width
-        self.right_column_widget = QWidget()
-        self.right_column_widget.setLayout(right_column_layout)
-        self.right_column_widget.setMinimumWidth(400)  # Prevent collapse of result cards
-        self.right_column_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-
-        # Store reference to content layout for responsive behavior
-        self.content_layout = content_layout
-
-        # Add columns to content layout with proper stretch factors
-        # Left column gets slightly more space for input controls
-        content_layout.addWidget(self.left_column_widget, 3)  # 60% of space
-        content_layout.addWidget(self.right_column_widget, 2)  # 40% of space
-        
-        # Add content layout to main layout
-        main_layout.addLayout(content_layout)
-
-        # Reading pairs and additional amount are now part of the unified card above
-
-        # Add load data section as a full-width row below the two columns
-        # Use a plain QWidget (not CardWidget) so it has NO hover/press effects
-        load_data_group = QWidget()
-        load_data_group.setObjectName("load_data_group_container")
-        # Expand horizontally, and allow the height to adapt naturally
-        load_data_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        # Ensure background is painted and container itself is non-interactive
-        load_data_group.setAttribute(Qt.WA_StyledBackground, True)
-        load_data_group.setAutoFillBackground(True)
-        load_data_group.setFocusPolicy(Qt.NoFocus)
-        load_data_group.setAttribute(Qt.WA_Hover, False)
-        load_data_group.setMouseTracking(False)
-        load_data_group.setStyleSheet(
-            """
-            #load_data_group_container {
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-                border-radius: 12px;
-            }
-            """
-        )
-        # Swallow clicks on empty background only (children remain interactive)
-        self._load_data_group = load_data_group
-        load_data_group.installEventFilter(self)
-        load_data_layout = QVBoxLayout(load_data_group)
-        load_data_layout.setContentsMargins(8, 8, 8, 8)
-        load_data_layout.setSpacing(4)
-
-        load_title = TitleLabel("Load Data")
-        load_title.setAlignment(Qt.AlignCenter)
-        load_title.setStyleSheet("""
-            font-size: 26px;
-            font-weight: 800;
-            color: #0078D4;
-            letter-spacing: 1px;
-            margin: 8px 0px;
+        # ── 1. Actions (collapsible, expanded by default) ──────────────
+        actions_content = QWidget()
+        actions_content.setStyleSheet("""
+            background-color: #2b2b2b;
+            border: 1px solid #3d3d3d;
+            border-radius: 12px;
         """)
-        load_data_layout.addWidget(load_title)
+        actions_content.setAttribute(Qt.WA_StyledBackground, True)
+        actions_content.setAutoFillBackground(True)
+        actions_content.setFocusPolicy(Qt.NoFocus)
+        actions_content.setAttribute(Qt.WA_Hover, False)
+        actions_content.setMouseTracking(False)
+        self._load_data_group = actions_content
+        actions_content.installEventFilter(self)
 
-        load_line = QFrame()
-        load_line.setFrameShape(QFrame.HLine)
-        load_line.setFrameShadow(QFrame.Plain)
-        load_line.setStyleSheet("""
-            color: #0078D4;
-            background-color: #0078D4;
-            border: none;
-            height: 2px;
-            margin: 4px 20px;
-        """)
-        
-        # Add separator line to layout
-        load_data_layout.addWidget(load_line)
+        actions_layout = QVBoxLayout(actions_content)
+        actions_layout.setContentsMargins(12, 12, 12, 12)
+        actions_layout.setSpacing(8)
 
-        # Create and add the load info group
+        # Load info group
         load_info_group = self.create_load_info_group()
-        load_data_layout.addWidget(load_info_group)
+        actions_layout.addWidget(load_info_group)
 
-        # Attach the whole load data group below the two-column layout to span full width
-        main_layout.addWidget(load_data_group)
-        # Keep left column compact by consuming extra vertical space below its content
-        left_column_layout.addStretch(1)
-
-        # Move results to right column
-        results_group = self.create_results_group()
-        self.results_group_widget = results_group
-        right_column_layout.addWidget(results_group, 0, Qt.AlignTop)
-        # Consume any extra vertical space below, so results_group never stretches vertically
-        right_column_layout.addStretch(1)
-
-        # Create Calculate button with full-width primary styling
-        self.main_calculate_button = PrimaryPushButton("Calculate")
-        # White icon and consistent icon size
-        # Use the Accept icon and keep it white for clarity
-        self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
-        self.main_calculate_button.setIconSize(QSize(20, 20))
-        self.main_calculate_button.setText("Calculate")
-        self.main_calculate_button.clicked.connect(self.calculate_main)
-        self.main_calculate_button.setMinimumHeight(40)
-        self.main_calculate_button.setFixedHeight(40)
-        self.main_calculate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        
-        # Apply premium primary styling with enhanced effects
-        self.main_calculate_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #0078D4, stop:1 #005a9e);
-                border: 2px solid #0078D4;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 14px;
-                qproperty-iconSize: 20px 20px;
-                /* identical padding and spacing as Save buttons */
-                padding: 8px 16px 8px 36px;
-                text-align: center;
-                margin: 0px;
-            }
-            PrimaryPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #1084d8, stop:1 #106ebe);
-                border-color: #1084d8;
-            }
-            PrimaryPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #005a9e, stop:1 #004578);
-                border-color: #005a9e;
-            }
-        """)
-        
-        # Adjust vertical stretch for content layout
-        main_layout.setStretch(0, 1)  # Content layout gets all available space
-        
-        # Set up the scroll area with the content widget
-        self.main_scroll_area.setWidget(scroll_content_widget)
-        root_layout.addWidget(self.main_scroll_area)
-
-        # After layout is ready, lock results group's height to its content
-        try:
-            QTimer.singleShot(0, self._lock_results_group_height)
-        except Exception:
-            pass
-        
-        # Add spacing between Load Data container and action buttons
-        root_layout.addSpacing(20)
-        
-        # ── Calculate button (sticks at bottom) ─────────────────────────────
-        self.main_calculate_button.setParent(self)  # Move to root widget
-        root_layout.addWidget(self.main_calculate_button)
-        
-        # ── Save buttons row (sticks at bottom) ─────────────────────────────
+        # Save buttons row
         save_buttons_row = QHBoxLayout()
         save_buttons_row.setSpacing(8)
-        save_buttons_row.setContentsMargins(12, 8, 12, 12)
+        save_buttons_row.setContentsMargins(0, 4, 0, 0)
 
-        # PDF button with red theme and document icon
         pdf_button = PrimaryPushButton("Save PDF")
         pdf_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
         pdf_button.setIconSize(QSize(20, 20))
         pdf_button.setFixedHeight(40)
         pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         pdf_button.clicked.connect(self.main_window.save_to_pdf)
-        # Apply enhanced red theme styling
         pdf_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #d32f2f, stop:1 #b71c1c);
-                border: 2px solid #d32f2f;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 14px;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
-                text-align: center;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #d32f2f, stop:1 #b71c1c);
+                border: 2px solid #d32f2f; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
             }
-            PrimaryPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #f44336, stop:1 #d32f2f);
-                border-color: #f44336;
-            }
-            PrimaryPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #b71c1c, stop:1 #8f1414);
-                border-color: #b71c1c;
-            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f44336, stop:1 #d32f2f); border-color: #f44336; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #b71c1c, stop:1 #8f1414); border-color: #b71c1c; }
         """)
 
-        # CSV button with green theme and save icon
         csv_button = PrimaryPushButton("Save CSV")
         csv_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
         csv_button.setIconSize(QSize(20, 20))
         csv_button.setFixedHeight(40)
         csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
-        # Apply enhanced green theme styling
         csv_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #388e3c, stop:1 #2e7d32);
-                border: 2px solid #388e3c;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 14px;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
-                text-align: center;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #388e3c, stop:1 #2e7d32);
+                border: 2px solid #388e3c; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
             }
-            PrimaryPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #4caf50, stop:1 #388e3c);
-                border-color: #4caf50;
-            }
-            PrimaryPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #2e7d32, stop:1 #1b5e20);
-                border-color: #2e7d32;
-            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); border-color: #4caf50; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2e7d32, stop:1 #1b5e20); border-color: #2e7d32; }
         """)
 
-        # Cloud button with purple theme and cloud icon
         cloud_button = PrimaryPushButton("Save Cloud")
         cloud_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
         cloud_button.setIconSize(QSize(20, 20))
         cloud_button.setFixedHeight(40)
         cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
-        # Apply enhanced purple theme styling
         cloud_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #7b1fa2, stop:1 #6a1b9a);
-                border: 2px solid #7b1fa2;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 14px;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
-                text-align: center;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #7b1fa2, stop:1 #6a1b9a);
+                border: 2px solid #7b1fa2; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
             }
-            PrimaryPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #9c27b0, stop:1 #7b1fa2);
-                border-color: #9c27b0;
-            }
-            PrimaryPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, 
-                    stop:0 #6a1b9a, stop:1 #4a148c);
-                border-color: #6a1b9a;
-            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9c27b0, stop:1 #7b1fa2); border-color: #9c27b0; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a1b9a, stop:1 #4a148c); border-color: #6a1b9a; }
         """)
 
         save_buttons_row.addWidget(pdf_button, 1)
         save_buttons_row.addWidget(csv_button, 1)
         save_buttons_row.addWidget(cloud_button, 1)
+        self._save_buttons_row = save_buttons_row
+        actions_layout.addLayout(save_buttons_row)
 
-        # Theme button will be injected by main window after it is created
-        self._save_buttons_row = save_buttons_row  # store for later insertion
+        actions_section = CollapsibleSection("\u26a1 Actions", actions_content, expanded=True)
+        main_layout.addWidget(actions_section)
 
-        root_layout.addLayout(save_buttons_row)
-        
-        # Initialize with 3 reading pairs
+        # ── 2. Unified Billing & Calculation card ───────────────────────
+        unified_card = self.create_unified_calculator_card()
+        main_layout.addWidget(unified_card)
+
+        # ── 3. Room Calculations section ────────────────────────────────
+        rooms_section = self._create_rooms_section()
+        main_layout.addWidget(rooms_section)
+
+        # ── Scroll area setup ───────────────────────────────────────────
+        self.main_scroll_area.setWidget(scroll_content_widget)
+        root_layout.addWidget(self.main_scroll_area)
+
+        # ── Initialize reading pairs ────────────────────────────────────
         for _ in range(3):
             self.add_reading_pair()
-        
-        # Initial height calculation after adding default pairs
+
         QTimer.singleShot(50, self.update_pairs_scroll_height)
-        
-        # ------------------------------------------------------------------
-        # Final pass: recursively harmonise spacing / margins across all
-        #               sub-layouts for a consistent, compact appearance.
-        # ------------------------------------------------------------------
-        # Importing at module level, so no local import here (avoids shadowing)
-        UNIFIED_MARGIN = 12
-        UNIFIED_SPACING = 8
 
-        def _harmonise_layout(layout):
-            if isinstance(layout, (QBoxLayout, QFormLayout, QGridLayout)):
-                layout.setSpacing(UNIFIED_SPACING)
-                layout.setContentsMargins(UNIFIED_MARGIN, UNIFIED_MARGIN, UNIFIED_MARGIN, UNIFIED_MARGIN)
-                for i in range(layout.count()):
-                    child = layout.itemAt(i)
-                    if child and child.layout():
-                        _harmonise_layout(child.layout())
-
-        _harmonise_layout(main_layout)
-        # Restore compact spacing for reading pairs after global harmonisation
-        try:
-            if hasattr(self, 'pairs_layout') and self.pairs_layout is not None:
-                self.pairs_layout.setSpacing(2)
-                self.pairs_layout.setContentsMargins(4, 2, 4, 0)
-        except Exception:
-            pass
-
-        # Layout already set in line 966 (root_layout = QVBoxLayout(self))
-        # No need to set it again
-        
-        # Apply consistent theming and ensure proper theme support
+        # ── Final theming ───────────────────────────────────────────────
         self._apply_consistent_theming()
 
     def create_billing_and_reading_container(self):
@@ -2084,6 +1805,240 @@ class MainTab(QWidget):
         # Do not lock height here; we will lock to content once after initial layout/show.
         return results_group
 
+    def create_unified_calculator_card(self):
+        """Create a unified card combining billing, reading pairs, additional amount, and results."""
+        # ── Outer card ──────────────────────────────────────────────────
+        card = QWidget()
+        card.setObjectName("unified_calculator_card")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setFocusPolicy(Qt.NoFocus)
+        card.setAttribute(Qt.WA_Hover, False)
+        card.setMouseTracking(False)
+        card.setStyleSheet("""
+            #unified_calculator_card {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-radius: 12px;
+            }
+        """)
+        self._billing_unified_group = card
+        card.installEventFilter(self)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setSpacing(16)
+
+        # ── Title ───────────────────────────────────────────────────────
+        title = TitleLabel("\U0001f4ca Billing & Calculation")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("""
+            font-size: 28px; font-weight: 800; color: #0078D4;
+            letter-spacing: 1px; margin: 8px 0px;
+        """)
+        card_layout.addWidget(title)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Plain)
+        sep.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; height: 2px; margin: 4px 20px;")
+        card_layout.addWidget(sep)
+
+        # ── Two-column body ─────────────────────────────────────────────
+        body = QHBoxLayout()
+        body.setSpacing(16)
+
+        # Left column: inputs
+        left = QWidget()
+        left.setStyleSheet("background: transparent; border: none;")
+        left.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(12)
+
+        # -- Billing Period subsection --
+        left_layout.addWidget(self._make_frosted_subsection(
+            "Billing Period", self._build_billing_period_content()))
+
+        # -- Reading Pairs subsection --
+        left_layout.addWidget(self._make_frosted_subsection(
+            "Reading Pairs", self._build_reading_pairs_content()))
+
+        # -- Additional Amount subsection --
+        left_layout.addWidget(self._make_frosted_subsection(
+            "Additional Amount", self._build_additional_amount_content()))
+
+        # Right column: results
+        right = QWidget()
+        right.setStyleSheet("background: transparent; border: none;")
+        right.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        results_group = self.create_results_group()
+        self.results_group_widget = results_group
+        right_layout.addWidget(results_group, 0, Qt.AlignTop)
+        right_layout.addStretch(1)
+
+        body.addWidget(left, 3)
+        body.addWidget(right, 2)
+        card_layout.addLayout(body)
+
+        # ── Calculate button ────────────────────────────────────────────
+        self.main_calculate_button = PrimaryPushButton("Calculate")
+        self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.main_calculate_button.setIconSize(QSize(20, 20))
+        self.main_calculate_button.clicked.connect(self.calculate_main)
+        self.main_calculate_button.setFixedHeight(40)
+        self.main_calculate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.main_calculate_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0078D4, stop:1 #005a9e);
+                border: 2px solid #0078D4; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center; margin: 0px;
+            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1084d8, stop:1 #106ebe); border-color: #1084d8; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #005a9e, stop:1 #004578); border-color: #005a9e; }
+        """)
+        card_layout.addWidget(self.main_calculate_button)
+
+        return card
+
+    def _make_frosted_subsection(self, title_text, content_widget):
+        """Wrap a content widget in a frosted glass subsection with a title."""
+        outer = QWidget()
+        outer.setStyleSheet("background: transparent; border: none;")
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        inner = QWidget()
+        inner.setAttribute(Qt.WA_StyledBackground, True)
+        inner.setFocusPolicy(Qt.NoFocus)
+        inner.setAttribute(Qt.WA_Hover, False)
+        inner.setMouseTracking(False)
+        inner.setStyleSheet("""
+            background-color: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            border-radius: 12px;
+        """)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QColor(0, 0, 0, 120))
+        inner.setGraphicsEffect(shadow)
+
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(16, 12, 16, 12)
+        inner_layout.setSpacing(8)
+
+        lbl = BodyLabel(title_text)
+        lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px; background: transparent; border: none;")
+        inner_layout.addWidget(lbl)
+
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Plain)
+        line.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
+        inner_layout.addWidget(line)
+
+        inner_layout.addWidget(content_widget)
+        outer_layout.addWidget(inner)
+        return outer
+
+    def _build_billing_period_content(self):
+        """Build the billing period input content widget."""
+        w = QWidget()
+        w.setStyleSheet("background: transparent; border: none;")
+        layout = QHBoxLayout(w)
+        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addStretch(1)
+
+        month_label = BodyLabel("Month:")
+        month_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
+        self.month_combo = ComboBox()
+        self.month_combo.addItems([
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ])
+
+        year_label = BodyLabel("Year:")
+        year_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
+        self.year_spinbox = SpinBox()
+        self.year_spinbox.setRange(2000, 2100)
+        self.year_spinbox.setValue(datetime.now().year)
+        self._apply_no_select_to_spinbox(self.year_spinbox)
+        self.year_spinbox.setFocusPolicy(Qt.NoFocus)
+
+        layout.addWidget(month_label)
+        layout.addWidget(self.month_combo)
+        layout.addSpacing(20)
+        layout.addWidget(year_label)
+        layout.addWidget(self.year_spinbox)
+        layout.addStretch(1)
+        return w
+
+    def _build_reading_pairs_content(self):
+        """Build the reading pairs content widget."""
+        w = QWidget()
+        w.setStyleSheet("background: transparent; border: none;")
+        w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        pairs_scroll = ScrollArea()
+        pairs_scroll.setWidgetResizable(True)
+        pairs_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        pairs_scroll.setMinimumHeight(110)
+        pairs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        pairs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        pairs_container = QWidget()
+        pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.pairs_layout = QVBoxLayout(pairs_container)
+        self.pairs_layout.setSpacing(2)
+        self.pairs_layout.setContentsMargins(4, 2, 4, 10)
+        pairs_scroll.setWidget(pairs_container)
+        layout.addWidget(pairs_scroll, 0, Qt.AlignTop)
+        self.pairs_scroll = pairs_scroll
+
+        self._pairs_fixed_gap = 12
+        layout.addSpacing(self._pairs_fixed_gap)
+        self._pairs_btn_top_gap = 14
+        add_pair_button = AddPairButton("Add Reading Pair", lambda: self.add_reading_pair())
+        button_holder = QWidget()
+        bh_layout = QVBoxLayout(button_holder)
+        bh_layout.setContentsMargins(0, self._pairs_btn_top_gap, 0, 0)
+        bh_layout.setSpacing(0)
+        bh_layout.addWidget(add_pair_button)
+        layout.addWidget(button_holder)
+        self._pairs_add_button = add_pair_button
+
+        return w
+
+    def _build_additional_amount_content(self):
+        """Build the additional amount input content widget."""
+        w = QWidget()
+        w.setStyleSheet("background: transparent; border: none;")
+        layout = QHBoxLayout(w)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.additional_amount_input = CustomLineEdit()
+        self.additional_amount_input.setObjectName("main_additional_amount_input")
+        self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
+
+        currency_label = CaptionLabel("TK")
+        currency_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px; padding: 8px 4px; background: transparent; border: none;")
+
+        layout.addWidget(self.additional_amount_input, 1)
+        layout.addWidget(currency_label)
+        return w
+
     def create_load_info_group(self):
         # Use StaticCardWidget to disable hover effects
         from src.ui.tabs.history_tab import StaticCardWidget
@@ -2298,10 +2253,492 @@ class MainTab(QWidget):
             self.additional_amount_value_label.setText(f"{int(additional_amount)} TK")
             self.total_cost_card.update_value(f"{int(total_cost)} TK")
             self.in_total_value_label.setText(f"{int(in_total)} TK")
+
+            # Enable room calculation button
+            if self.calculate_rooms_button:
+                self.calculate_rooms_button.setEnabled(True)
+                self.calculate_rooms_button.setToolTip("")
         except ValueError:
             QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values for all readings.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
+
+    # ── Room Calculation Methods ─────────────────────────────────────────
+
+    def _create_rooms_section(self):
+        """Create the Room Calculations section with spinbox, room cards grid, and calculate button."""
+        section = QWidget()
+        section.setObjectName("rooms_section")
+        section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        section.setStyleSheet("""
+            #rooms_section {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-radius: 12px;
+            }
+        """)
+        section.setAttribute(Qt.WA_StyledBackground, True)
+        section.setAutoFillBackground(True)
+        section.setFocusPolicy(Qt.NoFocus)
+        section.setAttribute(Qt.WA_Hover, False)
+        section.setMouseTracking(False)
+
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
+
+        # Header with title and spinbox
+        header = QWidget()
+        header.setStyleSheet("background: transparent; border: none;")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(12)
+
+        title = TitleLabel("\U0001f3e0 Room Calculations")
+        title.setStyleSheet("""
+            font-size: 26px; font-weight: 800; color: #0078D4;
+            letter-spacing: 0.5px; background: transparent; border: none;
+        """)
+
+        rooms_label = BodyLabel("Number of Rooms:")
+        rooms_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
+
+        self.num_rooms_spinbox = SpinBox()
+        self.num_rooms_spinbox.setRange(1, 20)
+        self.num_rooms_spinbox.setValue(11)
+        self.num_rooms_spinbox.setFocusPolicy(Qt.NoFocus)
+        self.num_rooms_spinbox.valueChanged.connect(self.update_room_inputs)
+        self._apply_no_select_to_spinbox(self.num_rooms_spinbox)
+
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        header_layout.addWidget(rooms_label)
+        header_layout.addWidget(self.num_rooms_spinbox)
+        layout.addWidget(header)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Plain)
+        sep.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; height: 2px; margin: 4px 0px;")
+        layout.addWidget(sep)
+
+        # Room cards container (FlowLayout expands naturally, outer scroll handles scrolling)
+        rooms_card_container = QWidget()
+        rooms_card_container.setStyleSheet("background: transparent; border: none;")
+        rooms_card_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.rooms_scroll_layout = FlowLayout(rooms_card_container)
+        self.rooms_scroll_layout.setSpacing(8)
+        layout.addWidget(rooms_card_container)
+
+        # Calculate Room Bills button
+        self.calculate_rooms_button = PrimaryPushButton("Calculate Room Bills")
+        self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
+        self.calculate_rooms_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
+        self.calculate_rooms_button.setIconSize(QSize(20, 20))
+        self.calculate_rooms_button.setFixedHeight(40)
+        self.calculate_rooms_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.calculate_rooms_button.setEnabled(False)
+        self.calculate_rooms_button.setToolTip("Calculate meter readings first")
+        self.calculate_rooms_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0078D4, stop:1 #005a9e);
+                border: 2px solid #0078D4; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center; margin: 0px;
+            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1084d8, stop:1 #106ebe); border-color: #1084d8; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #005a9e, stop:1 #004578); border-color: #005a9e; }
+            PrimaryPushButton:disabled { background: #555; border-color: #444; color: #999; }
+        """)
+        layout.addWidget(self.calculate_rooms_button)
+
+        # Initial room cards
+        self.update_room_inputs()
+
+        return section
+
+    def update_room_inputs(self):
+        """Create or refresh room card widgets based on num_rooms_spinbox value."""
+        from src.core.utils import _clear_layout
+        _clear_layout(self.rooms_scroll_layout)
+        self.room_entries = []
+
+        num_rooms = self.num_rooms_spinbox.value()
+        numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))
+
+        for i in range(num_rooms):
+            room_group = CardWidget()
+            room_group.setObjectName(f"room_{i}_card")
+            room_group.setStyleSheet("""
+                CardWidget { background-color: #2b2b2b; border: 1px solid #3d3d3d; border-radius: 10px; }
+                CardWidget:hover { background-color: #2b2b2b; border: 1px solid #3d3d3d; }
+            """)
+            outer_layout = QVBoxLayout(room_group)
+            outer_layout.setSpacing(10)
+            outer_layout.setContentsMargins(16, 12, 16, 16)
+
+            title = TitleLabel(f"Room {i+1}")
+            title.setStyleSheet("font-size: 20px; font-weight: 800; color: #0078D4; letter-spacing: 0.5px; margin: 0px; background: transparent;")
+            outer_layout.addWidget(title)
+
+            header_line = QFrame()
+            header_line.setFrameShape(QFrame.HLine)
+            header_line.setFrameShadow(QFrame.Plain)
+            header_line.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; height: 2px; margin: 2px 0px 4px 0px;")
+            outer_layout.addWidget(header_line)
+
+            room_group.setMinimumWidth(280)
+            room_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+            present_entry = CustomLineEdit()
+            present_entry.setObjectName(f"room_{i}_present")
+            present_entry.setPlaceholderText("0")
+            present_entry.setValidator(numeric_validator)
+
+            previous_entry = CustomLineEdit()
+            previous_entry.setObjectName(f"room_{i}_previous")
+            previous_entry.setPlaceholderText("0")
+            previous_entry.setValidator(numeric_validator)
+
+            real_unit_label = CaptionLabel("N/A")
+            real_unit_label.setStyleSheet("color:#4FC3F7; font-weight:bold; background:transparent;")
+            real_unit_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            unit_bill_label = CaptionLabel("N/A")
+            unit_bill_label.setStyleSheet("color:#FFB74D; font-weight:bold; background:transparent;")
+            unit_bill_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            gas_bill_entry = CustomLineEdit()
+            gas_bill_entry.setObjectName(f"room_{i}_gas_bill")
+            gas_bill_entry.setValidator(numeric_validator)
+
+            water_bill_entry = CustomLineEdit()
+            water_bill_entry.setObjectName(f"room_{i}_water_bill")
+            water_bill_entry.setValidator(numeric_validator)
+
+            house_rent_entry = CustomLineEdit()
+            house_rent_entry.setObjectName(f"room_{i}_house_rent")
+            house_rent_entry.setValidator(numeric_validator)
+
+            grand_total_label = StrongBodyLabel("N/A")
+            grand_total_label.setStyleSheet("color:#81C784; font-weight:bold; background:transparent;")
+            grand_total_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            # Units row
+            units_row = QWidget()
+            units_row.setStyleSheet("background: transparent; border: none;")
+            units_row_layout = QGridLayout(units_row)
+            units_row_layout.setContentsMargins(0, 0, 0, 0)
+            units_row_layout.setSpacing(8)
+
+            pl = BodyLabel("Present Unit")
+            pl.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
+            units_row_layout.addWidget(pl, 0, 0)
+            units_row_layout.addWidget(present_entry, 1, 0)
+
+            prl = BodyLabel("Previous Unit")
+            prl.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
+            units_row_layout.addWidget(prl, 0, 1)
+            units_row_layout.addWidget(previous_entry, 1, 1)
+            outer_layout.addWidget(units_row)
+
+            # Gas, Water, Rent
+            for label_text, entry in [("Gas Bill", gas_bill_entry), ("Water Bill", water_bill_entry), ("House Rent", house_rent_entry)]:
+                w = QWidget()
+                w.setStyleSheet("background: transparent; border: none;")
+                wl = QVBoxLayout(w)
+                wl.setContentsMargins(0, 0, 0, 0)
+                wl.setSpacing(4)
+                lbl = BodyLabel(label_text)
+                lbl.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
+                wl.addWidget(lbl)
+                wl.addWidget(entry)
+                outer_layout.addWidget(w)
+
+            # Frosted result rows
+            for result_label, result_title, color in [
+                (real_unit_label, "Real Unit", "#4FC3F7"),
+                (unit_bill_label, "Unit Bill", "#FFB74D"),
+                (grand_total_label, "Grand Total", "#81C784"),
+            ]:
+                r, g, b = _hex_to_rgb(color)
+                container = QWidget()
+                container.setAttribute(Qt.WA_StyledBackground, True)
+                container.setAutoFillBackground(True)
+                container.setStyleSheet(f"background-color: rgba({r},{g},{b},0.14); border: 1px solid rgba({r},{g},{b},0.45); border-radius: 6px;")
+                cl = QHBoxLayout(container)
+                cl.setContentsMargins(12, 8, 12, 8)
+                cl.setSpacing(8)
+                t = BodyLabel(result_title)
+                t.setStyleSheet(f"color:{color}; font-weight:bold; background:transparent; border:none;")
+                cl.addWidget(t)
+                cl.addStretch()
+                result_label.setStyleSheet(f"color:{color}; font-weight:bold; background:transparent; border:none; font-size:14px;")
+                result_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                cl.addWidget(result_label)
+                outer_layout.addWidget(container)
+
+            self.room_entries.append({
+                'present_entry': present_entry,
+                'previous_entry': previous_entry,
+                'gas_bill_entry': gas_bill_entry,
+                'water_bill_entry': water_bill_entry,
+                'house_rent_entry': house_rent_entry,
+                'real_unit_label': real_unit_label,
+                'unit_bill_label': unit_bill_label,
+                'grand_total_label': grand_total_label,
+                'room_group': room_group,
+            })
+
+            self.rooms_scroll_layout.addWidget(room_group)
+
+        self.setup_navigation_rooms_tab()
+
+    def calculate_rooms(self):
+        """Calculate room bills using the per-unit cost from meter calculation."""
+        try:
+            per_unit_cost_text = self.per_unit_cost_value_label.text().strip()
+            value_to_process = ""
+            if ':' in per_unit_cost_text:
+                parts = per_unit_cost_text.split(':', 1)
+                if len(parts) > 1:
+                    value_to_process = parts[1].strip()
+            else:
+                value_to_process = per_unit_cost_text
+
+            if not value_to_process:
+                raise ValueError(f"Per unit cost value is empty. Original: '{per_unit_cost_text}'")
+
+            cleaned = value_to_process.lower().replace("tk", "").strip()
+            if not cleaned:
+                raise ValueError(f"Per unit cost value is non-numeric after cleaning.")
+
+            per_unit_cost = float(cleaned)
+
+            def _to_int_safe(txt):
+                if not txt or not txt.strip():
+                    return 0
+                try:
+                    return int(txt)
+                except ValueError:
+                    return int(float(txt))
+
+            for i, room in enumerate(self.room_entries):
+                present_text = room['present_entry'].text().strip()
+                previous_text = room['previous_entry'].text().strip()
+
+                # Skip empty rooms
+                if not present_text and not previous_text:
+                    continue
+
+                try:
+                    present_unit = _to_int_safe(present_text)
+                    previous_unit = _to_int_safe(previous_text)
+                except ValueError:
+                    raise ValueError(f"Non-numeric input in Room {i+1}.")
+
+                if present_unit < 0 or previous_unit < 0:
+                    raise ValueError(f"Negative readings not allowed in Room {i+1}.")
+                if present_unit < previous_unit:
+                    raise ValueError(f"Present reading cannot be less than previous in Room {i+1}.")
+
+                real_unit = present_unit - previous_unit
+                unit_bill = round(real_unit * per_unit_cost, 2)
+
+                def _to_amount(txt, name):
+                    if not txt:
+                        return 0.0
+                    v = float(txt)
+                    if v < 0:
+                        raise ValueError(f"{name} cannot be negative in Room {i+1}: {v}")
+                    return v
+
+                gas = _to_amount(room['gas_bill_entry'].text().strip(), "Gas Bill")
+                water = _to_amount(room['water_bill_entry'].text().strip(), "Water Bill")
+                rent = _to_amount(room['house_rent_entry'].text().strip(), "House Rent")
+
+                grand_total = unit_bill + gas + water + rent
+
+                room['real_unit_label'].setText(f"{real_unit}")
+                room['unit_bill_label'].setText(f"{int(unit_bill + 0.5)} TK")
+                room['grand_total_label'].setText(f"{int(grand_total + 0.5)} TK")
+
+        except ValueError as ve:
+            QMessageBox.warning(self, "Calculation Error", f"Error in room calculation: {ve}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}\n{traceback.format_exc()}")
+
+    def load_room_data_from_csv_row(self, row, room_index):
+        """Load room data from a CSV row into the specified room card."""
+        if room_index >= len(self.room_entries):
+            return
+        room = self.room_entries[room_index]
+
+        def get_csv_value(row_dict, key, default):
+            for k, v in row_dict.items():
+                if k.strip().lower() == key.strip().lower():
+                    s = v.strip() if isinstance(v, str) else ""
+                    if s.upper() == "N/A":
+                        s = "0"
+                    return s if s else default
+            return default
+
+        try:
+            room['present_entry'].setText(get_csv_value(row, "Present Unit", "0"))
+            room['previous_entry'].setText(get_csv_value(row, "Previous Unit", "0"))
+            room['gas_bill_entry'].setText(get_csv_value(row, "Gas Bill", "0.00"))
+            room['water_bill_entry'].setText(get_csv_value(row, "Water Bill", "0.00"))
+            room['house_rent_entry'].setText(get_csv_value(row, "House Rent", "0.00"))
+        except Exception as e:
+            QMessageBox.critical(self, "Load Room Data Error", f"Failed to load room data for room {room_index+1}: {e}")
+
+    def load_room_data_from_supabase_rows(self, room_records, auto_calculate=True):
+        """Load room data from Supabase records into the UI."""
+        if not room_records:
+            self.num_rooms_spinbox.setValue(1)
+            self.clear_room_inputs()
+            return
+
+        self.num_rooms_spinbox.setValue(len(room_records))
+
+        def _to_number_str_safe(val):
+            if val == '' or val is None:
+                return ''
+            try:
+                if isinstance(val, int):
+                    return str(val)
+                elif isinstance(val, float):
+                    return str(int(val)) if val.is_integer() else f"{val:g}"
+                elif isinstance(val, str):
+                    if val.isdigit():
+                        return val
+                    num = float(val)
+                    return str(int(num)) if num.is_integer() else f"{num:g}"
+                else:
+                    num = float(val)
+                    return str(int(num)) if num.is_integer() else f"{num:g}"
+            except (ValueError, TypeError):
+                return str(val)
+
+        for i, record in enumerate(room_records):
+            if i >= len(self.room_entries):
+                break
+
+            data = record.get("room_data", {})
+            room_id = record.get("id")
+            room = self.room_entries[i]
+
+            new_title = data.get('room_name', f"Room {i+1}")
+            title_label = room['room_group'].findChild(TitleLabel)
+            if title_label:
+                title_label.setText(new_title)
+
+            room['present_entry'].setText(_to_number_str_safe(data.get('present_unit', '')))
+            room['previous_entry'].setText(_to_number_str_safe(data.get('previous_unit', '')))
+            room['gas_bill_entry'].setText(_to_number_str_safe(data.get('gas_bill', '')))
+            room['water_bill_entry'].setText(_to_number_str_safe(data.get('water_bill', '')))
+            room['house_rent_entry'].setText(_to_number_str_safe(data.get('house_rent', '')))
+            room['supabase_id'] = room_id
+
+        if auto_calculate:
+            self.calculate_rooms()
+
+    def clear_room_inputs(self):
+        """Clear all room input fields and result labels."""
+        for i, room in enumerate(self.room_entries):
+            room['present_entry'].clear()
+            room['previous_entry'].clear()
+            room['gas_bill_entry'].clear()
+            room['water_bill_entry'].clear()
+            room['house_rent_entry'].clear()
+            room['real_unit_label'].setText("N/A")
+            room['unit_bill_label'].setText("N/A")
+            room['grand_total_label'].setText("N/A")
+            title_label = room['room_group'].findChild(TitleLabel)
+            if title_label:
+                title_label.setText(f"Room {i+1}")
+            if 'supabase_id' in room:
+                del room['supabase_id']
+
+    def get_room_data_for_supabase(self):
+        """Collect all room data for Supabase storage."""
+        room_data_list = []
+        errors = []
+        for i, room in enumerate(self.room_entries):
+            try:
+                title_label = room['room_group'].findChild(TitleLabel)
+                room_name = title_label.text() if title_label else f"Room {i+1}"
+
+                present = int(room['present_entry'].text() or "0")
+                previous = int(room['previous_entry'].text() or "0")
+                gas = float(room['gas_bill_entry'].text() or "0.0")
+                water = float(room['water_bill_entry'].text() or "0.0")
+                rent = float(room['house_rent_entry'].text() or "0.0")
+
+                real_text = room['real_unit_label'].text()
+                bill_text = room['unit_bill_label'].text()
+                total_text = room['grand_total_label'].text()
+
+                real_unit = int(real_text) if real_text.isdigit() else 0
+                unit_bill = float(bill_text.replace(" TK", "").strip()) if bill_text and bill_text not in ["N/A", "Incomplete"] else 0.0
+                grand_total = float(total_text.replace(" TK", "").strip()) if total_text and total_text not in ["N/A", "Incomplete"] else 0.0
+
+                room_data_list.append({
+                    "room_name": room_name,
+                    "present_unit": present,
+                    "previous_unit": previous,
+                    "real_unit": real_unit,
+                    "unit_bill": unit_bill,
+                    "gas_bill": gas,
+                    "water_bill": water,
+                    "house_rent": rent,
+                    "grand_total": grand_total,
+                })
+            except Exception as e:
+                errors.append(f"Room {i+1}: {e}")
+
+        if errors:
+            QMessageBox.warning(self, "Partial Data Collected", "Some rooms had errors:\n\n" + "\n".join(errors))
+        return room_data_list
+
+    def get_all_room_bill_totals(self):
+        """Calculate totals across all rooms."""
+        totals = {"total_house_rent": 0.0, "total_water_bill": 0.0, "total_gas_bill": 0.0, "total_room_unit_bill": 0.0}
+        for room in self.room_entries:
+            try:
+                totals["total_house_rent"] += float(room['house_rent_entry'].text() or '0.0')
+                totals["total_water_bill"] += float(room['water_bill_entry'].text() or '0.0')
+                totals["total_gas_bill"] += float(room['gas_bill_entry'].text() or '0.0')
+                bill_text = room['unit_bill_label'].text()
+                if bill_text and bill_text not in ["N/A", "Incomplete"]:
+                    totals["total_room_unit_bill"] += float(bill_text.replace(" TK", "").strip())
+            except (ValueError, Exception):
+                pass
+        return totals
+
+    def setup_navigation_rooms_tab(self):
+        """Configure focus navigation for room input fields."""
+        nav_sequence = []
+        for room in self.room_entries:
+            nav_sequence.extend([
+                room['present_entry'],
+                room['previous_entry'],
+                room['gas_bill_entry'],
+                room['water_bill_entry'],
+                room['house_rent_entry'],
+            ])
+
+        if not nav_sequence:
+            return
+
+        length = len(nav_sequence)
+        for idx, widget in enumerate(nav_sequence):
+            next_idx = (idx + 1) % length
+            prev_idx = (idx - 1) % length
+            widget.next_widget_on_enter = nav_sequence[next_idx]
+            widget.down_widget = nav_sequence[next_idx]
+            widget.up_widget = nav_sequence[prev_idx]
 
     def _update_source_button_color(self, source_text):
         """Update button color based on selected data source.
@@ -2504,21 +2941,21 @@ class MainTab(QWidget):
 
                 # Load room tab data
                 if room_data_rows:
-                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_data_rows))
+                    self.num_rooms_spinbox.setValue(len(room_data_rows))
                     # This will trigger update_room_inputs in RoomsTab, creating the necessary widgets
 
                     for i, room_row in enumerate(room_data_rows):
-                        if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_csv_row'):
-                            self.main_window.rooms_tab_instance.load_room_data_from_csv_row(room_row, i)
+                        if hasattr(self, 'load_room_data_from_csv_row'):
+                            self.load_room_data_from_csv_row(room_row, i)
                         else:
                             print("Warning: rooms_tab_instance does not have load_room_data_from_csv_row method.")
                     
                     # After loading all room data, trigger calculation for rooms
-                    self.main_window.rooms_tab_instance.calculate_rooms()
+                    self.calculate_rooms()
                 else:
                     # If no room data found, ensure rooms tab is reset or has default number of rooms
-                    self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1) # Or a sensible default
-                    self.main_window.rooms_tab_instance.calculate_rooms() # Recalculate with default rooms
+                    self.num_rooms_spinbox.setValue(1) # Or a sensible default
+                    self.calculate_rooms() # Recalculate with default rooms
 
                 QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year_str_ui} loaded into input fields from CSV.")
         except Exception as e:
@@ -2618,11 +3055,11 @@ class MainTab(QWidget):
                 room_records = self.main_window.supabase_manager.get_room_calculations(main_calc_id)
                 if room_records:
                     # RoomsTab already provides a helper that takes the full list.
-                    if hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_supabase_rows'):
-                        self.main_window.rooms_tab_instance.load_room_data_from_supabase_rows(room_records)
+                    if hasattr(self, 'load_room_data_from_supabase_rows'):
+                        self.load_room_data_from_supabase_rows(room_records)
                     else:
                         # Fallback: minimal per-record population to avoid data loss
-                        self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(len(room_records))
+                        self.num_rooms_spinbox.setValue(len(room_records))
                         for i, room_rec in enumerate(room_records):
                             room_data = room_rec.get("room_data", {})
                             if isinstance(room_data, str):
@@ -2631,22 +3068,22 @@ class MainTab(QWidget):
                                 except json.JSONDecodeError:
                                     room_data = {}
                             # Directly call setter fields if loader helper missing
-                            if i < len(self.main_window.rooms_tab_instance.room_entries):
-                                re = self.main_window.rooms_tab_instance.room_entries[i]
+                            if i < len(self.room_entries):
+                                re = self.room_entries[i]
                                 re['present_entry'].setText(str(room_data.get('present_unit', '')))
                                 re['previous_entry'].setText(str(room_data.get('previous_unit', '')))
                                 re['gas_bill_entry'].setText(str(room_data.get('gas_bill', '')))
                                 re['water_bill_entry'].setText(str(room_data.get('water_bill', '')))
                                 re['house_rent_entry'].setText(str(room_data.get('house_rent', '')))
                     # After populating, ensure calculations refresh
-                    self.main_window.rooms_tab_instance.calculate_rooms()
+                    self.calculate_rooms()
 
             self.calculate_main() # Recalculate results based on loaded data
 
             # Recalculate room bills now that per-unit cost is up-to-date
-            if hasattr(self.main_window.rooms_tab_instance, 'calculate_rooms'):
+            if hasattr(self, 'calculate_rooms'):
                 try:
-                    self.main_window.rooms_tab_instance.calculate_rooms()
+                    self.calculate_rooms()
                 except Exception as calc_err:
                     # Log but don't block main load flow; user will see message from RoomsTab
                     print(f"Warning: rooms_tab_instance.calculate_rooms raised: {calc_err}")
@@ -2842,38 +3279,11 @@ if __name__ == '__main__':
             super().__init__()
             self.load_info_source_combo = QComboBox()
             self.load_info_source_combo.addItems(["Load from PC (CSV)", "Load from Cloud"])
-            self.supabase = None # Mock Supabase client
-            self.check_internet_connectivity = lambda: True # Mock internet check
-            
-            # Mock RoomsTab instance
-            class DummyRoomsTab(QWidget):
-                def __init__(self):
-                    super().__init__()
-                    self.num_rooms_spinbox = QSpinBox()
-                    self.num_rooms_spinbox.setRange(1, 20)
-                    self.num_rooms_spinbox.setValue(1)
-                    self.room_entries = [] # Mock room entries
-                    self.rooms_scroll_layout = QGridLayout() # Mock layout
-                    self.calculate_rooms = lambda: print("DummyRoomsTab.calculate_rooms called")
-                    self.load_room_data_from_csv_row = lambda row, index: print(f"DummyRoomsTab.load_room_data_from_csv_row called with {row} at index {index}")
-                    
-                    # Populate some dummy room entries for testing
-                    for i in range(3):
-                        self.room_entries.append({
-                            'present_entry': CustomLineEdit(),
-                            'previous_entry': CustomLineEdit(),
-                            'gas_bill_entry': CustomLineEdit(),
-                            'water_bill_entry': CustomLineEdit(),
-                            'house_rent_entry': CustomLineEdit(),
-                            'real_unit_label': QLabel(),
-                            'unit_bill_label': QLabel(),
-                            'grand_total_label': QLabel()
-                        })
-
-            self.rooms_tab_instance = DummyRoomsTab()
+            self.supabase = None
+            self.check_internet_connectivity = lambda: True
 
         def setup_navigation(self):
-            pass # Dummy method
+            pass
 
     app = QApplication(sys.argv)
     main_window = DummyMainWindow()
