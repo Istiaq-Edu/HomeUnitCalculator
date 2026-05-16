@@ -620,6 +620,37 @@ class DBManager:
                         out[str(m)] = None
         return out
 
+    def get_cached_monthly_room_gas_bills(
+        self, year: int, room_name: str, source: str = "supabase"
+    ) -> dict[str, float | None]:
+        rows = self.execute_query(
+            """
+            SELECT month, room_data_json
+            FROM room_calculations_cache
+            WHERE source = ? AND year = ? AND room_name = ?
+            """,
+            (source, int(year), str(room_name)),
+        )
+        out: dict[str, float | None] = {}
+        if rows:
+            for r in rows:
+                m = r["month"]
+                if not m:
+                    continue
+                try:
+                    room_data = json.loads(r["room_data_json"] or "{}")
+                except Exception:
+                    room_data = {}
+                v = room_data.get("gas_bill")
+                if v is None:
+                    out[str(m)] = None
+                else:
+                    try:
+                        out[str(m)] = float(v)
+                    except Exception:
+                        out[str(m)] = None
+        return out
+
     def get_cached_monthly_owner_added_amounts(
         self, year: int, source: str = "supabase"
     ) -> dict[str, float | None]:

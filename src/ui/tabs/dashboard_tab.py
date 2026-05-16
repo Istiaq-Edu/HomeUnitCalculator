@@ -15,10 +15,12 @@ from PyQt5.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QSizePolicy,
     QToolTip,
     QFrame,
     QApplication,
+    QGraphicsDropShadowEffect,
 )
 from qfluentwidgets import (
     CardWidget,
@@ -34,7 +36,14 @@ from qfluentwidgets import (
     InfoBar,
     InfoBarPosition,
 )
-from src.ui.custom_widgets import AutoScrollArea
+from src.ui.custom_widgets import (
+    AutoScrollArea,
+    SummaryKpiCard,
+    AnimatedNumberLabel,
+    ShimmerPlaceholder,
+    EmptyStateWidget,
+    SimpleBarChartWidget,
+)
 
 
 MONTHS = [
@@ -78,6 +87,112 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
         return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
     except Exception:
         return 0, 120, 212
+
+
+class DashboardTheme:
+    """Centralized theme constants and style helpers for the dashboard."""
+
+    # Primary colors
+    PRIMARY = "#0078D4"
+    PRIMARY_HOVER = "#1084d8"
+    PRIMARY_PRESSED = "#005a9e"
+
+    # Semantic accent colors
+    CYAN_CURRENT = "#49C6FF"
+    GREEN_POSITIVE = "#9FE29D"
+    PURPLE_SECONDARY = "#B97AFF"
+    ORANGE_WARNING = "#FFB86B"
+    RED_NEGATIVE = "#FF6B6B"
+
+    # Text colors
+    TEXT_PRIMARY = "#FFFFFF"
+    TEXT_SECONDARY = "#B4B4B4"
+    TEXT_MUTED = "#A0A0A0"
+
+    # Card styling
+    CARD_BG = "#2b2b2b"
+    CARD_BORDER = "rgba(255,255,255,0.06)"
+    CARD_RADIUS = 16
+    CARD_SHADOW_BLUR = 20
+    CARD_SHADOW_COLOR = QColor(0, 0, 0, 80)
+
+    # Chart colors
+    CHART_BG = QColor(39, 39, 39)
+    CHART_GRID = QColor(80, 80, 80)
+    CHART_AXIS_LABEL = QColor(220, 220, 220)
+
+    # Typography
+    HEADER_FONT_SIZE = 20
+    BODY_VALUE_FONT_SIZE = 22
+    CAPTION_FONT_SIZE = 12
+
+    # Responsive
+    RESPONSIVE_BREAKPOINT = 900
+
+    # KPI themes: title -> (color_hex, FluentIcon)
+    KPI_THEMES = {
+        "Current Month": (CYAN_CURRENT, FluentIcon.CALENDAR),
+        "Previous Month": (GREEN_POSITIVE, FluentIcon.HISTORY),
+        "Highest Month": (PURPLE_SECONDARY, FluentIcon.UP),
+        "Lowest Month": (ORANGE_WARNING, FluentIcon.DOWN),
+    }
+
+    # Summary KPI themes
+    SUMMARY_KPI_THEMES = {
+        "Total Bill": (PRIMARY, FluentIcon.SHOPPING_CART),
+        "Electricity Bill": (CYAN_CURRENT, FluentIcon.SPEED_HIGH),
+        "Per-Unit Cost": (PURPLE_SECONDARY, FluentIcon.SPEED_HIGH),
+        "Total Units": (GREEN_POSITIVE, FluentIcon.PEOPLE),
+        "Owner Electricity Bill": (ORANGE_WARNING, FluentIcon.HOME),
+        "Tenant's Electricity and Water Bill": (CYAN_CURRENT, FluentIcon.PEOPLE),
+        "Gas bill (Added amount)": (RED_NEGATIVE, FluentIcon.ADD),
+        "Active Rooms": (GREEN_POSITIVE, FluentIcon.HOME),
+    }
+
+    @staticmethod
+    def card_style(object_name: str) -> str:
+        return f"""
+            #{object_name} {{
+                background-color: rgba(43, 43, 43, 220);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+                border-radius: {DashboardTheme.CARD_RADIUS}px;
+            }}
+        """
+
+    @staticmethod
+    def header_style() -> str:
+        return f"""
+            font-size: {DashboardTheme.HEADER_FONT_SIZE}px;
+            font-weight: 700;
+            color: {DashboardTheme.PRIMARY};
+        """
+
+    @staticmethod
+    def refresh_btn_style() -> str:
+        return f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {DashboardTheme.PRIMARY}, stop:1 {DashboardTheme.PRIMARY_PRESSED});
+                border: 2px solid {DashboardTheme.PRIMARY};
+                border-radius: 8px;
+                color: white;
+                font-weight: 600;
+                font-size: 14px;
+                padding: 8px 16px 8px 36px;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {DashboardTheme.PRIMARY_HOVER}, stop:1 {DashboardTheme.PRIMARY});
+            }}
+        """
+
+    @staticmethod
+    def apply_card_shadow(widget):
+        shadow = QGraphicsDropShadowEffect(widget)
+        shadow.setBlurRadius(DashboardTheme.CARD_SHADOW_BLUR)
+        shadow.setOffset(0, 4)
+        shadow.setColor(DashboardTheme.CARD_SHADOW_COLOR)
+        widget.setGraphicsEffect(shadow)
 
 
 class InfoResultCard(QWidget):
@@ -424,6 +539,8 @@ class DashboardTab(QWidget):
 
         if isinstance(chart_widget, SimpleLineChartWidget):
             chart_widget.set_data(MONTHS, values, tooltips=tooltips)
+        elif isinstance(chart_widget, SimpleBarChartWidget):
+            chart_widget.set_data(MONTHS, values, tooltips=tooltips)
 
     def _create_chart_placeholder(self, min_height: int):
         placeholder = QFrame(self)
@@ -497,41 +614,39 @@ class DashboardTab(QWidget):
         if self._supabase_poll_tries >= 25:
             self._supabase_poll_timer.stop()
 
-    def _build_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+    # ------------------------------------------------------------------
+    # 2A / 2B: UI building helpers
+    # ------------------------------------------------------------------
 
-        scroll = AutoScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        root.addWidget(scroll, 1)
+    def _build_header_section(self, parent_layout):
+        """Add the page title to *parent_layout*."""
+        # Title
+        title = TitleLabel("Recent Month Overview")
+        title.setStyleSheet("""
+            font-size: 24px;
+            font-weight: 700;
+            color: #FFFFFF;
+            letter-spacing: 0.5px;
+            margin: 0px 0px 12px 0px;
+        """)
+        parent_layout.addWidget(title)
 
-        page = QWidget()
-        scroll.setWidget(page)
+    def _build_chart_card(self, page_layout, config):
+        """Factory that builds one of the four dashboard chart cards.
 
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(12, 12, 12, 12)
-        page_layout.setSpacing(12)
+        *config* keys
+        -------------
+        Required: ``object_name``, ``icon``, ``title``, ``hint``,
+        ``year_combo_attr``, ``year_changed_slot``, ``refresh_btn_attr``,
+        ``refresh_slot``, ``kpi_titles``, ``kpi_attr_prefix``,
+        ``meta_label_attr``.
 
-        title = TitleLabel("Dashboard")
-        title.setStyleSheet(
-            "font-size: 28px; font-weight: 800; color: #0078D4; letter-spacing: 1px; margin: 8px 0px;"
-        )
-        page_layout.addWidget(title)
-        title_line = QFrame()
-        title_line.setFixedHeight(2)
-        title_line.setStyleSheet(
-            "background-color: #0078D4; border: none; margin: 0px 20px;"
-        )
-        page_layout.addWidget(title_line)
-        subtitle = CaptionLabel("Overview and trends")
-        subtitle.setTextColor(
-            QColor(180, 180, 180) if isDarkTheme() else QColor(90, 90, 90)
-        )
-        page_layout.addWidget(subtitle)
-
+        Optional: ``kpi_attr_names`` (default ``["current","prev","high","low"]``),
+        ``chart_container_attr`` + ``chart_min_height`` (deferred chart),
+        ``direct_chart_attr`` + ``direct_chart_factory`` (immediate chart),
+        ``status_label_attr``, ``extra_header_widgets`` (list of QWidget),
+        ``refresh_tooltip``.
+        """
         refresh_css = """
             PrimaryPushButton {
                 color: white;
@@ -558,390 +673,426 @@ class DashboardTab(QWidget):
             }
         """
 
-        rate_card = StaticCardWidget(self)
-        rate_card.setObjectName("perUnitCostCard")
-        rate_card.setStyleSheet("""
-            CardWidget#perUnitCostCard {
-                border-radius: 12px;
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-            }
-        """)
-        rate_layout = QVBoxLayout(rate_card)
-        rate_layout.setContentsMargins(6, 6, 6, 6)
-        rate_layout.setSpacing(6)
-
-        rate_top = QHBoxLayout()
-        rate_icon = IconWidget(FluentIcon.CALENDAR)
-        rate_icon.setFixedSize(18, 18)
-        rate_top.addWidget(rate_icon)
-        rate_header = TitleLabel("Per Unit Cost Trend")
-        rate_header.setStyleSheet("font-size: 22px; font-weight: 800; color: #0078D4;")
-        rate_top.addWidget(rate_header)
-        rate_hint = CaptionLabel("Hover points to see details")
-        rate_hint.setTextColor(
-            QColor(160, 160, 160) if isDarkTheme() else QColor(110, 110, 110)
-        )
-        rate_top.addWidget(rate_hint)
-        rate_top.addStretch(1)
-
-        self.rate_year_combo = ComboBox()
-        self.rate_year_combo.setMinimumWidth(110)
-        self.rate_year_combo.currentIndexChanged.connect(self._on_rate_year_changed)
-        self.rate_year_combo.setToolTip(
-            "Years are fetched from Supabase and cached locally"
-        )
-        rate_top.addWidget(self.rate_year_combo)
-
-        self.rate_refresh_btn = PrimaryPushButton("Refresh")
-        self.rate_refresh_btn.setIcon(FluentIcon.SYNC.icon(color=QColor(255, 255, 255)))
-        self.rate_refresh_btn.setIconSize(QSize(20, 20))
-        self.rate_refresh_btn.setFixedHeight(40)
-        self.rate_refresh_btn.setMinimumHeight(40)
-        self.rate_refresh_btn.setStyleSheet(refresh_css)
-        self.rate_refresh_btn.clicked.connect(self._on_refresh_clicked)
-        self.rate_refresh_btn.setToolTip("Sync from Supabase and update local cache")
-        rate_top.addWidget(self.rate_refresh_btn)
-
-        rate_layout.addLayout(rate_top)
-
-        rate_divider = QFrame()
-        rate_divider.setFixedHeight(2)
-        rate_divider.setStyleSheet(
-            "background-color: #0078D4; border: none; margin: 2px 16px;"
-        )
-        rate_layout.addWidget(rate_divider)
-
-        rate_meta_row = QHBoxLayout()
-        self.rate_meta_label = CaptionLabel("")
-        self.rate_meta_label.setTextColor(
-            QColor(170, 170, 170) if isDarkTheme() else QColor(110, 110, 110)
-        )
-        rate_meta_row.addWidget(self.rate_meta_label)
-        rate_meta_row.addStretch(1)
-        rate_layout.addLayout(rate_meta_row)
-
-        rate_stats_row = QHBoxLayout()
-        rate_stats_row.setSpacing(14)
-        rate_kpi_col = QVBoxLayout()
-        rate_kpi_col.setSpacing(12)
-        self.rate_kpi_current = self._create_kpi_card("Current Month")
-        self.rate_kpi_prev = self._create_kpi_card("Previous Month")
-        self.rate_kpi_high = self._create_kpi_card("Highest Month")
-        self.rate_kpi_low = self._create_kpi_card("Lowest Month")
-        rate_kpi_col.addWidget(self.rate_kpi_current)
-        rate_kpi_col.addWidget(self.rate_kpi_prev)
-        rate_kpi_col.addWidget(self.rate_kpi_high)
-        rate_kpi_col.addWidget(self.rate_kpi_low)
-        rate_kpi_col.addStretch(1)
-        rate_stats_row.addLayout(rate_kpi_col, 0)
-        self._rate_chart_container = QWidget(self)
-        self._rate_chart_container.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Expanding
-        )
-        self._rate_chart_container.setLayout(QVBoxLayout())
-        self._rate_chart_container.layout().setContentsMargins(0, 0, 0, 0)
-        self._rate_chart_container.layout().addWidget(
-            self._create_chart_placeholder(320)
-        )
-        rate_stats_row.addWidget(self._rate_chart_container, 1)
-        rate_layout.addLayout(rate_stats_row, 1)
-
-        page_layout.addWidget(rate_card)
-
-        elec_card = StaticCardWidget(self)
-        elec_card.setObjectName("electricityBillCard")
-        elec_card.setStyleSheet("""
-            CardWidget#electricityBillCard {
-                border-radius: 12px;
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-            }
-        """)
-        elec_layout = QVBoxLayout(elec_card)
-        elec_layout.setContentsMargins(6, 6, 6, 6)
-        elec_layout.setSpacing(6)
-
-        elec_top = QHBoxLayout()
-        elec_icon = IconWidget(FluentIcon.SPEED_HIGH)
-        elec_icon.setFixedSize(18, 18)
-        elec_top.addWidget(elec_icon)
-        elec_header = TitleLabel("Total Electricity Bill")
-        elec_header.setStyleSheet("font-size: 22px; font-weight: 800; color: #0078D4;")
-        elec_top.addWidget(elec_header)
-        elec_hint = CaptionLabel("Hover points to see details")
-        elec_hint.setTextColor(
-            QColor(160, 160, 160) if isDarkTheme() else QColor(110, 110, 110)
-        )
-        elec_top.addWidget(elec_hint)
-        elec_top.addStretch(1)
-
-        self.elec_year_combo = ComboBox()
-        self.elec_year_combo.setMinimumWidth(110)
-        self.elec_year_combo.currentIndexChanged.connect(self._on_elec_year_changed)
-        self.elec_year_combo.setToolTip(
-            "Years are fetched from Supabase and cached locally"
-        )
-        elec_top.addWidget(self.elec_year_combo)
-
-        self.elec_refresh_btn = PrimaryPushButton("Refresh")
-        self.elec_refresh_btn.setIcon(FluentIcon.SYNC.icon(color=QColor(255, 255, 255)))
-        self.elec_refresh_btn.setIconSize(QSize(20, 20))
-        self.elec_refresh_btn.setFixedHeight(40)
-        self.elec_refresh_btn.setMinimumHeight(40)
-        self.elec_refresh_btn.setStyleSheet(refresh_css)
-        self.elec_refresh_btn.clicked.connect(self._on_refresh_clicked)
-        self.elec_refresh_btn.setToolTip("Sync from Supabase and update local cache")
-        elec_top.addWidget(self.elec_refresh_btn)
-
-        elec_layout.addLayout(elec_top)
-
-        elec_divider = QFrame()
-        elec_divider.setFixedHeight(2)
-        elec_divider.setStyleSheet(
-            "background-color: #0078D4; border: none; margin: 2px 16px;"
-        )
-        elec_layout.addWidget(elec_divider)
-
-        elec_meta_row = QHBoxLayout()
-        self.elec_meta_label = CaptionLabel("")
-        self.elec_meta_label.setTextColor(
-            QColor(170, 170, 170) if isDarkTheme() else QColor(110, 110, 110)
-        )
-        elec_meta_row.addWidget(self.elec_meta_label)
-        elec_meta_row.addStretch(1)
-        elec_layout.addLayout(elec_meta_row)
-
-        elec_stats_row = QHBoxLayout()
-        elec_stats_row.setSpacing(14)
-        elec_kpi_col = QVBoxLayout()
-        elec_kpi_col.setSpacing(12)
-        self.elec_kpi_current = self._create_kpi_card("Current Month")
-        self.elec_kpi_prev = self._create_kpi_card("Previous Month")
-        self.elec_kpi_high = self._create_kpi_card("Highest Month")
-        self.elec_kpi_low = self._create_kpi_card("Lowest Month")
-        elec_kpi_col.addWidget(self.elec_kpi_current)
-        elec_kpi_col.addWidget(self.elec_kpi_prev)
-        elec_kpi_col.addWidget(self.elec_kpi_high)
-        elec_kpi_col.addWidget(self.elec_kpi_low)
-        elec_kpi_col.addStretch(1)
-        elec_stats_row.addLayout(elec_kpi_col, 0)
-        self._elec_chart_container = QWidget(self)
-        self._elec_chart_container.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Expanding
-        )
-        self._elec_chart_container.setLayout(QVBoxLayout())
-        self._elec_chart_container.layout().setContentsMargins(0, 0, 0, 0)
-        self._elec_chart_container.layout().addWidget(
-            self._create_chart_placeholder(320)
-        )
-        elec_stats_row.addWidget(self._elec_chart_container, 1)
-        elec_layout.addLayout(elec_stats_row, 1)
-
-        page_layout.addWidget(elec_card)
-
         card = StaticCardWidget(self)
-        card.setObjectName("yearlyBillCard")
-        card.setStyleSheet("""
-            CardWidget#yearlyBillCard {
-                border-radius: 12px;
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-            }
+        card.setObjectName(config["object_name"])
+        card.setStyleSheet(f"""
+            CardWidget#{config['object_name']} {{
+                border-radius: 16px;
+                background-color: rgba(43, 43, 43, 220);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+            }}
         """)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(6, 6, 6, 6)
-        card_layout.setSpacing(6)
+        # Apply shadow effect
+        DashboardTheme.apply_card_shadow(card)
 
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(12)
+
+        # -- header row --
         top_row = QHBoxLayout()
-        icon = IconWidget(FluentIcon.SHOPPING_CART)
-        icon.setFixedSize(18, 18)
-        top_row.addWidget(icon)
-        header = TitleLabel("Yearly Total Bill")
-        header.setStyleSheet("font-size: 22px; font-weight: 800; color: #0078D4;")
+        top_row.setSpacing(8)
+
+        # Icon with accent background
+        icon_container = QWidget()
+        icon_container.setFixedSize(32, 32)
+        icon_container.setStyleSheet("""
+            background: rgba(0, 120, 212, 15);
+            border-radius: 8px;
+            border: 1px solid rgba(0, 120, 212, 25);
+        """)
+        icon_layout = QVBoxLayout(icon_container)
+        icon_layout.setContentsMargins(6, 6, 6, 6)
+        icon = IconWidget(config["icon"])
+        icon.setFixedSize(20, 20)
+        icon_layout.addWidget(icon, 0, Qt.AlignCenter)
+        top_row.addWidget(icon_container)
+
+        header = TitleLabel(config["title"])
+        header.setStyleSheet("""
+            font-size: 16px;
+            font-weight: 700;
+            color: #FFFFFF;
+        """)
         top_row.addWidget(header)
-        hint = CaptionLabel("Hover points to see details")
-        hint.setTextColor(
-            QColor(160, 160, 160) if isDarkTheme() else QColor(110, 110, 110)
-        )
+
+        hint = CaptionLabel(config["hint"])
+        hint.setTextColor(QColor(120, 120, 120))
+        hint.setStyleSheet("font-size: 11px;")
         top_row.addWidget(hint)
         top_row.addStretch(1)
 
-        self.year_combo = ComboBox()
-        self.year_combo.setMinimumWidth(110)
-        self.year_combo.currentIndexChanged.connect(self._on_year_changed)
-        self.year_combo.setToolTip("Years are fetched from Supabase and cached locally")
-        top_row.addWidget(self.year_combo)
+        # year combo
+        year_combo = ComboBox()
+        year_combo.setMinimumWidth(110)
+        year_combo.currentIndexChanged.connect(config["year_changed_slot"])
+        year_combo.setToolTip("Years are fetched from Supabase and cached locally")
+        setattr(self, config["year_combo_attr"], year_combo)
+        top_row.addWidget(year_combo)
 
-        self.refresh_btn = PrimaryPushButton("Refresh")
-        self.refresh_btn.setIcon(FluentIcon.SYNC.icon(color=QColor(255, 255, 255)))
-        self.refresh_btn.setIconSize(QSize(20, 20))
-        self.refresh_btn.setFixedHeight(40)
-        self.refresh_btn.setMinimumHeight(40)
-        self.refresh_btn.setStyleSheet(refresh_css)
-        self.refresh_btn.clicked.connect(self._on_refresh_clicked)
-        self.refresh_btn.setToolTip("Sync from Supabase and update local cache")
-        top_row.addWidget(self.refresh_btn)
+        # optional extra header widgets (e.g. scope / room combos)
+        for widget in config.get("extra_header_widgets") or []:
+            top_row.addWidget(widget)
+
+        # refresh button
+        refresh_btn = PrimaryPushButton("  Refresh")
+        refresh_btn.setIcon(FluentIcon.SYNC.icon(color=QColor(255, 255, 255)))
+        refresh_btn.setIconSize(QSize(14, 14))
+        refresh_btn.setFixedHeight(32)
+        refresh_btn.setMinimumWidth(100)
+        refresh_btn.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background: rgba(0, 120, 212, 20);
+                border: 1px solid rgba(0, 120, 212, 40);
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 12px;
+                padding-left: 24px;
+                padding-right: 12px;
+                padding-top: 6px;
+                padding-bottom: 6px;
+            }
+            PrimaryPushButton:hover {
+                background: rgba(0, 120, 212, 35);
+                border-color: rgba(0, 120, 212, 60);
+            }
+        """)
+        refresh_btn.clicked.connect(config["refresh_slot"])
+        refresh_btn.setToolTip(
+            config.get("refresh_tooltip", "Sync from Supabase and update local cache")
+        )
+        setattr(self, config["refresh_btn_attr"], refresh_btn)
+        top_row.addWidget(refresh_btn)
 
         card_layout.addLayout(top_row)
-        card_divider = QFrame()
-        card_divider.setFixedHeight(2)
-        card_divider.setStyleSheet(
-            "background-color: #0078D4; border: none; margin: 2px 16px;"
-        )
-        card_layout.addWidget(card_divider)
 
+        # -- divider --
+        divider = QFrame()
+        divider.setFixedHeight(1)
+        divider.setStyleSheet(
+            "background-color: rgba(255, 255, 255, 0.06); border: none; margin: 4px 0px;"
+        )
+        card_layout.addWidget(divider)
+
+        # -- meta row --
         meta_row = QHBoxLayout()
-        self.meta_label = CaptionLabel("")
-        self.meta_label.setTextColor(
+        meta_label = CaptionLabel("")
+        meta_label.setTextColor(
             QColor(170, 170, 170) if isDarkTheme() else QColor(110, 110, 110)
         )
-        meta_row.addWidget(self.meta_label)
+        setattr(self, config["meta_label_attr"], meta_label)
+        meta_row.addWidget(meta_label)
         meta_row.addStretch(1)
         card_layout.addLayout(meta_row)
 
-        self.status_label = BodyLabel("")
-        self.status_label.setTextColor(QColor(200, 200, 200))
-        self.status_label.setVisible(False)
-        self.status_label.setFixedHeight(0)
-        card_layout.addWidget(self.status_label)
+        # -- optional status label --
+        status_attr = config.get("status_label_attr")
+        if status_attr:
+            status_label = BodyLabel("")
+            status_label.setTextColor(QColor(200, 200, 200))
+            status_label.setVisible(False)
+            status_label.setFixedHeight(0)
+            setattr(self, status_attr, status_label)
+            card_layout.addWidget(status_label)
 
-        self._chart_widget = self._create_chart_widget()
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(14)
-        kpi_col = QVBoxLayout()
-        kpi_col.setSpacing(12)
-        self.kpi_total = self._create_kpi_card("Current Month")
-        self.kpi_avg = self._create_kpi_card("Previous Month")
-        self.kpi_high = self._create_kpi_card("Highest Month")
-        self.kpi_low = self._create_kpi_card("Lowest Month")
-        kpi_col.addWidget(self.kpi_total)
-        kpi_col.addWidget(self.kpi_avg)
-        kpi_col.addWidget(self.kpi_high)
-        kpi_col.addWidget(self.kpi_low)
-        kpi_col.addStretch(1)
-        stats_row.addLayout(kpi_col, 0)
-        stats_row.addWidget(self._chart_widget, 1)
-        card_layout.addLayout(stats_row, 1)
+        # -- chart area --
+        kpi_attr_prefix = config["kpi_attr_prefix"]
+        kpi_attr_names = config.get(
+            "kpi_attr_names", ["current", "prev", "high", "low"]
+        )
 
-        page_layout.addWidget(card)
+        # chart area: immediate or deferred (placed first so it stretches)
+        if "direct_chart_factory" in config:
+            chart_widget = config["direct_chart_factory"]()
+            setattr(self, config["direct_chart_attr"], chart_widget)
+            card_layout.addWidget(chart_widget, 1)
+        else:
+            container = QWidget(self)
+            container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            container.setLayout(QVBoxLayout())
+            container.layout().setContentsMargins(0, 0, 0, 0)
+            container.layout().addWidget(
+                self._create_chart_placeholder(config.get("chart_min_height", 320))
+            )
+            setattr(self, config["chart_container_attr"], container)
+            card_layout.addWidget(container, 1)
 
-        owner_card = StaticCardWidget(self)
-        owner_card.setObjectName("ownerRoomBillCard")
-        owner_card.setStyleSheet("""
-            CardWidget#ownerRoomBillCard {
-                border-radius: 12px;
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
+        # Store KPI references for tooltip building (no visual cards)
+        for kpi_title, attr_name in zip(config["kpi_titles"], kpi_attr_names):
+            setattr(self, f"{kpi_attr_prefix}_{attr_name}", None)
+
+        return card
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        scroll = AutoScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        root.addWidget(scroll, 1)
+
+        page = QWidget()
+        scroll.setWidget(page)
+
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(24, 20, 24, 20)
+        page_layout.setSpacing(20)
+
+        self._build_header_section(page_layout)
+
+        # -- Offline banner (hidden by default) --
+        self._offline_banner = QFrame()
+        self._offline_banner.setObjectName("offlineBanner")
+        self._offline_banner.setStyleSheet("""
+            #offlineBanner {
+                background: rgba(255, 184, 107, 15);
+                border: 1px solid rgba(255, 184, 107, 40);
+                border-radius: 8px;
             }
         """)
-        owner_layout = QVBoxLayout(owner_card)
-        owner_layout.setContentsMargins(6, 6, 6, 6)
-        owner_layout.setSpacing(6)
+        banner_layout = QHBoxLayout(self._offline_banner)
+        banner_layout.setContentsMargins(12, 8, 12, 8)
+        banner_layout.setSpacing(8)
+        banner_icon = IconWidget(FluentIcon.CLOUD)
+        banner_icon.setFixedSize(20, 20)
+        banner_layout.addWidget(banner_icon)
+        banner_text = CaptionLabel("Supabase not configured. Showing cached data.")
+        banner_text.setTextColor(QColor(255, 184, 107))
+        banner_layout.addWidget(banner_text, 1)
+        banner_close = PushButton("✕")
+        banner_close.setFixedSize(24, 24)
+        banner_close.setStyleSheet("border: none; color: #FFB86B; font-size: 14px;")
+        banner_close.clicked.connect(lambda: self._offline_banner.hide())
+        banner_layout.addWidget(banner_close)
+        self._offline_banner.hide()
+        page_layout.addWidget(self._offline_banner)
 
-        owner_top = QHBoxLayout()
-        owner_icon = IconWidget(FluentIcon.PEOPLE)
-        owner_icon.setFixedSize(18, 18)
-        owner_top.addWidget(owner_icon)
-        owner_header = TitleLabel("Owner / Room Bill Trend")
-        owner_header.setStyleSheet("font-size: 22px; font-weight: 800; color: #0078D4;")
-        owner_top.addWidget(owner_header)
-        owner_hint = CaptionLabel("Owner is default · hover points for details")
-        owner_hint.setTextColor(
-            QColor(160, 160, 160) if isDarkTheme() else QColor(110, 110, 110)
-        )
-        owner_top.addWidget(owner_hint)
-        owner_top.addStretch(1)
+        # -- Summary KPI section --
+        kpi_section = QWidget()
+        kpi_section_layout = QVBoxLayout(kpi_section)
+        kpi_section_layout.setContentsMargins(0, 0, 0, 0)
+        kpi_section_layout.setSpacing(8)
 
-        self.owner_room_year_combo = ComboBox()
-        self.owner_room_year_combo.setMinimumWidth(110)
-        self.owner_room_year_combo.currentIndexChanged.connect(
-            self._on_owner_room_year_changed
-        )
-        self.owner_room_year_combo.setToolTip(
-            "Years are fetched from Supabase and cached locally"
-        )
-        owner_top.addWidget(self.owner_room_year_combo)
+        # KPI section title
+        kpi_title = CaptionLabel("📊 Recent Month Overview")
+        kpi_title.setTextColor(QColor(140, 140, 140))
+        kpi_title.setStyleSheet("font-size: 12px; font-weight: 600; margin-bottom: 4px;")
+        kpi_section_layout.addWidget(kpi_title)
 
+        # Summary KPI grid (2 rows x 4 columns)
+        self._summary_kpi_container = QWidget()
+        summary_grid = QGridLayout(self._summary_kpi_container)
+        summary_grid.setContentsMargins(0, 0, 0, 0)
+        summary_grid.setSpacing(12)
+
+        # Row 1: Main financial metrics (recent month)
+        self._summary_total_bill = self._build_summary_kpi_card("Total Bill")
+        summary_grid.addWidget(self._summary_total_bill, 0, 0)
+        self._summary_elec_bill = self._build_summary_kpi_card("Electricity Bill")
+        summary_grid.addWidget(self._summary_elec_bill, 0, 1)
+        self._summary_rate = self._build_summary_kpi_card("Per-Unit Cost")
+        summary_grid.addWidget(self._summary_rate, 0, 2)
+        self._summary_units = self._build_summary_kpi_card("Total Units")
+        summary_grid.addWidget(self._summary_units, 0, 3)
+
+        # Row 2: Additional metrics (recent month)
+        self._summary_owner_bill = self._build_summary_kpi_card("Owner Electricity Bill")
+        summary_grid.addWidget(self._summary_owner_bill, 1, 0)
+        self._summary_tenant_bill = self._build_summary_kpi_card("Tenant's Electricity and Water Bill")
+        summary_grid.addWidget(self._summary_tenant_bill, 1, 1)
+        self._summary_gas_bill = self._build_summary_kpi_card("Gas bill (Added amount)")
+        summary_grid.addWidget(self._summary_gas_bill, 1, 2)
+        self._summary_rooms = self._build_summary_kpi_card("Active Rooms")
+        summary_grid.addWidget(self._summary_rooms, 1, 3)
+
+        kpi_section_layout.addWidget(self._summary_kpi_container)
+        page_layout.addWidget(kpi_section)
+
+        # -- Charts grid (2 rows x 2 columns) --
+        self._charts_grid_container = QWidget()
+        charts_grid = QGridLayout(self._charts_grid_container)
+        charts_grid.setContentsMargins(0, 0, 0, 0)
+        charts_grid.setSpacing(16)
+
+        # (0,0) Total Bill Trend
+        yearly_card = self._build_chart_card(page_layout, {
+            "object_name": "yearlyBillCard",
+            "icon": FluentIcon.SHOPPING_CART,
+            "title": "Total Bill Trend",
+            "hint": "",
+            "year_combo_attr": "year_combo",
+            "year_changed_slot": self._on_year_changed,
+            "refresh_btn_attr": "refresh_btn",
+            "refresh_slot": self._on_refresh_clicked,
+            "kpi_titles": [],
+            "kpi_attr_prefix": "kpi",
+            "kpi_attr_names": ["total", "avg", "high", "low"],
+            "direct_chart_attr": "_chart_widget",
+            "direct_chart_factory": self._create_chart_widget,
+            "meta_label_attr": "meta_label",
+            "status_label_attr": "status_label",
+        })
+        charts_grid.addWidget(yearly_card, 0, 0)
+
+        # (0,1) Total Electricity Bill Trend
+        elec_card = self._build_chart_card(page_layout, {
+            "object_name": "electricityBillCard",
+            "icon": FluentIcon.SPEED_HIGH,
+            "title": "Total Electricity Bill Trend",
+            "hint": "",
+            "year_combo_attr": "elec_year_combo",
+            "year_changed_slot": self._on_elec_year_changed,
+            "refresh_btn_attr": "elec_refresh_btn",
+            "refresh_slot": self._on_refresh_clicked,
+            "kpi_titles": [],
+            "kpi_attr_prefix": "elec_kpi",
+            "kpi_attr_names": ["current", "prev", "high", "low"],
+            "chart_container_attr": "_elec_chart_container",
+            "chart_min_height": 320,
+            "meta_label_attr": "elec_meta_label",
+        })
+        charts_grid.addWidget(elec_card, 0, 1)
+
+        # (1,0) Per Unit Cost Trend
+        rate_card = self._build_chart_card(page_layout, {
+            "object_name": "perUnitCostCard",
+            "icon": FluentIcon.CALENDAR,
+            "title": "Per Unit Cost Trend",
+            "hint": "",
+            "year_combo_attr": "rate_year_combo",
+            "year_changed_slot": self._on_rate_year_changed,
+            "refresh_btn_attr": "rate_refresh_btn",
+            "refresh_slot": self._on_refresh_clicked,
+            "kpi_titles": [],
+            "kpi_attr_prefix": "rate_kpi",
+            "kpi_attr_names": ["current", "prev", "high", "low"],
+            "chart_container_attr": "_rate_chart_container",
+            "chart_min_height": 320,
+            "meta_label_attr": "rate_meta_label",
+        })
+        charts_grid.addWidget(rate_card, 1, 0)
+
+        # (1,1) Owner / Room Bill Trend
         self.scope_combo = ComboBox()
         self.scope_combo.addItems(["Owner", "Room"])
         self.scope_combo.setCurrentIndex(0)
         self.scope_combo.currentIndexChanged.connect(self._on_scope_changed)
         self.scope_combo.setToolTip("Switch between owner bill and a room bill")
-        owner_top.addWidget(self.scope_combo)
 
         self.room_combo = ComboBox()
         self.room_combo.setMinimumWidth(140)
         self.room_combo.currentIndexChanged.connect(self._on_room_changed)
         self.room_combo.setEnabled(False)
         self.room_combo.setToolTip("Select a room to view its monthly bills")
-        owner_top.addWidget(self.room_combo)
 
-        self.owner_room_refresh_btn = PrimaryPushButton("Refresh")
-        self.owner_room_refresh_btn.setIcon(
-            FluentIcon.SYNC.icon(color=QColor(255, 255, 255))
-        )
-        self.owner_room_refresh_btn.setIconSize(QSize(20, 20))
-        self.owner_room_refresh_btn.setFixedHeight(40)
-        self.owner_room_refresh_btn.setMinimumHeight(40)
-        self.owner_room_refresh_btn.setStyleSheet(self.refresh_btn.styleSheet())
-        self.owner_room_refresh_btn.clicked.connect(self._on_owner_room_refresh_clicked)
-        self.owner_room_refresh_btn.setToolTip(
-            "Sync owner/room bills and tenant info from Supabase"
-        )
-        owner_top.addWidget(self.owner_room_refresh_btn)
+        owner_room_card = self._build_chart_card(page_layout, {
+            "object_name": "ownerRoomBillCard",
+            "icon": FluentIcon.PEOPLE,
+            "title": "Owner / Room Bill Trend",
+            "hint": "",
+            "year_combo_attr": "owner_room_year_combo",
+            "year_changed_slot": self._on_owner_room_year_changed,
+            "refresh_btn_attr": "owner_room_refresh_btn",
+            "refresh_slot": self._on_owner_room_refresh_clicked,
+            "refresh_tooltip": "Sync owner/room bills and tenant info from Supabase",
+            "kpi_titles": [],
+            "kpi_attr_prefix": "owner_kpi",
+            "kpi_attr_names": ["total", "avg", "high", "low"],
+            "chart_container_attr": "_owner_room_chart_container",
+            "chart_min_height": 320,
+            "meta_label_attr": "owner_room_meta_label",
+            "status_label_attr": "owner_room_status_label",
+            "extra_header_widgets": [self.scope_combo, self.room_combo],
+        })
+        charts_grid.addWidget(owner_room_card, 1, 1)
 
-        owner_layout.addLayout(owner_top)
-        owner_divider = QFrame()
-        owner_divider.setFixedHeight(2)
-        owner_divider.setStyleSheet(
-            "background-color: #0078D4; border: none; margin: 2px 16px;"
-        )
-        owner_layout.addWidget(owner_divider)
-
-        owner_meta_row = QHBoxLayout()
-        self.owner_room_meta_label = CaptionLabel("")
-        self.owner_room_meta_label.setTextColor(
-            QColor(170, 170, 170) if isDarkTheme() else QColor(110, 110, 110)
-        )
-        owner_meta_row.addWidget(self.owner_room_meta_label)
-        owner_meta_row.addStretch(1)
-        owner_layout.addLayout(owner_meta_row)
-
-        self.owner_room_status_label = BodyLabel("")
-        self.owner_room_status_label.setTextColor(QColor(200, 200, 200))
-        self.owner_room_status_label.setVisible(False)
-        self.owner_room_status_label.setFixedHeight(0)
-        owner_layout.addWidget(self.owner_room_status_label)
-
-        owner_stats_row = QHBoxLayout()
-        owner_stats_row.setSpacing(14)
-        owner_kpi_col = QVBoxLayout()
-        owner_kpi_col.setSpacing(12)
-        self.owner_kpi_total = self._create_kpi_card("Current Month")
-        self.owner_kpi_avg = self._create_kpi_card("Previous Month")
-        self.owner_kpi_high = self._create_kpi_card("Highest Month")
-        self.owner_kpi_low = self._create_kpi_card("Lowest Month")
-        owner_kpi_col.addWidget(self.owner_kpi_total)
-        owner_kpi_col.addWidget(self.owner_kpi_avg)
-        owner_kpi_col.addWidget(self.owner_kpi_high)
-        owner_kpi_col.addWidget(self.owner_kpi_low)
-        owner_kpi_col.addStretch(1)
-        owner_stats_row.addLayout(owner_kpi_col, 0)
-        self._owner_room_chart_container = QWidget(self)
-        self._owner_room_chart_container.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Expanding
-        )
-        self._owner_room_chart_container.setLayout(QVBoxLayout())
-        self._owner_room_chart_container.layout().setContentsMargins(0, 0, 0, 0)
-        self._owner_room_chart_container.layout().addWidget(
-            self._create_chart_placeholder(320)
-        )
-        owner_stats_row.addWidget(self._owner_room_chart_container, 1)
-        owner_layout.addLayout(owner_stats_row, 1)
-
-        page_layout.addWidget(owner_card)
+        page_layout.addWidget(self._charts_grid_container)
         page_layout.addStretch(1)
+
+    # ------------------------------------------------------------------
+    # 3A-D: Summary KPI and compact KPI builders
+    # ------------------------------------------------------------------
+
+    def _build_summary_kpi_card(self, title: str) -> SummaryKpiCard:
+        """Create a summary-level KPI card using DashboardTheme.SUMMARY_KPI_THEMES."""
+        color_hex, icon = DashboardTheme.SUMMARY_KPI_THEMES.get(
+            title, (DashboardTheme.PRIMARY, FluentIcon.SHOPPING_CART)
+        )
+        card = SummaryKpiCard(title, icon, color_hex, parent=self)
+        DashboardTheme.apply_card_shadow(card)
+        return card
+
+    def _build_compact_kpi_card(self, title: str) -> SummaryKpiCard:
+        """Create a compact KPI card for use within chart cards (smaller font)."""
+        color_hex, icon = DashboardTheme.KPI_THEMES.get(
+            title, (DashboardTheme.PRIMARY, FluentIcon.SHOPPING_CART)
+        )
+        card = SummaryKpiCard(title, icon, color_hex, parent=self)
+        card.setFixedHeight(70)
+        # Override value label font to 16px for compact display
+        card._kpi_value_label.setStyleSheet(
+            f"color: {color_hex}; font-size: 16px; font-weight: 700;"
+        )
+        return card
+
+    # ------------------------------------------------------------------
+    # 3E: Responsive layout
+    # ------------------------------------------------------------------
+
+    def resizeEvent(self, event):
+        """Adapt grid layouts when window width crosses the responsive breakpoint."""
+        super().resizeEvent(event)
+        QTimer.singleShot(50, self._apply_responsive_layout)
+
+    def _apply_responsive_layout(self):
+        w = self.width()
+        breakpoint = DashboardTheme.RESPONSIVE_BREAKPOINT
+        if w < breakpoint:
+            # Narrow: summary 4x2, charts 4x1
+            self._rebuild_summary_grid(4, 2)
+            self._rebuild_charts_grid(4, 1)
+        else:
+            # Wide: summary 2x4, charts 2x2
+            self._rebuild_summary_grid(2, 4)
+            self._rebuild_charts_grid(2, 2)
+
+    def _rebuild_summary_grid(self, rows: int, cols: int):
+        container = self._summary_kpi_container
+        grid = container.layout()
+        if grid is None:
+            return
+        # Collect all widgets currently in the grid
+        widgets = []
+        while grid.count():
+            item = grid.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                widgets.append(w)
+        # Re-add widgets in new grid positions
+        for idx, w in enumerate(widgets):
+            r = idx // cols
+            c = idx % cols
+            grid.addWidget(w, r, c)
+
+    def _rebuild_charts_grid(self, rows: int, cols: int):
+        container = self._charts_grid_container
+        grid = container.layout()
+        if grid is None:
+            return
+        widgets = []
+        while grid.count():
+            item = grid.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                widgets.append(w)
+        for idx, w in enumerate(widgets):
+            r = idx // cols
+            c = idx % cols
+            grid.addWidget(w, r, c)
 
     def _create_kpi_card(self, title: str):
         theme = {
@@ -1005,8 +1156,13 @@ class DashboardTab(QWidget):
             self._rate_qtchart = None
             return SimpleLineChartWidget(self)
 
-    def _init_rate_qtchart(self):
-        QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis = self._rate_qtchart
+    def _init_qtchart_common(self, qtchart_classes, chart_view, label_format, axis_title=None):
+        """Common chart initialisation shared by all four chart sections.
+
+        Returns ``(chart, axis_x, axis_y)`` so callers can store the
+        references under their own attribute names.
+        """
+        QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis = qtchart_classes
 
         chart = QChart()
         chart.legend().setVisible(False)
@@ -1040,16 +1196,28 @@ class DashboardTab(QWidget):
         axis_y.setMinorGridLineColor(QColor(60, 60, 60))
         axis_y.setMin(0.0)
         axis_y.setMax(1.0)
-        axis_y.setLabelFormat("TK %.2f")
+        axis_y.setLabelFormat(label_format)
         axis_y.setTickCount(6)
+        if axis_title:
+            try:
+                axis_y.setTitleText(axis_title)
+                axis_y.setTitleBrush(QColor(220, 220, 220))
+            except Exception:
+                pass
 
         chart.addAxis(axis_x, Qt.AlignBottom)
         chart.addAxis(axis_y, Qt.AlignLeft)
 
+        chart_view.setChart(chart)
+        return chart, axis_x, axis_y
+
+    def _init_rate_qtchart(self):
+        chart, axis_x, axis_y = self._init_qtchart_common(
+            self._rate_qtchart, self._rate_chart_view, "TK %.2f"
+        )
         self._rate_axis_y = axis_y
         self._rate_axis_x = axis_x
         self._rate_series = []
-        self._rate_chart_view.setChart(chart)
 
     def _create_elec_chart_widget(self):
         try:
@@ -1077,104 +1245,26 @@ class DashboardTab(QWidget):
             return view
         except Exception:
             self._elec_qtchart = None
-            return SimpleLineChartWidget(self)
+            return SimpleBarChartWidget(self)
 
     def _init_elec_qtchart(self):
-        QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis = self._elec_qtchart
-
-        chart = QChart()
-        chart.legend().setVisible(False)
-        chart.setBackgroundBrush(QColor(43, 43, 43))
-        chart.setMargins(QMargins(20, 4, 12, 34))
-        try:
-            chart.layout().setContentsMargins(20, 4, 12, 34)
-        except Exception:
-            pass
-        chart.setAnimationOptions(QChart.SeriesAnimations)
-        chart.setAnimationDuration(550)
-
-        axis_x = QCategoryAxis()
-        for i, m in enumerate(MONTHS):
-            axis_x.append(m[:3], i + 1)
-        axis_x.setRange(0.0, 13.0)
-        axis_x.setLabelsColor(QColor(220, 220, 220))
-        axis_x.setGridLineVisible(False)
-        axis_x.setLinePen(QPen(QColor(95, 95, 95), 1))
-        axis_x.setLabelsAngle(-35)
-        try:
-            f = axis_x.labelsFont()
-            f.setPointSize(9)
-            axis_x.setLabelsFont(f)
-        except Exception:
-            pass
-
-        axis_y = QValueAxis()
-        axis_y.setLabelsColor(QColor(220, 220, 220))
-        axis_y.setGridLinePen(QPen(QColor(80, 80, 80), 1, Qt.DashLine))
-        axis_y.setMinorGridLineColor(QColor(60, 60, 60))
-        axis_y.setMin(0.0)
-        axis_y.setMax(1.0)
-        axis_y.setLabelFormat("TK %.0f")
-        axis_y.setTickCount(6)
-        try:
-            axis_y.setTitleText("Total Electricity Bill (TK)")
-            axis_y.setTitleBrush(QColor(220, 220, 220))
-        except Exception:
-            pass
-
-        chart.addAxis(axis_x, Qt.AlignBottom)
-        chart.addAxis(axis_y, Qt.AlignLeft)
-
+        chart, axis_x, axis_y = self._init_qtchart_common(
+            self._elec_qtchart,
+            self._elec_chart_view,
+            "TK %.0f",
+            axis_title="Total Electricity Bill (TK)",
+        )
         self._elec_axis_y = axis_y
         self._elec_axis_x = axis_x
         self._elec_series = []
-        self._elec_chart_view.setChart(chart)
 
     def _init_qtchart(self):
-        QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis = self._qtchart
-
-        chart = QChart()
-        chart.legend().setVisible(False)
-        chart.setBackgroundBrush(QColor(43, 43, 43))
-        chart.setMargins(QMargins(20, 4, 12, 34))
-        try:
-            chart.layout().setContentsMargins(20, 4, 12, 34)
-        except Exception:
-            pass
-        chart.setAnimationOptions(QChart.SeriesAnimations)
-        chart.setAnimationDuration(550)
-
-        axis_x = QCategoryAxis()
-        for i, m in enumerate(MONTHS):
-            axis_x.append(m[:3], i + 1)
-        axis_x.setRange(0.0, 13.0)
-        axis_x.setLabelsColor(QColor(220, 220, 220))
-        axis_x.setGridLineVisible(False)
-        axis_x.setLinePen(QPen(QColor(95, 95, 95), 1))
-        axis_x.setLabelsAngle(-35)
-        try:
-            f = axis_x.labelsFont()
-            f.setPointSize(9)
-            axis_x.setLabelsFont(f)
-        except Exception:
-            pass
-
-        axis_y = QValueAxis()
-        axis_y.setLabelsColor(QColor(220, 220, 220))
-        axis_y.setGridLinePen(QPen(QColor(80, 80, 80), 1, Qt.DashLine))
-        axis_y.setMinorGridLineColor(QColor(60, 60, 60))
-        axis_y.setMin(0.0)
-        axis_y.setMax(1.0)
-        axis_y.setLabelFormat("TK %.0f")
-        axis_y.setTickCount(6)
-
-        chart.addAxis(axis_x, Qt.AlignBottom)
-        chart.addAxis(axis_y, Qt.AlignLeft)
-
+        chart, axis_x, axis_y = self._init_qtchart_common(
+            self._qtchart, self._chart_view, "TK %.0f"
+        )
         self._axis_y = axis_y
         self._chart_axis_x = axis_x
         self._line_series = []
-        self._chart_view.setChart(chart)
 
     def _create_owner_room_chart_widget(self):
         try:
@@ -1202,55 +1292,15 @@ class DashboardTab(QWidget):
             return view
         except Exception:
             self._owner_room_qtchart = None
-            return SimpleLineChartWidget(self)
+            return SimpleBarChartWidget(self)
 
     def _init_owner_room_qtchart(self):
-        QChartView, QChart, QLineSeries, QValueAxis, QCategoryAxis = (
-            self._owner_room_qtchart
+        chart, axis_x, axis_y = self._init_qtchart_common(
+            self._owner_room_qtchart, self._owner_room_chart_view, "TK %.0f"
         )
-
-        chart = QChart()
-        chart.legend().setVisible(False)
-        chart.setBackgroundBrush(QColor(43, 43, 43))
-        chart.setMargins(QMargins(20, 4, 12, 34))
-        try:
-            chart.layout().setContentsMargins(20, 4, 12, 34)
-        except Exception:
-            pass
-        chart.setAnimationOptions(QChart.SeriesAnimations)
-        chart.setAnimationDuration(550)
-
-        axis_x = QCategoryAxis()
-        for i, m in enumerate(MONTHS):
-            axis_x.append(m[:3], i + 1)
-        axis_x.setRange(0.0, 13.0)
-        axis_x.setLabelsColor(QColor(220, 220, 220))
-        axis_x.setGridLineVisible(False)
-        axis_x.setLinePen(QPen(QColor(95, 95, 95), 1))
-        axis_x.setLabelsAngle(-35)
-        try:
-            f = axis_x.labelsFont()
-            f.setPointSize(9)
-            axis_x.setLabelsFont(f)
-        except Exception:
-            pass
-
-        axis_y = QValueAxis()
-        axis_y.setLabelsColor(QColor(220, 220, 220))
-        axis_y.setGridLinePen(QPen(QColor(80, 80, 80), 1, Qt.DashLine))
-        axis_y.setMinorGridLineColor(QColor(60, 60, 60))
-        axis_y.setMin(0.0)
-        axis_y.setMax(1.0)
-        axis_y.setLabelFormat("TK %.0f")
-        axis_y.setTickCount(6)
-
-        chart.addAxis(axis_x, Qt.AlignBottom)
-        chart.addAxis(axis_y, Qt.AlignLeft)
-
         self._owner_room_axis_y = axis_y
         self._owner_room_axis_x = axis_x
         self._owner_room_line_series = []
-        self._owner_room_chart_view.setChart(chart)
 
     def _fmt_tk(self, v: float) -> str:
         try:
@@ -1281,6 +1331,10 @@ class DashboardTab(QWidget):
         series_attr: str,
         raw_values: list,
         tooltips: list[str],
+        line_color: QColor | None = None,
+        fill_top_color: QColor | None = None,
+        fill_bottom_color: QColor | None = None,
+        fill_opacity: int = 90,
     ):
         chart = chart_view.chart()
         existing = getattr(self, series_attr, []) or []
@@ -1325,10 +1379,12 @@ class DashboardTab(QWidget):
                 base_y = max(0.0, min_v * 0.92)
 
         new_series = []
-        accent = QColor("#0078D4")
-        point_fill = QColor("#49C6FF")
+        accent = line_color if line_color is not None else QColor("#0078D4")
+        point_fill = accent
         point_border = QColor(20, 20, 20)
         stem_pen = QPen(QColor(140, 140, 140, 90), 1, Qt.DotLine)
+        _fill_top = fill_top_color if fill_top_color is not None else QColor(accent.red(), accent.green(), accent.blue(), fill_opacity)
+        _fill_bottom = fill_bottom_color if fill_bottom_color is not None else QColor(accent.red(), accent.green(), accent.blue(), 0)
         for seg in segments:
             upper = QSplineSeries()
             upper.setColor(accent)
@@ -1343,8 +1399,8 @@ class DashboardTab(QWidget):
             area = QAreaSeries(upper, lower)
             grad = QLinearGradient(0, 0, 0, 1)
             grad.setCoordinateMode(QLinearGradient.ObjectBoundingMode)
-            grad.setColorAt(0.0, QColor(0, 120, 212, 90))
-            grad.setColorAt(1.0, QColor(0, 120, 212, 0))
+            grad.setColorAt(0.0, _fill_top)
+            grad.setColorAt(1.0, _fill_bottom)
             area.setBrush(QBrush(grad))
             area.setPen(QPen(QColor(0, 0, 0, 0), 0))
 
@@ -1392,6 +1448,141 @@ class DashboardTab(QWidget):
         span = max(1.0, max_v - base_y)
         axis_y.setMax(base_y + span * 1.01)
 
+    def _apply_qt_bar_chart(
+        self,
+        chart_view,
+        axis_x,
+        axis_y,
+        series_attr: str,
+        raw_values: list,
+        tooltips: list[str],
+        bar_color: QColor | None = None,
+    ):
+        chart = chart_view.chart()
+        existing = getattr(self, series_attr, []) or []
+        for s in existing:
+            try:
+                chart.removeSeries(s)
+            except Exception:
+                pass
+
+        from PyQt5.QtChart import QBarSet, QBarSeries
+
+        bar_set = QBarSet("")
+        color = bar_color if bar_color is not None else QColor("#0078D4")
+        bar_set.setColor(color)
+
+        values = []
+        for i in range(12):
+            v = raw_values[i] if i < len(raw_values) else None
+            fv = float(v or 0.0)
+            values.append(fv)
+            bar_set.append(fv)
+
+        bar_series = QBarSeries()
+        bar_series.append(bar_set)
+        bar_series.setBarWidth(0.6)
+
+        bar_set.hovered.connect(
+            lambda idx, state, tv=tooltips, cv=chart_view: self._on_bar_hovered(
+                idx, state, tv, cv
+            )
+        )
+
+        chart.addSeries(bar_series)
+        bar_series.attachAxis(axis_x)
+        bar_series.attachAxis(axis_y)
+
+        new_series = [bar_series]
+        setattr(self, series_attr, new_series)
+
+        max_v = max(values) if values else 0.0
+        axis_y.setMin(0.0)
+        axis_y.setMax(max(max_v * 1.1, 1.0))
+
+    def _apply_qt_grouped_bar_chart(
+        self,
+        chart_view,
+        axis_x,
+        axis_y,
+        series_attr: str,
+        grouped_data: dict,
+        tooltips: list[str],
+    ):
+        """Render a grouped bar chart.
+
+        *grouped_data* maps a label (str) to a list of 12 monthly values.
+        For a single series (e.g. Owner mode) the dict has one key.
+        For multiple rooms it has one key per room.
+        """
+        chart = chart_view.chart()
+        existing = getattr(self, series_attr, []) or []
+        for s in existing:
+            try:
+                chart.removeSeries(s)
+            except Exception:
+                pass
+
+        from PyQt5.QtChart import QBarSet, QBarSeries
+
+        rotating_colors = [
+            QColor(DashboardTheme.CYAN_CURRENT),
+            QColor(DashboardTheme.PURPLE_SECONDARY),
+            QColor(DashboardTheme.GREEN_POSITIVE),
+            QColor(DashboardTheme.ORANGE_WARNING),
+            QColor(DashboardTheme.RED_NEGATIVE),
+            QColor(DashboardTheme.PRIMARY),
+        ]
+
+        bar_series = QBarSeries()
+        max_v = 0.0
+        bar_sets = []
+        for idx, (label, values) in enumerate(grouped_data.items()):
+            bar_set = QBarSet(str(label))
+            color = rotating_colors[idx % len(rotating_colors)]
+            bar_set.setColor(color)
+            for i in range(12):
+                v = values[i] if i < len(values) else 0.0
+                fv = float(v or 0.0)
+                bar_set.append(fv)
+                max_v = max(max_v, fv)
+            bar_series.append(bar_set)
+            bar_sets.append(bar_set)
+
+        bar_series.setBarWidth(0.6)
+
+        chart.addSeries(bar_series)
+        bar_series.attachAxis(axis_x)
+        bar_series.attachAxis(axis_y)
+
+        if len(grouped_data) > 1:
+            chart.legend().setVisible(True)
+            chart.legend().setLabelColor(QColor(220, 220, 220))
+        else:
+            chart.legend().setVisible(False)
+
+        for bs in bar_sets:
+            bs.hovered.connect(
+                lambda idx, state, tv=tooltips, cv=chart_view: self._on_bar_hovered(
+                    idx, state, tv, cv
+                )
+            )
+
+        new_series = [bar_series]
+        setattr(self, series_attr, new_series)
+
+        axis_y.setMin(0.0)
+        axis_y.setMax(max(max_v * 1.1, 1.0))
+
+    def _on_bar_hovered(self, index: int, state: bool, tooltips: list[str], chart_view):
+        if not state:
+            QToolTip.hideText()
+            return
+        if 0 <= index < len(tooltips):
+            text = tooltips[index]
+            if text:
+                QToolTip.showText(QCursor.pos(), text, chart_view)
+
     def _on_line_hovered(self, point, state: bool, tooltips: list[str], chart_view):
         if not state:
             QToolTip.hideText()
@@ -1435,6 +1626,49 @@ class DashboardTab(QWidget):
         if coordinator is not None:
             coordinator.end_activity(key)
 
+    # ------------------------------------------------------------------
+    # 2C: Consolidated year-combo management
+    # ------------------------------------------------------------------
+
+    def _all_year_combos(self):
+        """Return list of all year combo widgets that currently exist."""
+        combos = [self.year_combo]
+        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
+            combos.append(self.rate_year_combo)
+        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
+            combos.append(self.elec_year_combo)
+        combos.append(self.owner_room_year_combo)
+        return combos
+
+    def _sync_all_year_combos(self, years: list[int]):
+        """Update every year-combo with *years* (sorted descending expected)."""
+        current_year_str = str(datetime.now().year)
+
+        # Block & clear
+        for combo in self._all_year_combos():
+            combo.blockSignals(True)
+            combo.clear()
+
+        if years:
+            for y in years:
+                for combo in self._all_year_combos():
+                    combo.addItem(str(y))
+            for combo in self._all_year_combos():
+                combo.setEnabled(True)
+            for combo in self._all_year_combos():
+                if combo.findText(current_year_str) >= 0:
+                    combo.setCurrentText(current_year_str)
+                else:
+                    combo.setCurrentIndex(0)
+        else:
+            for combo in self._all_year_combos():
+                combo.addItem("No years")
+                combo.setEnabled(False)
+
+        # Unblock
+        for combo in self._all_year_combos():
+            combo.blockSignals(False)
+
     def _populate_years_from_cache(self):
         years = []
         if self.db_manager and hasattr(self.db_manager, "get_cached_years"):
@@ -1443,74 +1677,7 @@ class DashboardTab(QWidget):
             except Exception:
                 years = []
 
-        current_year_str = str(datetime.now().year)
-
-        self.year_combo.blockSignals(True)
-        self.year_combo.clear()
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            self.rate_year_combo.blockSignals(True)
-            self.rate_year_combo.clear()
-        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-            self.elec_year_combo.blockSignals(True)
-            self.elec_year_combo.clear()
-        self.owner_room_year_combo.blockSignals(True)
-        self.owner_room_year_combo.clear()
-        if years:
-            for y in years:
-                self.year_combo.addItem(str(y))
-                if (
-                    hasattr(self, "rate_year_combo")
-                    and self.rate_year_combo is not None
-                ):
-                    self.rate_year_combo.addItem(str(y))
-                if (
-                    hasattr(self, "elec_year_combo")
-                    and self.elec_year_combo is not None
-                ):
-                    self.elec_year_combo.addItem(str(y))
-                self.owner_room_year_combo.addItem(str(y))
-            self.year_combo.setEnabled(True)
-            if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-                self.rate_year_combo.setEnabled(True)
-            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-                self.elec_year_combo.setEnabled(True)
-            self.owner_room_year_combo.setEnabled(True)
-            # Default each combo to current year; fall back to most recent (index 0, DESC)
-            if self.year_combo.findText(current_year_str) >= 0:
-                self.year_combo.setCurrentText(current_year_str)
-            else:
-                self.year_combo.setCurrentIndex(0)
-            if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-                if self.rate_year_combo.findText(current_year_str) >= 0:
-                    self.rate_year_combo.setCurrentText(current_year_str)
-                else:
-                    self.rate_year_combo.setCurrentIndex(0)
-            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-                if self.elec_year_combo.findText(current_year_str) >= 0:
-                    self.elec_year_combo.setCurrentText(current_year_str)
-                else:
-                    self.elec_year_combo.setCurrentIndex(0)
-            if self.owner_room_year_combo.findText(current_year_str) >= 0:
-                self.owner_room_year_combo.setCurrentText(current_year_str)
-            else:
-                self.owner_room_year_combo.setCurrentIndex(0)
-        else:
-            self.year_combo.addItem("No years")
-            self.year_combo.setEnabled(False)
-            if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-                self.rate_year_combo.addItem("No years")
-                self.rate_year_combo.setEnabled(False)
-            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-                self.elec_year_combo.addItem("No years")
-                self.elec_year_combo.setEnabled(False)
-            self.owner_room_year_combo.addItem("No years")
-            self.owner_room_year_combo.setEnabled(False)
-        self.year_combo.blockSignals(False)
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            self.rate_year_combo.blockSignals(False)
-        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-            self.elec_year_combo.blockSignals(False)
-        self.owner_room_year_combo.blockSignals(False)
+        self._sync_all_year_combos(years)
 
         if years:
             # Render each section from its own combo's selected year
@@ -1563,57 +1730,7 @@ class DashboardTab(QWidget):
             self._set_status("No years found in Supabase.")
             return
 
-        current_year_str = str(datetime.now().year)
-        years_str = [str(y) for y in years_int]
-
-        self.year_combo.blockSignals(True)
-        self.year_combo.clear()
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            self.rate_year_combo.blockSignals(True)
-            self.rate_year_combo.clear()
-        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-            self.elec_year_combo.blockSignals(True)
-            self.elec_year_combo.clear()
-        self.owner_room_year_combo.blockSignals(True)
-        self.owner_room_year_combo.clear()
-        for y in years_int:
-            self.year_combo.addItem(str(y))
-            if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-                self.rate_year_combo.addItem(str(y))
-            if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-                self.elec_year_combo.addItem(str(y))
-            self.owner_room_year_combo.addItem(str(y))
-        self.year_combo.setEnabled(True)
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            self.rate_year_combo.setEnabled(True)
-        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-            self.elec_year_combo.setEnabled(True)
-        self.owner_room_year_combo.setEnabled(True)
-        # Default each combo to current year; fall back to most recent (index 0, DESC)
-        if current_year_str in years_str:
-            self.year_combo.setCurrentText(current_year_str)
-        else:
-            self.year_combo.setCurrentIndex(0)
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            if current_year_str in years_str:
-                self.rate_year_combo.setCurrentText(current_year_str)
-            else:
-                self.rate_year_combo.setCurrentIndex(0)
-        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-            if current_year_str in years_str:
-                self.elec_year_combo.setCurrentText(current_year_str)
-            else:
-                self.elec_year_combo.setCurrentIndex(0)
-        if current_year_str in years_str:
-            self.owner_room_year_combo.setCurrentText(current_year_str)
-        else:
-            self.owner_room_year_combo.setCurrentIndex(0)
-        self.year_combo.blockSignals(False)
-        if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
-            self.rate_year_combo.blockSignals(False)
-        if hasattr(self, "elec_year_combo") and self.elec_year_combo is not None:
-            self.elec_year_combo.blockSignals(False)
-        self.owner_room_year_combo.blockSignals(False)
+        self._sync_all_year_combos(years_int)
 
         # Determine the selected years from each combo for initial sync
         bill_year_str = self.year_combo.currentText()
@@ -1633,6 +1750,9 @@ class DashboardTab(QWidget):
             self._set_status("Supabase project is paused.")
         else:
             self._set_status(msg)
+        # Show offline banner when Supabase connection fails
+        if hasattr(self, "_offline_banner"):
+            self._offline_banner.show()
 
     def _on_refresh_clicked(self):
         sender = self.sender()
@@ -1753,6 +1873,8 @@ class DashboardTab(QWidget):
             year, last_sync=snapshot.get("last_sync") if snapshot else None
         )
         self._render_values(values)
+        # Update summary KPI cards
+        self._update_summary_kpis(snapshot, year)
         # When called during global refresh, render rate/elec using their own combo years
         # Read rate combo year
         if hasattr(self, "rate_year_combo") and self.rate_year_combo is not None:
@@ -1788,10 +1910,11 @@ class DashboardTab(QWidget):
                 series_attr="_line_series",
                 raw_values=values,
                 tooltips=self._current_tooltips,
+                fill_opacity=140,
             )
             return
 
-        if isinstance(self._chart_widget, SimpleLineChartWidget):
+        if isinstance(self._chart_widget, (SimpleLineChartWidget, SimpleBarChartWidget)):
             self._chart_widget.set_data(MONTHS, values, tooltips=self._current_tooltips)
 
     def _render_rate_from_cache(self, year: int, snapshot: dict | None = None):
@@ -1823,6 +1946,7 @@ class DashboardTab(QWidget):
         self._update_rate_kpis(self._rate_raw_values)
 
         if self._rate_qtchart:
+            cyan = QColor(DashboardTheme.CYAN_CURRENT)
             self._apply_qt_line_chart(
                 chart_view=self._rate_chart_view,
                 axis_x=self._rate_axis_x,
@@ -1830,75 +1954,32 @@ class DashboardTab(QWidget):
                 series_attr="_rate_series",
                 raw_values=self._rate_raw_values,
                 tooltips=self._rate_tooltips,
+                line_color=cyan,
+                fill_top_color=QColor(73, 198, 255, 60),
+                fill_bottom_color=QColor(73, 198, 255, 0),
             )
             return
 
-        if isinstance(self._rate_chart_widget, SimpleLineChartWidget):
+        if isinstance(self._rate_chart_widget, (SimpleLineChartWidget, SimpleBarChartWidget)):
             self._rate_chart_widget.set_data(
                 MONTHS, self._rate_values, tooltips=self._rate_tooltips
             )
 
     def _update_rate_kpis(self, raw_values: list[float | None]):
         year = int(getattr(self, "_active_year", datetime.now().year))
-        now = datetime.now()
-
-        current_idx = 11
-        prev_idx = 10
-        if year == now.year:
-            current_idx = max(0, min(11, now.month - 1))
-            prev_idx = max(0, current_idx - 1)
-        else:
-            present = [i for i, v in enumerate(raw_values or []) if v is not None]
-            if present:
-                current_idx = present[-1]
-                prev_present = [i for i in present if i < current_idx]
-                prev_idx = prev_present[-1] if prev_present else max(0, current_idx - 1)
-
-        cv = raw_values[current_idx] if 0 <= current_idx < len(raw_values) else None
-        pv = raw_values[prev_idx] if 0 <= prev_idx < len(raw_values) else None
-
-        self.rate_kpi_current._kpi_value_label.setText(
-            f"{MONTHS[current_idx][:3]} · {self._fmt_rate(cv)}"
+        self._update_section_kpis(
+            kpis={
+                "current": getattr(self, "rate_kpi_current", None),
+                "prev": getattr(self, "rate_kpi_prev", None),
+                "high": getattr(self, "rate_kpi_high", None),
+                "low": getattr(self, "rate_kpi_low", None),
+            },
+            raw_values=raw_values,
+            year=year,
+            fmt_fn=self._fmt_rate,
+            current_prefix="Per unit cost",
+            extreme_prefix="per unit cost",
         )
-        self.rate_kpi_prev._kpi_value_label.setText(
-            f"{MONTHS[prev_idx][:3]} · {self._fmt_rate(pv)}"
-        )
-
-        consider = [i for i, v in enumerate(raw_values or []) if v is not None]
-        max_idx = (
-            max(consider, key=lambda i: float(raw_values[i] or 0.0))
-            if consider
-            else None
-        )
-        min_idx = (
-            min(consider, key=lambda i: float(raw_values[i] or 0.0))
-            if consider
-            else None
-        )
-
-        self.rate_kpi_high._kpi_value_label.setText(
-            f"{MONTHS[max_idx][:3]} · {self._fmt_rate(raw_values[max_idx])}"
-            if max_idx is not None
-            else "—"
-        )
-        self.rate_kpi_low._kpi_value_label.setText(
-            f"{MONTHS[min_idx][:3]} · {self._fmt_rate(raw_values[min_idx])}"
-            if min_idx is not None
-            else "—"
-        )
-
-        self.rate_kpi_current.setToolTip(
-            f"Per unit cost for {MONTHS[current_idx]} {year}"
-        )
-        self.rate_kpi_prev.setToolTip(f"Per unit cost for {MONTHS[prev_idx]} {year}")
-        if max_idx is not None:
-            self.rate_kpi_high.setToolTip(
-                f"Highest per unit cost in {year}: {MONTHS[max_idx]}"
-            )
-        if min_idx is not None:
-            self.rate_kpi_low.setToolTip(
-                f"Lowest per unit cost in {year}: {MONTHS[min_idx]}"
-            )
 
     def _render_elec_from_cache(self, year: int, snapshot: dict | None = None):
         bills = (snapshot or self._get_dashboard_year_snapshot(year)).get(
@@ -1933,92 +2014,46 @@ class DashboardTab(QWidget):
         self._update_elec_kpis(self._elec_raw_values)
 
         if hasattr(self, "_elec_qtchart") and self._elec_qtchart:
-            self._apply_qt_line_chart(
+            self._apply_qt_bar_chart(
                 chart_view=self._elec_chart_view,
                 axis_x=self._elec_axis_x,
                 axis_y=self._elec_axis_y,
                 series_attr="_elec_series",
                 raw_values=self._elec_raw_values,
                 tooltips=self._elec_tooltips,
+                bar_color=QColor(DashboardTheme.ORANGE_WARNING),
             )
             return
 
-        if isinstance(self._elec_chart_widget, SimpleLineChartWidget):
+        if isinstance(self._elec_chart_widget, (SimpleBarChartWidget, SimpleLineChartWidget)):
             self._elec_chart_widget.set_data(
                 MONTHS, self._elec_values, tooltips=self._elec_tooltips
             )
 
     def _update_elec_kpis(self, raw_values: list[float | None]):
         year = int(getattr(self, "_active_year", datetime.now().year))
-        now = datetime.now()
 
-        current_idx = 11
-        prev_idx = 10
-        if year == now.year:
-            current_idx = max(0, min(11, now.month - 1))
-            prev_idx = max(0, current_idx - 1)
-        else:
-            present = [i for i, v in enumerate(raw_values or []) if v is not None]
-            if present:
-                current_idx = present[-1]
-                prev_present = [i for i in present if i < current_idx]
-                prev_idx = prev_present[-1] if prev_present else max(0, current_idx - 1)
-
-        cv = raw_values[current_idx] if 0 <= current_idx < len(raw_values) else None
-        pv = raw_values[prev_idx] if 0 <= prev_idx < len(raw_values) else None
-
-        def _fmt_elec(v: float | None) -> str:
+        def _fmt_elec(v):
             if v is None:
-                return "—"
+                return "\u2014"
             try:
                 return f"TK {float(v):,.0f}"
             except Exception:
-                return "—"
+                return "\u2014"
 
-        self.elec_kpi_current._kpi_value_label.setText(
-            f"{MONTHS[current_idx][:3]} · {_fmt_elec(cv)}"
+        self._update_section_kpis(
+            kpis={
+                "current": getattr(self, "elec_kpi_current", None),
+                "prev": getattr(self, "elec_kpi_prev", None),
+                "high": getattr(self, "elec_kpi_high", None),
+                "low": getattr(self, "elec_kpi_low", None),
+            },
+            raw_values=raw_values,
+            year=year,
+            fmt_fn=_fmt_elec,
+            current_prefix="Total electricity bill",
+            extreme_prefix="total electricity bill",
         )
-        self.elec_kpi_prev._kpi_value_label.setText(
-            f"{MONTHS[prev_idx][:3]} · {_fmt_elec(pv)}"
-        )
-
-        consider = [i for i, v in enumerate(raw_values or []) if v is not None]
-        max_idx = (
-            max(consider, key=lambda i: float(raw_values[i] or 0.0))
-            if consider
-            else None
-        )
-        min_idx = (
-            min(consider, key=lambda i: float(raw_values[i] or 0.0))
-            if consider
-            else None
-        )
-
-        self.elec_kpi_high._kpi_value_label.setText(
-            f"{MONTHS[max_idx][:3]} · {_fmt_elec(raw_values[max_idx])}"
-            if max_idx is not None
-            else "—"
-        )
-        self.elec_kpi_low._kpi_value_label.setText(
-            f"{MONTHS[min_idx][:3]} · {_fmt_elec(raw_values[min_idx])}"
-            if min_idx is not None
-            else "—"
-        )
-
-        self.elec_kpi_current.setToolTip(
-            f"Total electricity bill for {MONTHS[current_idx]} {year}"
-        )
-        self.elec_kpi_prev.setToolTip(
-            f"Total electricity bill for {MONTHS[prev_idx]} {year}"
-        )
-        if max_idx is not None:
-            self.elec_kpi_high.setToolTip(
-                f"Highest total electricity bill in {year}: {MONTHS[max_idx]}"
-            )
-        if min_idx is not None:
-            self.elec_kpi_low.setToolTip(
-                f"Lowest total electricity bill in {year}: {MONTHS[min_idx]}"
-            )
 
     def _build_tooltips(self, values: list[float]) -> list[str]:
         out = []
@@ -2027,73 +2062,301 @@ class DashboardTab(QWidget):
             prev = float(values[i - 1] or 0.0) if i > 0 else 0.0
             d = v - prev if i > 0 else 0.0
             if i == 0:
-                out.append(f"{m}\n{self._fmt_tk(v)}")
+                out.append(f"📅 {m}\n━━━━━━━━━━━━━━\n💰 {self._fmt_tk(v)}")
             else:
-                out.append(f"{m}\n{self._fmt_tk(v)}\n{self._fmt_delta(d)}")
+                delta_icon = "📈" if d >= 0 else "📉"
+                out.append(f"📅 {m}\n━━━━━━━━━━━━━━\n💰 {self._fmt_tk(v)}\n{delta_icon} {self._fmt_delta(d)}")
         return out
 
-    def _update_kpis(self, values: list[float]):
-        year = int(getattr(self, "_active_year", datetime.now().year))
+    # ------------------------------------------------------------------
+    # 2D: Unified KPI update
+    # ------------------------------------------------------------------
+
+    def _update_section_kpis(
+        self,
+        kpis,
+        raw_values,
+        year,
+        fmt_fn,
+        *,
+        consider_fn=None,
+        clamp_to_current_year=False,
+        empty_consider_fallback=False,
+        current_prefix="Bill",
+        extreme_prefix="month",
+        default_idx=(11, 10),
+    ):
+        """Unified KPI update for a dashboard section.
+
+        *kpis* maps role names ("current", "prev", "high", "low") to
+        ``InfoResultCard`` instances.  *raw_values* is a list of per-month
+        values that may contain ``None``.
+        """
         now = datetime.now()
 
-        current_idx = 11
-        prev_idx = 10
+        if consider_fn is None:
+            consider_fn = lambda v: v is not None
+
+        # Recent month = previous month (bills are added after month ends)
+        current_idx = default_idx[0]
+        prev_idx = default_idx[1]
         if year == now.year:
-            current_idx = max(0, min(11, now.month - 1))
+            # Use previous month as "recent month"
+            if now.month == 1:
+                current_idx = 11  # December of previous year
+            else:
+                current_idx = max(0, min(11, now.month - 2))  # Previous month
             prev_idx = max(0, current_idx - 1)
         else:
-            present = [i for i, v in enumerate(values or []) if float(v or 0.0) > 0.0]
+            present = [i for i, v in enumerate(raw_values or []) if consider_fn(v)]
             if present:
                 current_idx = present[-1]
                 prev_present = [i for i in present if i < current_idx]
-                prev_idx = prev_present[-1] if prev_present else max(0, current_idx - 1)
+                prev_idx = (
+                    prev_present[-1]
+                    if prev_present
+                    else (max(0, current_idx - 1) if current_idx is not None else None)
+                )
 
-        def _month_label(idx: int) -> str:
+        def _value_at(idx):
+            if idx is None or not (0 <= idx < len(raw_values or [])):
+                return None
+            return (raw_values or [])[idx]
+
+        cv = _value_at(current_idx)
+        pv = _value_at(prev_idx)
+
+        def _month_label(idx):
             try:
                 return MONTHS[idx][:3]
             except Exception:
-                return "—"
+                return "\u2014"
 
-        self.kpi_total._kpi_value_label.setText(
-            f"{_month_label(current_idx)} · {self._fmt_tk(values[current_idx])}"
-        )
-        self.kpi_avg._kpi_value_label.setText(
-            f"{_month_label(prev_idx)} · {self._fmt_tk(values[prev_idx])}"
-        )
+        cur_card = kpis.get("current")
+        if cur_card:
+            if current_idx is not None:
+                cur_card._kpi_value_label.setText(
+                    f"{_month_label(current_idx)} \u00b7 {fmt_fn(cv)}"
+                )
+            else:
+                cur_card._kpi_value_label.setText("\u2014")
 
-        if year == now.year:
+        prev_card = kpis.get("prev")
+        if prev_card:
+            if prev_idx is not None:
+                prev_card._kpi_value_label.setText(
+                    f"{_month_label(prev_idx)} \u00b7 {fmt_fn(pv)}"
+                )
+            else:
+                prev_card._kpi_value_label.setText("\u2014")
+
+        if clamp_to_current_year and year == now.year:
             consider = [
-                i for i in range(0, current_idx + 1) if float(values[i] or 0.0) > 0.0
+                i
+                for i in range(0, min(current_idx + 1, len(raw_values or [])))
+                if consider_fn((raw_values or [])[i])
             ]
         else:
-            consider = [i for i, v in enumerate(values or []) if float(v or 0.0) > 0.0]
-        if not consider:
-            consider = list(range(len(values or [])))
+            consider = [
+                i for i, v in enumerate(raw_values or []) if consider_fn(v)
+            ]
+
+        if not consider and empty_consider_fallback:
+            consider = list(range(len(raw_values or [])))
 
         max_idx = (
-            max(consider, key=lambda i: float(values[i] or 0.0)) if consider else None
+            max(consider, key=lambda i: float((raw_values or [])[i] or 0.0))
+            if consider
+            else None
         )
         min_idx = (
-            min(consider, key=lambda i: float(values[i] or 0.0)) if consider else None
+            min(consider, key=lambda i: float((raw_values or [])[i] or 0.0))
+            if consider
+            else None
         )
 
-        self.kpi_high._kpi_value_label.setText(
-            f"{MONTHS[max_idx][:3]} · {self._fmt_tk(values[max_idx])}"
-            if max_idx is not None
-            else "—"
-        )
-        self.kpi_low._kpi_value_label.setText(
-            f"{MONTHS[min_idx][:3]} · {self._fmt_tk(values[min_idx])}"
-            if min_idx is not None
-            else "—"
+        high_card = kpis.get("high")
+        if high_card:
+            high_card._kpi_value_label.setText(
+                f"{_month_label(max_idx)} \u00b7 {fmt_fn((raw_values or [])[max_idx])}"
+                if max_idx is not None
+                else "\u2014"
+            )
+
+        low_card = kpis.get("low")
+        if low_card:
+            low_card._kpi_value_label.setText(
+                f"{_month_label(min_idx)} \u00b7 {fmt_fn((raw_values or [])[min_idx])}"
+                if min_idx is not None
+                else "\u2014"
+            )
+
+        # Tooltips
+        if cur_card:
+            if current_idx is not None:
+                cur_card.setToolTip(
+                    f"{current_prefix} for {MONTHS[current_idx]} {year}"
+                )
+            else:
+                cur_card.setToolTip("No data")
+        if prev_card:
+            if prev_idx is not None:
+                prev_card.setToolTip(
+                    f"{current_prefix} for {MONTHS[prev_idx]} {year}"
+                )
+            else:
+                prev_card.setToolTip("No previous month data")
+        if high_card and max_idx is not None:
+            high_card.setToolTip(
+                f"Highest {extreme_prefix} in {year}: {MONTHS[max_idx]}"
+            )
+        if low_card and min_idx is not None:
+            low_card.setToolTip(
+                f"Lowest {extreme_prefix} in {year}: {MONTHS[min_idx]}"
+            )
+
+    def _update_kpis(self, values: list[float]):
+        year = int(getattr(self, "_active_year", datetime.now().year))
+        self._update_section_kpis(
+            kpis={
+                "current": getattr(self, "kpi_total", None),
+                "prev": getattr(self, "kpi_avg", None),
+                "high": getattr(self, "kpi_high", None),
+                "low": getattr(self, "kpi_low", None),
+            },
+            raw_values=values,
+            year=year,
+            fmt_fn=self._fmt_tk,
+            consider_fn=lambda v: float(v or 0.0) > 0.0,
+            clamp_to_current_year=True,
+            empty_consider_fallback=True,
         )
 
-        self.kpi_total.setToolTip(f"Bill for {MONTHS[current_idx]} {year}")
-        self.kpi_avg.setToolTip(f"Bill for {MONTHS[prev_idx]} {year}")
-        if max_idx is not None:
-            self.kpi_high.setToolTip(f"Highest month in {year}: {MONTHS[max_idx]}")
-        if min_idx is not None:
-            self.kpi_low.setToolTip(f"Lowest month in {year}: {MONTHS[min_idx]}")
+    # ------------------------------------------------------------------
+    # Phase 7: Summary KPI Data Binding
+    # ------------------------------------------------------------------
+
+    def _update_summary_kpis(self, snapshot: dict, year: int):
+        """Compute and update the 8 summary KPI cards from a dashboard snapshot."""
+        if not snapshot:
+            for card in self._all_summary_kpi_cards():
+                card._kpi_value_label.setText("---")
+            return
+
+        monthly_totals = snapshot.get("monthly_totals", {})
+        monthly_rates = snapshot.get("monthly_per_unit_cost", {})
+        monthly_elec = snapshot.get("monthly_total_electricity_bills", {})
+
+        # Determine recent month (previous month - bills are added after month ends)
+        now = datetime.now()
+        if year == now.year:
+            # Previous month (if current month is Jan, previous is Dec of previous year)
+            if now.month == 1:
+                recent_month = "December"
+            else:
+                recent_month = MONTHS[now.month - 2]  # Previous month
+        else:
+            # For past years, find the last month with data
+            recent_month = None
+            for m in reversed(MONTHS):
+                if m in monthly_totals and monthly_totals[m] is not None:
+                    recent_month = m
+                    break
+            if not recent_month:
+                recent_month = MONTHS[0] if monthly_totals else None
+
+        # Get recent month data
+        total_bill = 0.0
+        elec_bill = 0.0
+        rate_val = 0.0
+        units = 0
+        added_amount = 0.0
+        water_bill = 0.0
+
+        if recent_month:
+            # Total bill (grand_total)
+            total_bill = float(monthly_totals.get(recent_month, 0.0) or 0.0)
+
+            # Electricity bill (total_unit_cost)
+            elec_bill = float(monthly_elec.get(recent_month, 0.0) or 0.0)
+
+            # Per unit cost
+            r = monthly_rates.get(recent_month)
+            rate_val = float(r) if r is not None else 0.0
+
+            # Total units (elec_bill / per_unit_cost) - show as integer
+            if rate_val > 0:
+                units = int(round(elec_bill / rate_val))
+
+        # Update KPI cards
+        self._summary_total_bill._kpi_value_label.setText(self._fmt_tk(total_bill))
+        self._summary_elec_bill._kpi_value_label.setText(self._fmt_tk(elec_bill))
+        self._summary_rate._kpi_value_label.setText(self._fmt_rate(rate_val) if rate_val > 0 else "---")
+        self._summary_units._kpi_value_label.setText(f"{units:,}" if units > 0 else "---")
+
+        # Owner bill, Tenant bill, Added amount, and Water bill from room data
+        owner_bill = 0.0
+        tenant_elec_bill = 0.0
+        tenant_water_bill = 0.0
+        if recent_month and self.db_manager:
+            try:
+                # Get owner bill
+                owner_data = self.db_manager.get_cached_monthly_owner_unit_bills(year, source="supabase")
+                owner_bill = float(owner_data.get(recent_month, 0.0) or 0.0)
+
+                # Get added amount
+                added_data = self.db_manager.get_cached_monthly_owner_added_amounts(year, source="supabase")
+                added_amount = float(added_data.get(recent_month, 0.0) or 0.0)
+
+                # Get room bills for tenant calculation and water bills
+                rooms = self.db_manager.get_cached_rooms(year, source="supabase") or []
+                for room in rooms:
+                    room_data = self.db_manager.get_cached_monthly_room_unit_bills(year, room, source="supabase")
+                    tenant_elec_bill += float(room_data.get(recent_month, 0.0) or 0.0)
+
+                    # Get water bills from room data
+                    try:
+                        water_data = self.db_manager.get_cached_monthly_room_water_bills(year, room, source="supabase")
+                        tenant_water_bill += float(water_data.get(recent_month, 0.0) or 0.0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        self._summary_owner_bill._kpi_value_label.setText(self._fmt_tk(owner_bill))
+
+        # Tenant's Electricity and Water Bill - show electricity + water = total
+        tenant_total = tenant_elec_bill + tenant_water_bill
+        if tenant_total > 0:
+            self._summary_tenant_bill._kpi_value_label.setText(
+                f"{self._fmt_tk(tenant_elec_bill)} + {self._fmt_tk(tenant_water_bill)} = {self._fmt_tk(tenant_total)}"
+            )
+        else:
+            self._summary_tenant_bill._kpi_value_label.setText("---")
+
+        # Gas bill (Added amount) - show only added amount
+        if added_amount > 0:
+            self._summary_gas_bill._kpi_value_label.setText(self._fmt_tk(added_amount))
+        else:
+            self._summary_gas_bill._kpi_value_label.setText("---")
+
+        # Active Rooms
+        rooms = []
+        if self.db_manager and hasattr(self.db_manager, "get_cached_rooms"):
+            try:
+                rooms = self.db_manager.get_cached_rooms(year, source="supabase") or []
+            except Exception:
+                rooms = []
+        self._summary_rooms._kpi_value_label.setText(str(len(rooms)) if rooms else "---")
+
+    def _all_summary_kpi_cards(self):
+        """Return all 8 summary KPI card widgets."""
+        return [
+            self._summary_total_bill, self._summary_elec_bill,
+            self._summary_rate, self._summary_units,
+            self._summary_owner_bill, self._summary_tenant_bill,
+            self._summary_gas_bill, self._summary_rooms,
+        ]
 
     def _get_dashboard_year_snapshot(self, year: int) -> dict:
         if self.db_manager and hasattr(
@@ -2363,6 +2626,7 @@ class DashboardTab(QWidget):
                         empty_raw, year, room_name, mode="Room"
                     ),
                     empty_raw,
+                    mode="Room",
                 )
                 return
             month_map = {}
@@ -2383,7 +2647,7 @@ class DashboardTab(QWidget):
             tips = self._build_owner_room_tooltips(
                 vals_raw, year, room_name, mode="Room", tenant_lookup=tenant_lookup
             )
-            self._render_owner_room_values(vals, tips, vals_raw)
+            self._render_owner_room_values(vals, tips, vals_raw, mode="Room")
             return
 
         self._update_owner_room_meta(year, mode="Owner")
@@ -2401,10 +2665,15 @@ class DashboardTab(QWidget):
         vals_raw = [month_map.get(m) for m in MONTHS]
         vals = [float(v or 0.0) if v is not None else 0.0 for v in vals_raw]
         tips = self._build_owner_room_tooltips(vals_raw, year, "", mode="Owner")
-        self._render_owner_room_values(vals, tips, vals_raw)
+        self._render_owner_room_values(vals, tips, vals_raw, mode="Owner")
 
     def _render_owner_room_values(
-        self, values: list[float], tooltips: list[str], raw_values: list | None = None
+        self,
+        values: list[float],
+        tooltips: list[str],
+        raw_values: list | None = None,
+        mode: str = "Owner",
+        grouped_data: dict | None = None,
     ):
         values = (values or [])[:12]
         if len(values) < 12:
@@ -2416,20 +2685,41 @@ class DashboardTab(QWidget):
         self._update_owner_room_kpis(values, tooltips, self._owner_room_raw_values)
 
         if self._owner_room_qtchart:
-            self._apply_qt_line_chart(
-                chart_view=self._owner_room_chart_view,
-                axis_x=self._owner_room_axis_x,
-                axis_y=self._owner_room_axis_y,
-                series_attr="_owner_room_line_series",
-                raw_values=self._owner_room_raw_values,
-                tooltips=self._owner_room_tooltips,
-            )
+            if grouped_data and len(grouped_data) > 1:
+                self._apply_qt_grouped_bar_chart(
+                    chart_view=self._owner_room_chart_view,
+                    axis_x=self._owner_room_axis_x,
+                    axis_y=self._owner_room_axis_y,
+                    series_attr="_owner_room_bar_series",
+                    grouped_data=grouped_data,
+                    tooltips=self._owner_room_tooltips,
+                )
+            else:
+                bar_color = (
+                    QColor(DashboardTheme.PURPLE_SECONDARY)
+                    if mode == "Owner"
+                    else QColor(DashboardTheme.CYAN_CURRENT)
+                )
+                self._apply_qt_bar_chart(
+                    chart_view=self._owner_room_chart_view,
+                    axis_x=self._owner_room_axis_x,
+                    axis_y=self._owner_room_axis_y,
+                    series_attr="_owner_room_bar_series",
+                    raw_values=self._owner_room_raw_values,
+                    tooltips=self._owner_room_tooltips,
+                    bar_color=bar_color,
+                )
             return
 
-        if isinstance(self._owner_room_chart_widget, SimpleLineChartWidget):
-            self._owner_room_chart_widget.set_data(
-                MONTHS, values, tooltips=self._owner_room_tooltips
-            )
+        if isinstance(self._owner_room_chart_widget, (SimpleBarChartWidget, SimpleLineChartWidget)):
+            if grouped_data and len(grouped_data) > 1 and isinstance(self._owner_room_chart_widget, SimpleBarChartWidget):
+                self._owner_room_chart_widget.set_grouped_data(
+                    MONTHS, grouped_data, tooltips=self._owner_room_tooltips
+                )
+            else:
+                self._owner_room_chart_widget.set_data(
+                    MONTHS, values, tooltips=self._owner_room_tooltips
+                )
 
     def _build_owner_room_tooltips(
         self,
@@ -2456,119 +2746,39 @@ class DashboardTab(QWidget):
                     tenant = tenant_lookup.get(i + 1)
                 else:
                     tenant = self._tenant_for_month(year, i + 1, room_name)
-                tenant_line = f"Tenant: {tenant}" if tenant else "Tenant: —"
+                tenant_line = f"👤 Tenant: {tenant}" if tenant else "👤 Tenant: —"
                 if delta_text:
+                    delta_icon = "📈" if float(v) - float(prev_val) >= 0 else "📉"
                     out.append(
-                        f"{m}\nElectricity: {bill_text}\n{delta_text}\n{tenant_line}"
+                        f"📅 {m} {year}\n━━━━━━━━━━━━━━\n⚡ Electricity: {bill_text}\n{delta_icon} {delta_text}\n{tenant_line}"
                     )
                 else:
-                    out.append(f"{m}\nElectricity: {bill_text}\n{tenant_line}")
+                    out.append(f"📅 {m} {year}\n━━━━━━━━━━━━━━\n⚡ Electricity: {bill_text}\n{tenant_line}")
             else:
-                label = "Owner Unit Bill"
+                label = "⚡ Owner Electricity Bill"
                 if delta_text:
-                    out.append(f"{m}\n{label}: {bill_text}\n{delta_text}")
+                    delta_icon = "📈" if float(v) - float(prev_val) >= 0 else "📉"
+                    out.append(f"📅 {m} {year}\n━━━━━━━━━━━━━━\n{label}: {bill_text}\n{delta_icon} {delta_text}")
                 else:
-                    out.append(f"{m}\n{label}: {bill_text}")
+                    out.append(f"📅 {m} {year}\n━━━━━━━━━━━━━━\n{label}: {bill_text}")
         return out
 
     def _update_owner_room_kpis(
         self, values: list[float], tooltips: list[str], raw_values: list
     ):
-        valid = []
-        for v in raw_values or []:
-            if v is None:
-                continue
-            try:
-                valid.append(float(v))
-            except Exception:
-                continue
-
         year = int(getattr(self, "_owner_room_active_year", datetime.now().year))
-        now = datetime.now()
-
-        current_idx = None
-        prev_idx = None
-        if year == now.year:
-            current_idx = max(0, min(11, now.month - 1))
-            prev_idx = max(0, current_idx - 1)
-        else:
-            present_idx = [i for i, v in enumerate(raw_values) if v is not None]
-            if present_idx:
-                current_idx = present_idx[-1]
-                prev_present = [i for i in present_idx if i < current_idx]
-                prev_idx = prev_present[-1] if prev_present else None
-
-        max_idx = None
-        min_idx = None
-        try:
-            present_idx = [i for i, v in enumerate(raw_values) if v is not None]
-            max_idx = (
-                max(present_idx, key=lambda i: float(raw_values[i]))
-                if present_idx
-                else None
-            )
-            min_idx = (
-                min(present_idx, key=lambda i: float(raw_values[i]))
-                if present_idx
-                else None
-            )
-        except Exception:
-            max_idx = None
-            min_idx = None
-
-        def _value_at(idx: int | None) -> float | None:
-            if idx is None:
-                return None
-            if 0 <= idx < len(raw_values):
-                v = raw_values[idx]
-                return float(v) if v is not None else None
-            return None
-
-        cv = _value_at(current_idx)
-        pv = _value_at(prev_idx)
-
-        if current_idx is not None:
-            self.owner_kpi_total._kpi_value_label.setText(
-                f"{MONTHS[current_idx][:3]} · {self._fmt_tk(cv)}"
-                if cv is not None
-                else f"{MONTHS[current_idx][:3]} · —"
-            )
-            self.owner_kpi_total.setToolTip(f"Bill for {MONTHS[current_idx]} {year}")
-        else:
-            self.owner_kpi_total._kpi_value_label.setText("—")
-            self.owner_kpi_total.setToolTip("No data")
-
-        if prev_idx is not None:
-            self.owner_kpi_avg._kpi_value_label.setText(
-                f"{MONTHS[prev_idx][:3]} · {self._fmt_tk(pv)}"
-                if pv is not None
-                else f"{MONTHS[prev_idx][:3]} · —"
-            )
-            self.owner_kpi_avg.setToolTip(f"Bill for {MONTHS[prev_idx]} {year}")
-        else:
-            self.owner_kpi_avg._kpi_value_label.setText("—")
-            self.owner_kpi_avg.setToolTip("No previous month data")
-
-        if max_idx is not None:
-            self.owner_kpi_high._kpi_value_label.setText(
-                f"{MONTHS[max_idx][:3]} · {self._fmt_tk(values[max_idx])}"
-            )
-        else:
-            self.owner_kpi_high._kpi_value_label.setText("—")
-
-        if min_idx is not None:
-            self.owner_kpi_low._kpi_value_label.setText(
-                f"{MONTHS[min_idx][:3]} · {self._fmt_tk(values[min_idx])}"
-            )
-        else:
-            self.owner_kpi_low._kpi_value_label.setText("—")
-
-        if max_idx is not None:
-            self.owner_kpi_high.setToolTip(
-                f"Highest month in {year}: {MONTHS[max_idx]}"
-            )
-        if min_idx is not None:
-            self.owner_kpi_low.setToolTip(f"Lowest month in {year}: {MONTHS[min_idx]}")
+        self._update_section_kpis(
+            kpis={
+                "current": getattr(self, "owner_kpi_total", None),
+                "prev": getattr(self, "owner_kpi_avg", None),
+                "high": getattr(self, "owner_kpi_high", None),
+                "low": getattr(self, "owner_kpi_low", None),
+            },
+            raw_values=raw_values,
+            year=year,
+            fmt_fn=lambda v: self._fmt_tk(v) if v is not None else "\u2014",
+            default_idx=(None, None),
+        )
 
     def _update_owner_room_meta(self, year: int, mode: str):
         last_sync = None

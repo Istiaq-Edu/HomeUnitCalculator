@@ -8,7 +8,8 @@ from PyQt5.QtCore import (
     QEasingCurve,
     pyqtSignal,
 )
-from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor, QKeySequence
+from PyQt5.QtGui import QIcon, QPainter, QCursor, QColor, QKeySequence, QPen, QLinearGradient, QFontMetrics
+from PyQt5.QtCore import QRect
 from PyQt5.QtWidgets import (
     QSizePolicy,
     QDialog,
@@ -22,6 +23,7 @@ from PyQt5.QtWidgets import (
     QApplication,
     QWidget,
     QDesktopWidget,
+    QToolTip,
 )
 from qfluentwidgets import (
     LineEdit,
@@ -30,9 +32,26 @@ from qfluentwidgets import (
     PushButton,
     TableWidget,
     SmoothMode,
+    BodyLabel,
+    CaptionLabel,
+    IconWidget,
 )
 
 from src.core.utils import resource_path
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    s = str(hex_color or "").strip()
+    if s.startswith("#"):
+        s = s[1:]
+    if len(s) == 3:
+        s = "".join([c * 2 for c in s])
+    if len(s) != 6:
+        return 0, 120, 212
+    try:
+        return int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+    except Exception:
+        return 0, 120, 212
 
 
 # Custom QLineEdit class for improved input handling and navigation
@@ -1088,3 +1107,377 @@ class SmoothTableWidget(TableWidget):
             v_bar.setValue(target_value)
 
         event.accept()
+
+
+class SummaryKpiCard(QWidget):
+    """Modern KPI card with gradient background, icon, title, and value."""
+
+    def __init__(self, title: str, icon, accent_color: str, parent=None):
+        super().__init__(parent)
+        self._accent_color = accent_color
+        self._icon = icon
+
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedHeight(100)
+        self.setMinimumWidth(180)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        r, g, b = _hex_to_rgb(accent_color)
+
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(6)
+
+        # Top row: icon + title
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
+
+        # Icon with gradient background
+        icon_container = QWidget()
+        icon_container.setFixedSize(28, 28)
+        icon_container.setStyleSheet(f"""
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 rgba({r}, {g}, {b}, 40),
+                stop:1 rgba({r}, {g}, {b}, 20));
+            border-radius: 6px;
+            border: 1px solid rgba({r}, {g}, {b}, 30);
+        """)
+        icon_layout = QVBoxLayout(icon_container)
+        icon_layout.setContentsMargins(2, 2, 2, 2)
+        icon_label = IconWidget(icon, icon_container)
+        icon_label.setFixedSize(20, 20)
+        icon_layout.addWidget(icon_label, 0, Qt.AlignCenter)
+        top_row.addWidget(icon_container)
+
+        # Title
+        self._kpi_title_label = CaptionLabel(title)
+        self._kpi_title_label.setTextColor(QColor(160, 160, 160))
+        title_font = self._kpi_title_label.font()
+        title_font.setPointSize(10)
+        title_font.setWeight(50)
+        self._kpi_title_label.setFont(title_font)
+        top_row.addWidget(self._kpi_title_label, 1)
+
+        layout.addLayout(top_row)
+
+        # Value
+        self._kpi_value_label = BodyLabel("---")
+        self._kpi_value_label.setTextColor(QColor(255, 255, 255))
+        value_font = self._kpi_value_label.font()
+        value_font.setPointSize(18)
+        value_font.setBold(True)
+        self._kpi_value_label.setFont(value_font)
+        layout.addWidget(self._kpi_value_label, 1)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Background with gradient
+        r, g, b = _hex_to_rgb(self._accent_color)
+        gradient = QLinearGradient(0, 0, self.width(), self.height())
+        gradient.setColorAt(0, QColor(r, g, b, 15))
+        gradient.setColorAt(1, QColor(r, g, b, 5))
+
+        painter.setPen(QPen(QColor(r, g, b, 30), 1))
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 12, 12)
+
+        painter.end()
+
+
+class AnimatedNumberLabel(BodyLabel):
+    """Label that smoothly animates between numeric values."""
+
+    def __init__(self, fmt_fn=None, parent=None):
+        super().__init__(parent)
+        self._fmt_fn = fmt_fn or (lambda v: f"{v:,.0f}")
+        self._current_value = 0.0
+        self._animation = None
+
+    def animate_to(self, target: float, duration_ms: int = 600):
+        from PyQt5.QtCore import QVariantAnimation, QEasingCurve
+
+        if self._animation and self._animation.state() == QVariantAnimation.Running:
+            self._animation.stop()
+
+        self._animation = QVariantAnimation(self)
+        self._animation.setStartValue(self._current_value)
+        self._animation.setEndValue(target)
+        self._animation.setDuration(duration_ms)
+        self._animation.setEasingCurve(QEasingCurve.OutCubic)
+        self._animation.valueChanged.connect(self._on_value_changed)
+        self._animation.finished.connect(lambda: self._on_finished(target))
+        self._animation.start()
+
+    def _on_value_changed(self, value):
+        self._current_value = value
+        self.setText(self._fmt_fn(value))
+
+    def _on_finished(self, target):
+        self._current_value = target
+        self.setText(self._fmt_fn(target))
+
+
+class ShimmerPlaceholder(QWidget):
+    """Skeleton loader with pulsing shimmer animation."""
+
+    def __init__(self, min_height: int = 72, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(min_height)
+        self._shimmer_offset = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance_shimmer)
+
+    def set_active(self, active: bool):
+        if active:
+            self._shimmer_offset = 0.0
+            self._timer.start(33)
+            self.show()
+        else:
+            self._timer.stop()
+            self.hide()
+
+    def _advance_shimmer(self):
+        self._shimmer_offset += 0.02
+        if self._shimmer_offset > 1.0:
+            self._shimmer_offset = 0.0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Background
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(43, 43, 43))
+        painter.drawRoundedRect(self.rect(), 12, 12)
+
+        # Shimmer band
+        w = self.width()
+        band_width = int(w * 0.3)
+        band_x = int(self._shimmer_offset * (w + band_width)) - band_width
+
+        gradient = QLinearGradient(band_x, 0, band_x + band_width, 0)
+        gradient.setColorAt(0.0, QColor(43, 43, 43))
+        gradient.setColorAt(0.5, QColor(58, 58, 58))
+        gradient.setColorAt(1.0, QColor(43, 43, 43))
+
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(self.rect(), 12, 12)
+        painter.end()
+
+
+class EmptyStateWidget(QWidget):
+    """Centered placeholder for no-data scenarios."""
+
+    def __init__(self, icon, message: str, subtitle: str = "", parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(200)
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(8)
+
+        icon_widget = IconWidget(icon, self)
+        icon_widget.setFixedSize(48, 48)
+        layout.addWidget(icon_widget, 0, Qt.AlignCenter)
+
+        msg_label = BodyLabel(message)
+        msg_label.setTextColor(QColor(255, 255, 255))
+        msg_font = msg_label.font()
+        msg_font.setPointSize(16)
+        msg_font.setBold(True)
+        msg_label.setFont(msg_font)
+        layout.addWidget(msg_label, 0, Qt.AlignCenter)
+
+        if subtitle:
+            sub_label = CaptionLabel(subtitle)
+            sub_label.setTextColor(QColor(160, 160, 160))
+            layout.addWidget(sub_label, 0, Qt.AlignCenter)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor(255, 255, 255, 13), 1))
+        painter.setBrush(QColor(43, 43, 43, 200))
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 12, 12)
+        painter.end()
+
+
+class SimpleBarChartWidget(QWidget):
+    """Custom-painted bar chart fallback when PyQt5.QtChart is unavailable."""
+
+    MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._labels = self.MONTHS[:]
+        self._values = [0.0] * 12
+        self._tooltips = [""] * 12
+        self._bar_color = QColor(0, 120, 212)
+        self._hover_index = None
+        self._bar_rects = []
+        self._grouped_data = None
+        self._grouped_colors = None
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(320)
+        self.setMouseTracking(True)
+
+    def set_data(self, labels, values, tooltips=None, bar_color=None):
+        self._labels = list(labels)[:12]
+        self._values = [float(v or 0.0) for v in values][:12]
+        self._tooltips = (list(tooltips) if tooltips else [""] * len(self._values))[:12]
+        if bar_color:
+            self._bar_color = QColor(bar_color)
+        self._grouped_data = None
+        self._grouped_colors = None
+        self.update()
+
+    def set_grouped_data(self, labels, grouped_dict, tooltips=None, color_list=None):
+        self._labels = list(labels)[:12]
+        self._grouped_data = grouped_dict
+        self._grouped_colors = color_list or [
+            QColor(73, 198, 255), QColor(185, 122, 255),
+            QColor(159, 226, 157), QColor(255, 184, 107),
+            QColor(255, 107, 107), QColor(0, 120, 212),
+        ]
+        self._tooltips = (list(tooltips) if tooltips else [""] * 12)[:12]
+        self._values = [0.0] * 12
+        self.update()
+
+    def _hit_test(self, pos):
+        for i, rect in enumerate(self._bar_rects):
+            if rect.contains(pos):
+                return i
+        return None
+
+    def mouseMoveEvent(self, event):
+        idx = self._hit_test(event.pos())
+        if idx != self._hover_index:
+            self._hover_index = idx
+            if idx is not None and idx < len(self._tooltips) and self._tooltips[idx]:
+                QToolTip.showText(QCursor.pos(), self._tooltips[idx], self)
+            else:
+                QToolTip.hideText()
+            self.update()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover_index = None
+        QToolTip.hideText()
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        from qfluentwidgets import isDarkTheme
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        rect = self.rect().adjusted(14, 12, -12, -12)
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+
+        dark = isDarkTheme()
+        bg = QColor(39, 39, 39) if dark else QColor(250, 250, 250)
+        grid = QColor(80, 80, 80) if dark else QColor(210, 210, 210)
+        text = QColor(230, 230, 230) if dark else QColor(30, 30, 30)
+
+        painter.fillRect(rect, bg)
+
+        left_pad = 88
+        bottom_pad = 36
+        top_pad = 4
+        plot = rect.adjusted(left_pad, top_pad, -8, -bottom_pad)
+
+        if plot.width() <= 0 or plot.height() <= 0:
+            return
+
+        # Grid lines
+        painter.setPen(QPen(grid, 1))
+        for i in range(5):
+            y = plot.top() + int(i * plot.height() / 4)
+            painter.drawLine(plot.left(), y, plot.right(), y)
+
+        n = len(self._labels)
+        if n <= 0:
+            painter.setPen(text)
+            painter.drawText(plot, Qt.AlignCenter, "No data")
+            return
+
+        # Compute max value
+        all_values = list(self._values)
+        if self._grouped_data:
+            for vals in self._grouped_data.values():
+                all_values.extend([float(v or 0.0) for v in vals])
+        max_v = max(all_values) if all_values else 1.0
+        if max_v <= 0:
+            max_v = 1.0
+
+        # Bar layout
+        bar_spacing = max(4, plot.width() // (n * 3))
+        total_bar_width = plot.width() - bar_spacing * (n + 1)
+        bar_width = max(8, total_bar_width // max(1, n))
+
+        self._bar_rects = []
+
+        if self._grouped_data:
+            # Grouped bars
+            groups = list(self._grouped_data.values())
+            num_groups = len(groups)
+            if num_groups > 0:
+                single_bar_width = max(4, bar_width // num_groups)
+                for i in range(n):
+                    x_base = plot.left() + bar_spacing + i * (bar_width + bar_spacing)
+                    for g_idx, group_values in enumerate(groups):
+                        val = float(group_values[i] or 0.0) if i < len(group_values) else 0.0
+                        bar_h = int((val / max_v) * plot.height())
+                        x = x_base + g_idx * single_bar_width
+                        y = plot.bottom() - bar_h
+                        bar_rect = QRect(x, y, single_bar_width - 2, bar_h)
+                        self._bar_rects.append(bar_rect)
+                        color = self._grouped_colors[g_idx % len(self._grouped_colors)]
+                        if self._hover_index == i:
+                            color = color.lighter(120)
+                        painter.setPen(Qt.NoPen)
+                        painter.setBrush(color)
+                        painter.drawRoundedRect(bar_rect, 2, 2)
+        else:
+            # Single bars
+            for i in range(n):
+                val = float(self._values[i] or 0.0)
+                bar_h = int((val / max_v) * plot.height())
+                x = plot.left() + bar_spacing + i * (bar_width + bar_spacing)
+                y = plot.bottom() - bar_h
+                bar_rect = QRect(x, y, bar_width, bar_h)
+                self._bar_rects.append(bar_rect)
+
+                color = self._bar_color
+                if self._hover_index == i:
+                    color = color.lighter(120)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(color)
+                painter.drawRoundedRect(bar_rect, 3, 3)
+
+        # X-axis labels
+        painter.setPen(QPen(text, 1))
+        fm = QFontMetrics(painter.font())
+        for i, label in enumerate(self._labels[:n]):
+            short = label[:3]
+            x = plot.left() + bar_spacing + i * (bar_width + bar_spacing) + bar_width // 2
+            w = fm.horizontalAdvance(short)
+            painter.drawText(x - w // 2, plot.bottom() + fm.ascent() + 10, short)
+
+        # Y-axis labels
+        for i in range(5):
+            frac = 1.0 - (i / 4.0)
+            val = frac * max_v
+            y = plot.top() + int(i * plot.height() / 4)
+            s = f"TK {val:,.0f}"
+            w = fm.horizontalAdvance(s)
+            painter.drawText(plot.left() - w - 8, y + int(fm.ascent() / 2), s)
+
+        painter.end()

@@ -885,11 +885,14 @@ class MeterCalculationApp(FluentWindow):
         /* Global tooltips, matching the dashboard dark overlay style */
         QToolTip {
             color: #ffffff;
-            background-color: rgba(0, 0, 0, 220);
-            border: 1px solid rgba(255, 255, 255, 40);
-            border-radius: 8px;
-            padding: 9px 10px;
-            font-size: 12px;
+            background-color: rgba(25, 25, 25, 245);
+            border: 1px solid rgba(0, 120, 212, 80);
+            border-radius: 12px;
+            padding: 14px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 40);
         }
 
         /* Modern input controls with consistent theming */
