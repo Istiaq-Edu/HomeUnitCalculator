@@ -2439,6 +2439,73 @@ class MainTab(QWidget):
 
         return container
 
+    def _create_add_next_month_container(self):
+        """Container 3: Add Next Month — single centered button."""
+        container = QWidget()
+        container.setObjectName("add_next_month_container")
+        container.setAttribute(Qt.WA_StyledBackground, True)
+        container.setAutoFillBackground(True)
+        container.setFocusPolicy(Qt.NoFocus)
+        container.setAttribute(Qt.WA_Hover, False)
+        container.setMouseTracking(False)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        container.setStyleSheet("""
+            #add_next_month_container {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-radius: 8px;
+            }
+        """)
+
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Dotted separator
+        dotted_sep = QFrame()
+        dotted_sep.setFrameShape(QFrame.HLine)
+        dotted_sep.setFrameShadow(QFrame.Plain)
+        dotted_sep.setStyleSheet("color: #4a4a4a; background-color: #4a4a4a; border: none; height: 1px;")
+        layout.addWidget(dotted_sep)
+
+        # Centered button
+        add_next_month_button = PrimaryPushButton("Add Next Month")
+        add_next_month_button.setIcon(FluentIcon.ADD.icon(color=QColor(255, 255, 255)))
+        add_next_month_button.setIconSize(QSize(20, 20))
+        add_next_month_button.clicked.connect(self.add_month_action)
+        add_next_month_button.setFixedHeight(36)
+        add_next_month_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #FF8C00;
+                border: 1px solid #FF8C00;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #FF7F00;
+                border-color: #FF7F00;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #FF6600;
+                border-color: #FF6600;
+            }
+        """)
+        add_next_month_button.setMinimumWidth(240)
+        add_next_month_button.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(0)
+        button_row.addStretch(1)
+        button_row.addWidget(add_next_month_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
+        return container
+
         
     def _clear_layout(self, layout):
         if layout is not None:
