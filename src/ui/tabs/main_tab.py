@@ -2206,7 +2206,142 @@ class MainTab(QWidget):
         load_info_layout.addWidget(add_next_month_button, 2)
         # No trailing stretch needed; expanding widgets will allocate space
         return load_info_group
-        
+
+    def _create_load_data_container(self):
+        """Container 1: Load Data — Month/Year selection, source, and load button."""
+        container = QWidget()
+        container.setObjectName("load_data_container")
+        container.setAttribute(Qt.WA_StyledBackground, True)
+        container.setAutoFillBackground(True)
+        container.setFocusPolicy(Qt.NoFocus)
+        container.setAttribute(Qt.WA_Hover, False)
+        container.setMouseTracking(False)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        container.setStyleSheet("""
+            #load_data_container {
+                background-color: #2b2b2b;
+                border: 1px solid #3d3d3d;
+                border-left: 3px solid #3d3d3d;
+                border-radius: 8px;
+            }
+        """)
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        # Month
+        load_month_label = BodyLabel("Month:")
+        load_month_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        self.load_month_combo = ComboBox()
+        self.load_month_combo.addItems([
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ])
+        self.load_month_combo.setCurrentIndex(datetime.now().month - 1)
+        self.load_month_combo.setMinimumWidth(140)
+        self.load_month_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        # Year
+        load_year_label = BodyLabel("Year:")
+        load_year_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        self.load_year_spinbox = SpinBox()
+        self.load_year_spinbox.setRange(2000, 2100)
+        self.load_year_spinbox.setValue(datetime.now().year)
+        self._apply_no_select_to_spinbox(self.load_year_spinbox)
+        self.load_year_spinbox.setFocusPolicy(Qt.NoFocus)
+        QTimer.singleShot(0, lambda: (self.load_year_spinbox.lineEdit() and self.load_year_spinbox.lineEdit().setFocusPolicy(Qt.NoFocus)))
+        self.load_year_spinbox.setMinimumWidth(100)
+        self.load_year_spinbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        try:
+            le2 = self.load_year_spinbox.lineEdit() if hasattr(self.load_year_spinbox, 'lineEdit') else None
+            if le2 is None:
+                QTimer.singleShot(0, lambda: (
+                    self.load_year_spinbox.lineEdit() and self.load_year_spinbox.lineEdit().setFont(self.load_year_spinbox.lineEdit().font().setBold(True))
+                ))
+            else:
+                f2 = le2.font()
+                f2.setBold(True)
+                le2.setFont(f2)
+        except Exception:
+            pass
+
+        layout.addWidget(load_month_label, 0)
+        layout.addWidget(self.load_month_combo, 2)
+        layout.addSpacing(12)
+        layout.addWidget(load_year_label, 0)
+        layout.addWidget(self.load_year_spinbox, 1)
+
+        # Source dropdown button
+        self.main_window.load_info_source_combo.setVisible(False)
+        current_source = self.main_window.load_info_source_combo.currentText()
+        if "Cloud" in current_source:
+            initial_icon = FluentIcon.CLOUD
+            initial_label = "Load from Cloud"
+        else:
+            initial_icon = FluentIcon.DOCUMENT
+            initial_label = "Load from CSV"
+
+        self.load_source_button = DropDownPushButton(initial_icon, initial_label)
+        self.load_source_button.setFixedHeight(36)
+        try:
+            self.load_source_button.setIcon(initial_icon.icon(color=QColor(255, 255, 255)))
+        except Exception:
+            pass
+        self.load_source_button.setIconSize(QSize(20, 20))
+        self.load_source_button.setMinimumWidth(180)
+        self.load_source_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        menu = RoundMenu(parent=self.load_source_button)
+        def _set_source(text, icon, label):
+            self.main_window.load_info_source_combo.setCurrentText(text)
+            try:
+                qicon = icon.icon(color=QColor(255, 255, 255)) if hasattr(icon, 'icon') else icon
+            except Exception:
+                qicon = icon
+            self.load_source_button.setIcon(qicon)
+            self.load_source_button.setText(label)
+            self._update_source_button_color(label)
+        menu.addAction(Action(FluentIcon.DOCUMENT, "Load from CSV", triggered=lambda: _set_source("Load from PC (CSV)", FluentIcon.DOCUMENT, "Load from CSV")))
+        menu.addAction(Action(FluentIcon.CLOUD, "Load from Cloud", triggered=lambda: _set_source("Load from Cloud", FluentIcon.CLOUD, "Load from Cloud")))
+        self.load_source_button.setMenu(menu)
+        self._update_source_button_color(initial_label)
+
+        layout.addSpacing(12)
+        layout.addWidget(self.load_source_button, 2)
+
+        # Load button
+        load_button = PrimaryPushButton("Load")
+        load_button.setIcon(FluentIcon.DOWNLOAD.icon(color=QColor(255, 255, 255)))
+        load_button.setIconSize(QSize(20, 20))
+        load_button.clicked.connect(self.load_info_to_inputs)
+        load_button.setFixedHeight(36)
+        load_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #0078D4;
+                border: 1px solid #0078D4;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #106ebe;
+                border-color: #106ebe;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #005a9e;
+                border-color: #005a9e;
+            }
+        """)
+        load_button.setMinimumWidth(120)
+        load_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        layout.addSpacing(12)
+        layout.addWidget(load_button, 1)
+
+        return container
 
         
     def _clear_layout(self, layout):
