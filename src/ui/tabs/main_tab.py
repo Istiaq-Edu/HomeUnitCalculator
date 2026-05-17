@@ -317,27 +317,21 @@ class AddPairButton(QWidget):
         return super().leaveEvent(event)
 
     def paintEvent(self, event):
-        # Custom paint to ensure full-width blue button with rounded corners
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         r = self.rect().adjusted(1, 1, -1, -1)
         radius = 8
 
-        grad = QLinearGradient(r.topLeft(), r.bottomLeft())
         if self._hover:
-            grad.setColorAt(0, QColor("#1084d8"))
-            grad.setColorAt(1, QColor("#106ebe"))
-            border = QColor("#1084d8")
+            bg = QColor(80, 80, 80, 180)
+            border = QColor(120, 120, 120, 200)
         else:
-            grad.setColorAt(0, QColor("#0078D4"))
-            grad.setColorAt(1, QColor("#005a9e"))
-            border = QColor("#0078D4")
+            bg = QColor(60, 60, 60, 140)
+            border = QColor(100, 100, 100, 160)
 
-        painter.setBrush(QBrush(grad))
-        painter.setPen(QPen(border, 2))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1))
         painter.drawRoundedRect(r, radius, radius)
-        # Do not call base class paintEvent afterwards to avoid overwriting our background
-        # super().paintEvent(event)
         return
 
     def mouseReleaseEvent(self, event):
@@ -941,9 +935,6 @@ class MainTab(QWidget):
         # Two distinct containers stacked vertically
         load_data_container = self._create_load_data_container()
         actions_layout.addWidget(load_data_container)
-
-        add_next_month_container = self._create_add_next_month_container()
-        actions_layout.addWidget(add_next_month_container)
 
         actions_section = CollapsibleSection("\u26a1 Actions", actions_content, expanded=True)
         main_layout.addWidget(actions_section)
@@ -1785,29 +1776,179 @@ class MainTab(QWidget):
         sep.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; height: 2px; margin: 4px 20px;")
         card_layout.addWidget(sep)
 
-        # ── Two-column body ─────────────────────────────────────────────
+        # ── Top bar: Month/Year (left) + Add Next Month (right) ─────────
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(12)
+        top_bar.setContentsMargins(0, 0, 0, 8)
+
+        # Left: Month/Year
+        month_label = BodyLabel("Month:")
+        month_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        self.month_combo = ComboBox()
+        self.month_combo.addItems([
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ])
+
+        year_label = BodyLabel("Year:")
+        year_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        self.year_spinbox = SpinBox()
+        self.year_spinbox.setRange(2000, 2100)
+        self.year_spinbox.setValue(datetime.now().year)
+        self._apply_no_select_to_spinbox(self.year_spinbox)
+        self.year_spinbox.setFocusPolicy(Qt.NoFocus)
+        try:
+            le = self.year_spinbox.lineEdit() if hasattr(self.year_spinbox, 'lineEdit') else None
+            if le is None:
+                QTimer.singleShot(0, lambda: (
+                    self.year_spinbox.lineEdit() and self.year_spinbox.lineEdit().setFont(self.year_spinbox.lineEdit().font().setBold(True))
+                ))
+            else:
+                f = le.font()
+                f.setBold(True)
+                le.setFont(f)
+        except Exception:
+            pass
+
+        top_bar.addWidget(month_label)
+        top_bar.addWidget(self.month_combo)
+        top_bar.addSpacing(20)
+        top_bar.addWidget(year_label)
+        top_bar.addWidget(self.year_spinbox)
+        top_bar.addStretch(1)
+
+        # Right: Add Next Month button
+        add_next_month_btn = PrimaryPushButton("Add Next Month")
+        add_next_month_btn.setIcon(FluentIcon.ADD.icon(color=QColor(255, 255, 255)))
+        add_next_month_btn.setIconSize(QSize(20, 20))
+        add_next_month_btn.clicked.connect(self.add_month_action)
+        add_next_month_btn.setFixedHeight(36)
+        add_next_month_btn.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #FF8C00;
+                border: 1px solid #FF8C00;
+                border-radius: 6px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
+            }
+            PrimaryPushButton:hover {
+                background-color: #FF7F00;
+                border-color: #FF7F00;
+            }
+            PrimaryPushButton:pressed {
+                background-color: #FF6600;
+                border-color: #FF6600;
+            }
+        """)
+        add_next_month_btn.setMinimumWidth(200)
+        top_bar.addWidget(add_next_month_btn)
+
+        card_layout.addLayout(top_bar)
+
+        # ── Unified frosted input container ─────────────────────────────
+        unified_inputs = QWidget()
+        unified_inputs.setAttribute(Qt.WA_StyledBackground, True)
+        unified_inputs.setFocusPolicy(Qt.NoFocus)
+        unified_inputs.setAttribute(Qt.WA_Hover, False)
+        unified_inputs.setMouseTracking(False)
+        unified_inputs.setStyleSheet("""
+            background-color: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            border-radius: 12px;
+        """)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QColor(0, 0, 0, 120))
+        unified_inputs.setGraphicsEffect(shadow)
+
+        inputs_layout = QVBoxLayout(unified_inputs)
+        inputs_layout.setContentsMargins(16, 12, 16, 12)
+        inputs_layout.setSpacing(12)
+
+        # -- Billing Period section --
+        bp_title = BodyLabel("Billing Period")
+        bp_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px;")
+        inputs_layout.addWidget(bp_title)
+        bp_sep = QFrame()
+        bp_sep.setFrameShape(QFrame.HLine)
+        bp_sep.setFrameShadow(QFrame.Plain)
+        bp_sep.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
+        inputs_layout.addWidget(bp_sep)
+
+        # -- Reading Pairs section --
+        rp_title = BodyLabel("Reading Pairs")
+        rp_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px;")
+        inputs_layout.addWidget(rp_title)
+        rp_sep = QFrame()
+        rp_sep.setFrameShape(QFrame.HLine)
+        rp_sep.setFrameShadow(QFrame.Plain)
+        rp_sep.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
+        inputs_layout.addWidget(rp_sep)
+
+        pairs_scroll = ScrollArea()
+        pairs_scroll.setWidgetResizable(True)
+        pairs_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        pairs_scroll.setMinimumHeight(110)
+        pairs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        pairs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        pairs_container = QWidget()
+        pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.pairs_layout = QVBoxLayout(pairs_container)
+        self.pairs_layout.setSpacing(2)
+        self.pairs_layout.setContentsMargins(4, 2, 4, 10)
+        pairs_scroll.setWidget(pairs_container)
+        inputs_layout.addWidget(pairs_scroll, 0, Qt.AlignTop)
+        self.pairs_scroll = pairs_scroll
+
+        self._pairs_fixed_gap = 12
+        inputs_layout.addSpacing(self._pairs_fixed_gap)
+        self._pairs_btn_top_gap = 14
+        add_pair_button = AddPairButton("Add Reading Pair", lambda: self.add_reading_pair())
+        button_holder = QWidget()
+        bh_layout = QVBoxLayout(button_holder)
+        bh_layout.setContentsMargins(0, self._pairs_btn_top_gap, 0, 0)
+        bh_layout.setSpacing(0)
+        bh_layout.addWidget(add_pair_button)
+        inputs_layout.addWidget(button_holder)
+        self._pairs_add_button = add_pair_button
+
+        # -- Additional Amount section --
+        aa_title = BodyLabel("Additional Amount:")
+        aa_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px;")
+        inputs_layout.addWidget(aa_title)
+        aa_sep = QFrame()
+        aa_sep.setFrameShape(QFrame.HLine)
+        aa_sep.setFrameShadow(QFrame.Plain)
+        aa_sep.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
+        inputs_layout.addWidget(aa_sep)
+
+        aa_row = QHBoxLayout()
+        aa_row.setContentsMargins(0, 0, 0, 0)
+        aa_row.setSpacing(8)
+        self.additional_amount_input = CustomLineEdit()
+        self.additional_amount_input.setObjectName("main_additional_amount_input")
+        self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
+        currency_label = CaptionLabel("TK")
+        currency_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px; padding: 8px 4px;")
+        aa_row.addWidget(self.additional_amount_input, 1)
+        aa_row.addWidget(currency_label)
+        inputs_layout.addLayout(aa_row)
+
+        card_layout.addWidget(unified_inputs)
+
+        # ── Two-column body: results on right ───────────────────────────
         body = QHBoxLayout()
         body.setSpacing(16)
 
-        # Left column: inputs
-        left = QWidget()
-        left.setStyleSheet("background: transparent; border: none;")
-        left.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(12)
-
-        # -- Billing Period subsection --
-        left_layout.addWidget(self._make_frosted_subsection(
-            "Billing Period", self._build_billing_period_content()))
-
-        # -- Reading Pairs subsection --
-        left_layout.addWidget(self._make_frosted_subsection(
-            "Reading Pairs", self._build_reading_pairs_content()))
-
-        # -- Additional Amount subsection --
-        left_layout.addWidget(self._make_frosted_subsection(
-            "Additional Amount", self._build_additional_amount_content()))
+        # Left: spacer (inputs are now above)
+        left_spacer = QWidget()
+        left_spacer.setStyleSheet("background: transparent; border: none;")
+        left_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        body.addWidget(left_spacer, 3)
 
         # Right column: results
         right = QWidget()
@@ -1822,7 +1963,6 @@ class MainTab(QWidget):
         right_layout.addWidget(results_group, 0, Qt.AlignTop)
         right_layout.addStretch(1)
 
-        body.addWidget(left, 3)
         body.addWidget(right, 2)
         card_layout.addLayout(body)
 
@@ -1910,139 +2050,6 @@ class MainTab(QWidget):
         card_layout.addLayout(buttons_row)
 
         return card
-
-    def _make_frosted_subsection(self, title_text, content_widget):
-        """Wrap a content widget in a frosted glass subsection with a title."""
-        outer = QWidget()
-        outer.setStyleSheet("background: transparent; border: none;")
-        outer_layout = QVBoxLayout(outer)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        inner = QWidget()
-        inner.setAttribute(Qt.WA_StyledBackground, True)
-        inner.setFocusPolicy(Qt.NoFocus)
-        inner.setAttribute(Qt.WA_Hover, False)
-        inner.setMouseTracking(False)
-        inner.setStyleSheet("""
-            background-color: rgba(255, 255, 255, 0.14);
-            border: 1px solid rgba(255, 255, 255, 0.28);
-            border-radius: 12px;
-        """)
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 2)
-        shadow.setColor(QColor(0, 0, 0, 120))
-        inner.setGraphicsEffect(shadow)
-
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(16, 12, 16, 12)
-        inner_layout.setSpacing(8)
-
-        lbl = BodyLabel(title_text)
-        lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px; background: transparent; border: none;")
-        inner_layout.addWidget(lbl)
-
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Plain)
-        line.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
-        inner_layout.addWidget(line)
-
-        inner_layout.addWidget(content_widget)
-        outer_layout.addWidget(inner)
-        return outer
-
-    def _build_billing_period_content(self):
-        """Build the billing period input content widget."""
-        w = QWidget()
-        w.setStyleSheet("background: transparent; border: none;")
-        layout = QHBoxLayout(w)
-        layout.setSpacing(12)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addStretch(1)
-
-        month_label = BodyLabel("Month:")
-        month_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
-        self.month_combo = ComboBox()
-        self.month_combo.addItems([
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
-        ])
-
-        year_label = BodyLabel("Year:")
-        year_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
-        self.year_spinbox = SpinBox()
-        self.year_spinbox.setRange(2000, 2100)
-        self.year_spinbox.setValue(datetime.now().year)
-        self._apply_no_select_to_spinbox(self.year_spinbox)
-        self.year_spinbox.setFocusPolicy(Qt.NoFocus)
-
-        layout.addWidget(month_label)
-        layout.addWidget(self.month_combo)
-        layout.addSpacing(20)
-        layout.addWidget(year_label)
-        layout.addWidget(self.year_spinbox)
-        layout.addStretch(1)
-        return w
-
-    def _build_reading_pairs_content(self):
-        """Build the reading pairs content widget."""
-        w = QWidget()
-        w.setStyleSheet("background: transparent; border: none;")
-        w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        layout = QVBoxLayout(w)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        pairs_scroll = ScrollArea()
-        pairs_scroll.setWidgetResizable(True)
-        pairs_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        pairs_scroll.setMinimumHeight(110)
-        pairs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        pairs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        pairs_container = QWidget()
-        pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.pairs_layout = QVBoxLayout(pairs_container)
-        self.pairs_layout.setSpacing(2)
-        self.pairs_layout.setContentsMargins(4, 2, 4, 10)
-        pairs_scroll.setWidget(pairs_container)
-        layout.addWidget(pairs_scroll, 0, Qt.AlignTop)
-        self.pairs_scroll = pairs_scroll
-
-        self._pairs_fixed_gap = 12
-        layout.addSpacing(self._pairs_fixed_gap)
-        self._pairs_btn_top_gap = 14
-        add_pair_button = AddPairButton("Add Reading Pair", lambda: self.add_reading_pair())
-        button_holder = QWidget()
-        bh_layout = QVBoxLayout(button_holder)
-        bh_layout.setContentsMargins(0, self._pairs_btn_top_gap, 0, 0)
-        bh_layout.setSpacing(0)
-        bh_layout.addWidget(add_pair_button)
-        layout.addWidget(button_holder)
-        self._pairs_add_button = add_pair_button
-
-        return w
-
-    def _build_additional_amount_content(self):
-        """Build the additional amount input content widget."""
-        w = QWidget()
-        w.setStyleSheet("background: transparent; border: none;")
-        layout = QHBoxLayout(w)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        self.additional_amount_input = CustomLineEdit()
-        self.additional_amount_input.setObjectName("main_additional_amount_input")
-        self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
-
-        currency_label = CaptionLabel("TK")
-        currency_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px; padding: 8px 4px; background: transparent; border: none;")
-
-        layout.addWidget(self.additional_amount_input, 1)
-        layout.addWidget(currency_label)
-        return w
 
     def _create_load_data_container(self):
         """Container 1: Load Data — Month/Year selection, source, and load button."""
@@ -2180,74 +2187,6 @@ class MainTab(QWidget):
 
         return container
 
-    def _create_add_next_month_container(self):
-        """Container 3: Add Next Month — single centered button."""
-        container = QWidget()
-        container.setObjectName("add_next_month_container")
-        container.setAttribute(Qt.WA_StyledBackground, True)
-        container.setAutoFillBackground(True)
-        container.setFocusPolicy(Qt.NoFocus)
-        container.setAttribute(Qt.WA_Hover, False)
-        container.setMouseTracking(False)
-        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        container.setStyleSheet("""
-            #add_next_month_container {
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-                border-radius: 8px;
-            }
-        """)
-
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        # Dotted separator
-        dotted_sep = QFrame()
-        dotted_sep.setFrameShape(QFrame.HLine)
-        dotted_sep.setFrameShadow(QFrame.Plain)
-        dotted_sep.setStyleSheet("color: #4a4a4a; background-color: #4a4a4a; border: none; height: 1px;")
-        layout.addWidget(dotted_sep)
-
-        # Centered button
-        add_next_month_button = PrimaryPushButton("Add Next Month")
-        add_next_month_button.setIcon(FluentIcon.ADD.icon(color=QColor(255, 255, 255)))
-        add_next_month_button.setIconSize(QSize(20, 20))
-        add_next_month_button.clicked.connect(self.add_month_action)
-        add_next_month_button.setFixedHeight(36)
-        add_next_month_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background-color: #FF8C00;
-                border: 1px solid #FF8C00;
-                border-radius: 6px;
-                font-weight: 600;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
-            }
-            PrimaryPushButton:hover {
-                background-color: #FF7F00;
-                border-color: #FF7F00;
-            }
-            PrimaryPushButton:pressed {
-                background-color: #FF6600;
-                border-color: #FF6600;
-            }
-        """)
-        add_next_month_button.setMinimumWidth(240)
-        add_next_month_button.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
-
-        button_row = QHBoxLayout()
-        button_row.setContentsMargins(0, 0, 0, 0)
-        button_row.setSpacing(0)
-        button_row.addStretch(1)
-        button_row.addWidget(add_next_month_button)
-        button_row.addStretch(1)
-        layout.addLayout(button_row)
-
-        return container
-
-        
     def _clear_layout(self, layout):
         if layout is not None:
             while layout.count():
