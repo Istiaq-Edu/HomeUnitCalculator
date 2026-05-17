@@ -938,12 +938,9 @@ class MainTab(QWidget):
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(8)
 
-        # Three distinct containers stacked vertically
+        # Two distinct containers stacked vertically
         load_data_container = self._create_load_data_container()
         actions_layout.addWidget(load_data_container)
-
-        save_options_container = self._create_save_options_container()
-        actions_layout.addWidget(save_options_container)
 
         add_next_month_container = self._create_add_next_month_container()
         actions_layout.addWidget(add_next_month_container)
@@ -1829,7 +1826,11 @@ class MainTab(QWidget):
         body.addWidget(right, 2)
         card_layout.addLayout(body)
 
-        # ── Calculate button ────────────────────────────────────────────
+        # ── Calculate + Save buttons row ──────────────────────────────────
+        buttons_row = QHBoxLayout()
+        buttons_row.setSpacing(8)
+        buttons_row.setContentsMargins(0, 0, 0, 0)
+
         self.main_calculate_button = PrimaryPushButton("Calculate")
         self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
         self.main_calculate_button.setIconSize(QSize(20, 20))
@@ -1846,7 +1847,67 @@ class MainTab(QWidget):
             PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1084d8, stop:1 #106ebe); border-color: #1084d8; }
             PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #005a9e, stop:1 #004578); border-color: #005a9e; }
         """)
-        card_layout.addWidget(self.main_calculate_button)
+
+        # Save PDF
+        pdf_button = PrimaryPushButton("Save PDF")
+        pdf_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+        pdf_button.setIconSize(QSize(20, 20))
+        pdf_button.setFixedHeight(40)
+        pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        pdf_button.clicked.connect(self.main_window.save_to_pdf)
+        pdf_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #d32f2f, stop:1 #b71c1c);
+                border: 2px solid #d32f2f; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
+            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f44336, stop:1 #d32f2f); border-color: #f44336; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #b71c1c, stop:1 #8f1414); border-color: #b71c1c; }
+        """)
+
+        # Save CSV
+        csv_button = PrimaryPushButton("Save CSV")
+        csv_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+        csv_button.setIconSize(QSize(20, 20))
+        csv_button.setFixedHeight(40)
+        csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
+        csv_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #388e3c, stop:1 #2e7d32);
+                border: 2px solid #388e3c; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
+            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); border-color: #4caf50; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2e7d32, stop:1 #1b5e20); border-color: #2e7d32; }
+        """)
+
+        # Save Cloud
+        cloud_button = PrimaryPushButton("Save Cloud")
+        cloud_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+        cloud_button.setIconSize(QSize(20, 20))
+        cloud_button.setFixedHeight(40)
+        cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
+        cloud_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #7b1fa2, stop:1 #6a1b9a);
+                border: 2px solid #7b1fa2; border-radius: 8px; font-weight: 600; font-size: 14px;
+                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
+            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9c27b0, stop:1 #7b1fa2); border-color: #9c27b0; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a1b9a, stop:1 #4a148c); border-color: #6a1b9a; }
+        """)
+
+        buttons_row.addWidget(self.main_calculate_button, 2)
+        buttons_row.addWidget(pdf_button, 1)
+        buttons_row.addWidget(csv_button, 1)
+        buttons_row.addWidget(cloud_button, 1)
+        self._save_buttons_row = buttons_row
+        card_layout.addLayout(buttons_row)
 
         return card
 
@@ -2116,102 +2177,6 @@ class MainTab(QWidget):
 
         layout.addSpacing(12)
         layout.addWidget(load_button, 1)
-
-        return container
-
-    def _create_save_options_container(self):
-        """Container 2: Save Options — PDF, CSV, and Cloud save buttons."""
-        container = QWidget()
-        container.setObjectName("save_options_container")
-        container.setAttribute(Qt.WA_StyledBackground, True)
-        container.setAutoFillBackground(True)
-        container.setFocusPolicy(Qt.NoFocus)
-        container.setAttribute(Qt.WA_Hover, False)
-        container.setMouseTracking(False)
-        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        container.setStyleSheet("""
-            #save_options_container {
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-                border-radius: 8px;
-            }
-        """)
-
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-
-        # Top hairline separator
-        top_sep = QFrame()
-        top_sep.setFrameShape(QFrame.HLine)
-        top_sep.setFrameShadow(QFrame.Plain)
-        top_sep.setStyleSheet("color: #3d3d3d; background-color: #3d3d3d; border: none; height: 1px;")
-        layout.addWidget(top_sep)
-
-        # Buttons row
-        buttons_row = QHBoxLayout()
-        buttons_row.setSpacing(8)
-        buttons_row.setContentsMargins(0, 4, 0, 0)
-
-        # Save PDF
-        pdf_button = PrimaryPushButton("Save PDF")
-        pdf_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
-        pdf_button.setIconSize(QSize(20, 20))
-        pdf_button.setFixedHeight(40)
-        pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        pdf_button.clicked.connect(self.main_window.save_to_pdf)
-        pdf_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #d32f2f, stop:1 #b71c1c);
-                border: 2px solid #d32f2f; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
-            }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f44336, stop:1 #d32f2f); border-color: #f44336; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #b71c1c, stop:1 #8f1414); border-color: #b71c1c; }
-        """)
-
-        # Save CSV
-        csv_button = PrimaryPushButton("Save CSV")
-        csv_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
-        csv_button.setIconSize(QSize(20, 20))
-        csv_button.setFixedHeight(40)
-        csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
-        csv_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #388e3c, stop:1 #2e7d32);
-                border: 2px solid #388e3c; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
-            }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); border-color: #4caf50; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2e7d32, stop:1 #1b5e20); border-color: #2e7d32; }
-        """)
-
-        # Save Cloud
-        cloud_button = PrimaryPushButton("Save Cloud")
-        cloud_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
-        cloud_button.setIconSize(QSize(20, 20))
-        cloud_button.setFixedHeight(40)
-        cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
-        cloud_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #7b1fa2, stop:1 #6a1b9a);
-                border: 2px solid #7b1fa2; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
-            }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9c27b0, stop:1 #7b1fa2); border-color: #9c27b0; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a1b9a, stop:1 #4a148c); border-color: #6a1b9a; }
-        """)
-
-        buttons_row.addWidget(pdf_button, 1)
-        buttons_row.addWidget(csv_button, 1)
-        buttons_row.addWidget(cloud_button, 1)
-        self._save_buttons_row = buttons_row
-        layout.addLayout(buttons_row)
 
         return container
 
