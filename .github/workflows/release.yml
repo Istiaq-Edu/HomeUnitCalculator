@@ -63,7 +63,24 @@ jobs:
             const isPre = version.includes('beta') || version.includes('alpha') || version.includes('rc');
             const changelog = `${{ steps.git-cliff.outputs.content }}` || 'See commit history for changes in this release.';
             const intro = `HomeUnitCalculator v${version} — ${isPre ? 'Pre-release for testing and feedback.' : 'Stable release.'}\n\n${isPre ? '**Note:** This is a pre-release. Some features may be incomplete or unstable. Please report any issues.' : ''}`;
-            const body = `${intro}\n\n---\n\n## What Changed\n\n${changelog}\n\n---\n\n### Downloads\n\n- **Installer** (`HomeUnitCalculator-Setup-${version}.exe`) — recommended for most users. Run it to install the app.\n- **Portable ZIP** (`HomeUnitCalculator-Portable-${version}.zip`) — no installation needed. Extract and run `HomeUnitCalculator.exe`.\n\n> **Requirements:** Windows 10/11 (64-bit)`;
+            const body = [
+              intro,
+              '',
+              '---',
+              '',
+              '## What Changed',
+              '',
+              changelog,
+              '',
+              '---',
+              '',
+              '### Downloads',
+              '',
+              `- **Installer** (HomeUnitCalculator-Setup-${version}.exe) — recommended for most users. Run it to install the app.`,
+              `- **Portable ZIP** (HomeUnitCalculator-Portable-${version}.zip) — no installation needed. Extract and run HomeUnitCalculator.exe.`,
+              '',
+              '> **Requirements:** Windows 10/11 (64-bit)'
+            ].join('\n');
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -73,7 +90,7 @@ jobs:
               draft: true,
               prerelease: isPre
             });
-            return data.id
+            return data.id;
 
   # ──────────────────────────────────────────────────────────────
   # Job 2 — Build the Windows app (PyInstaller + Inno Setup)
