@@ -169,8 +169,8 @@ jobs:
           $repo = "${{ github.repository }}"
 
           # --- Get the upload_url from the release (strip the {?name,label} suffix) ---
-          $release = gh api "repos/$repo/releases/$releaseId" --silent | ConvertFrom-Json
-          $uploadUrl = $release.upload_url -replace '\{.*\}', ''
+          $uploadUrl = (gh api "repos/$repo/releases/$releaseId" --jq ".upload_url") -replace '\{.*\}', ''
+          if (!$uploadUrl) { throw "Could not get upload_url for release $releaseId" }
           Write-Host "Upload URL: $uploadUrl"
 
           # --- Delete any existing assets with the same name (re-runs) ---
