@@ -102,8 +102,8 @@ class ReadingPairWidget(QWidget):
         # Remove button — clean, minimal
         self.remove_button = PushButton()
         self.remove_button.setIcon(FluentIcon.CLOSE.icon(color=QColor(255, 255, 255)))
-        self.remove_button.setIconSize(QSize(12, 12))
-        self.remove_button.setFixedSize(24, 24)
+        self.remove_button.setIconSize(QSize(14, 14))
+        self.remove_button.setFixedSize(28, 28)
         self.remove_button.clicked.connect(self._on_remove_clicked)
         self.remove_button.setToolTip("")
         self.remove_button.setStyleSheet("""
@@ -208,8 +208,8 @@ class ReadingPairWidget(QWidget):
                 margin: 0px;
             }
             ReadingPairWidget:hover {
-                background: rgba(255, 255, 255, 0.03);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.06);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.12);
             }
         """)
     
@@ -318,11 +318,11 @@ class AddPairButton(QWidget):
         radius = 8
 
         if self._hover:
-            bg = QColor(0, 120, 212, 180)
-            border = QColor(16, 132, 216, 200)
+            bg = QColor(80, 80, 80, 180)
+            border = QColor(120, 120, 120, 200)
         else:
-            bg = QColor(0, 120, 212, 100)
-            border = QColor(16, 132, 216, 140)
+            bg = QColor(60, 60, 60, 120)
+            border = QColor(90, 90, 90, 140)
 
         painter.setBrush(QBrush(bg))
         painter.setPen(QPen(border, 1))
@@ -388,12 +388,12 @@ class ResultCard(QWidget):
         icon_chip.setObjectName("icon_chip")
         icon_chip.setFixedSize(36, 36)
         icon_chip.setAttribute(Qt.WA_StyledBackground, True)
-        chip_bg_rgba = _rgba_from_hex(self.theme_color, 0.10)
+        chip_bg_rgba = _rgba_from_hex(self.theme_color, 0.14)
         icon_chip.setStyleSheet(f"""
             #icon_chip {{
                 background-color: {chip_bg_rgba};
                 border-radius: 8px;
-                border: 1px solid {dark_accent};
+                border: none;
             }}
         """)
         icon_chip.setGraphicsEffect(None)
@@ -496,7 +496,19 @@ class ResultCard(QWidget):
         self._pulse_effect()
     
     def _pulse_effect(self):
-        pass
+        """Brief opacity flash when value updates."""
+        try:
+            from PyQt5.QtWidgets import QGraphicsOpacityEffect
+            effect = QGraphicsOpacityEffect(self)
+            self.setGraphicsEffect(effect)
+            anim = QPropertyAnimation(effect, b"opacity")
+            anim.setDuration(200)
+            anim.setStartValue(0.4)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.start()
+        except Exception:
+            pass
 
 
 class FinalAmountCard(QWidget):
@@ -507,9 +519,9 @@ class FinalAmountCard(QWidget):
         self.value_label = value_label
         
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(90)
-        self.setMaximumHeight(90)
-        self.setFixedHeight(90)
+        self.setMinimumHeight(110)
+        self.setMaximumHeight(110)
+        self.setFixedHeight(110)
         
         self.setAttribute(Qt.WA_Hover, False)
         self.setMouseTracking(False)
@@ -520,13 +532,13 @@ class FinalAmountCard(QWidget):
         
         # Direct layout — no inner panel
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setContentsMargins(24, 14, 24, 14)
         layout.setSpacing(14)
         
         # Icon
         icon_label = QLabel()
         money_icon = FluentIcon.SHOPPING_CART
-        pixmap = money_icon.icon().pixmap(40, 40)
+        pixmap = money_icon.icon().pixmap(44, 44)
         
         if not pixmap.isNull():
             colored_pixmap = QPixmap(pixmap.size())
@@ -545,14 +557,14 @@ class FinalAmountCard(QWidget):
 
         icon_chip = QWidget()
         icon_chip.setObjectName("final_amount_icon_chip")
-        icon_chip.setFixedSize(52, 52)
+        icon_chip.setFixedSize(56, 56)
         icon_chip.setAttribute(Qt.WA_StyledBackground, True)
-        chip_bg_rgba2 = _rgba_from_hex(theme_color, 0.10)
+        chip_bg_rgba2 = _rgba_from_hex(theme_color, 0.14)
         icon_chip.setStyleSheet(f"""
             #final_amount_icon_chip {{
                 background-color: {chip_bg_rgba2};
                 border-radius: 12px;
-                border: 1px solid {dark_accent};
+                border: none;
             }}
         """)
         icon_chip.setGraphicsEffect(None)
@@ -566,14 +578,14 @@ class FinalAmountCard(QWidget):
         
         # Content — title, value, subtitle — all transparent bg
         content_layout = QVBoxLayout()
-        content_layout.setSpacing(4)
+        content_layout.setSpacing(6)
         content_layout.setContentsMargins(0, 0, 0, 0)
         
         title_label = CaptionLabel("Final Amount")
         title_label.setStyleSheet("""
             color: #FFFFFF;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 16px;
             letter-spacing: 1px;
             background: transparent;
             border: none;
@@ -591,7 +603,7 @@ class FinalAmountCard(QWidget):
         vivid_blue = _lighten_color(theme_color, 0.18)
         self.value_label.setStyleSheet(f"""
             color: {vivid_blue};
-            font-size: 32px;
+            font-size: 40px;
             font-weight: 800;
             background: transparent;
             border: none;
@@ -607,12 +619,13 @@ class FinalAmountCard(QWidget):
         layout.setAlignment(icon_chip, Qt.AlignVCenter)
         layout.setAlignment(content_layout, Qt.AlignVCenter)
         
-        # No panel background — just a top border to separate from result cards above
+        # Subtle blue tint background + neutral 1px top separator
         self.setStyleSheet(f"""
             #final_amount_card {{
-                background: transparent;
+                background-color: rgba(0, 120, 212, 0.08);
                 border: none;
-                border-top: 2px solid {_rgba_from_hex(theme_color, 0.35)};
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
             }}
         """)
         
@@ -647,7 +660,19 @@ class FinalAmountCard(QWidget):
         self._premium_update_effect()
     
     def _premium_update_effect(self):
-        pass
+        """Brief opacity flash when value updates."""
+        try:
+            from PyQt5.QtWidgets import QGraphicsOpacityEffect
+            effect = QGraphicsOpacityEffect(self)
+            self.setGraphicsEffect(effect)
+            anim = QPropertyAnimation(effect, b"opacity")
+            anim.setDuration(300)
+            anim.setStartValue(0.4)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.start()
+        except Exception:
+            pass
 
 
 class MainTab(QWidget):
@@ -1076,8 +1101,8 @@ class MainTab(QWidget):
         period_bar = QWidget()
         period_bar.setAttribute(Qt.WA_StyledBackground, True)
         period_bar.setStyleSheet("""
-            background-color: rgba(0, 120, 212, 0.12);
-            border: 1px solid rgba(0, 120, 212, 0.30);
+            background-color: rgba(0, 120, 212, 0.18);
+            border: 1px solid rgba(0, 120, 212, 0.40);
             border-radius: 8px;
         """)
         period_layout = QHBoxLayout(period_bar)
@@ -1126,6 +1151,7 @@ class MainTab(QWidget):
         add_next_month_btn.setIcon(FluentIcon.ADD.icon(color=QColor(255, 255, 255)))
         add_next_month_btn.setIconSize(QSize(18, 18))
         add_next_month_btn.clicked.connect(self.add_month_action)
+        add_next_month_btn.setToolTip("Copy current month's final readings as next month's previous readings")
         add_next_month_btn.setFixedHeight(34)
         add_next_month_btn.setStyleSheet("""
             PrimaryPushButton {
@@ -1237,7 +1263,7 @@ class MainTab(QWidget):
         self.additional_amount_input.setObjectName("main_additional_amount_input")
         self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
         currency_label = CaptionLabel("TK")
-        currency_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px; padding: 8px 4px; background: transparent; border: none;")
+        currency_label.setStyleSheet("font-weight: bold; color: #0078D4; font-size: 13px; padding: 6px 10px; background-color: rgba(0, 120, 212, 0.12); border: 1px solid rgba(0, 120, 212, 0.25); border-radius: 8px;")
         aa_row.addWidget(self.additional_amount_input, 1)
         aa_row.addWidget(currency_label)
         left.addLayout(aa_row)
@@ -1247,7 +1273,8 @@ class MainTab(QWidget):
         self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
         self.main_calculate_button.setIconSize(QSize(20, 20))
         self.main_calculate_button.clicked.connect(self.calculate_main)
-        self.main_calculate_button.setFixedHeight(42)
+        self.main_calculate_button.setToolTip("Calculate total units, per-unit cost, and final amount from meter readings")
+        self.main_calculate_button.setFixedHeight(40)
         self.main_calculate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.main_calculate_button.setStyleSheet(primary_button_style() + """
             PrimaryPushButton {
@@ -1700,13 +1727,13 @@ class MainTab(QWidget):
             outer_layout.setContentsMargins(16, 12, 16, 16)
 
             title = TitleLabel(f"Room {i+1}")
-            title.setStyleSheet("font-size: 20px; font-weight: 800; color: #0078D4; letter-spacing: 0.5px; margin: 0px; background: transparent;")
+            title.setStyleSheet("font-size: 20px; font-weight: 800; color: #FFB86B; letter-spacing: 0.5px; margin: 0px; background: transparent;")
             outer_layout.addWidget(title)
 
             header_line = QFrame()
             header_line.setFrameShape(QFrame.HLine)
             header_line.setFrameShadow(QFrame.Plain)
-            header_line.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; height: 2px; margin: 2px 0px 4px 0px;")
+            header_line.setStyleSheet("color: #FFB86B; background-color: #FFB86B; border: none; max-height: 2px; margin: 2px 0px 4px 0px;")
             outer_layout.addWidget(header_line)
 
             room_group.setMinimumWidth(280)
@@ -1786,9 +1813,9 @@ class MainTab(QWidget):
                 r, g, b = _hex_to_rgb(color)
                 container = QWidget()
                 container.setAttribute(Qt.WA_StyledBackground, True)
-                container.setStyleSheet(f"background-color: rgba({r},{g},{b},0.14); border: 1px solid rgba({r},{g},{b},0.45); border-radius: 8px;")
+                container.setStyleSheet(f"background: transparent; border: none; border-bottom: 1px solid rgba({r},{g},{b},0.15);")
                 cl = QHBoxLayout(container)
-                cl.setContentsMargins(12, 8, 12, 8)
+                cl.setContentsMargins(10, 4, 10, 4)
                 cl.setSpacing(8)
                 t = BodyLabel(result_title)
                 t.setStyleSheet(f"color:{color}; font-weight:bold; background:transparent; border:none;")
