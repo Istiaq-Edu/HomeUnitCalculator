@@ -176,11 +176,11 @@ class AddMonthManager:
             self._clear_meter_and_diff_readings()
             
             # Load room data using existing functionality without triggering automatic calculation
-            if room_records and hasattr(self.main_window.rooms_tab_instance, 'load_room_data_from_supabase_rows'):
-                self.main_window.rooms_tab_instance.load_room_data_from_supabase_rows(room_records, auto_calculate=False)
+            if room_records and hasattr(self.main_window.main_tab_instance, 'load_room_data_from_supabase_rows'):
+                self.main_window.main_tab_instance.load_room_data_from_supabase_rows(room_records, auto_calculate=False)
             else:
                 # Set default number of rooms if no records
-                self.main_window.rooms_tab_instance.num_rooms_spinbox.setValue(1)
+                self.main_window.main_tab_instance.num_rooms_spinbox.setValue(1)
             
         except Exception as e:
             raise Exception(f"Failed to load data to UI: {str(e)}")

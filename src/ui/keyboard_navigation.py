@@ -74,20 +74,18 @@ class KeyboardNavigationManager(QObject):
     def _save(self):  # noqa: D401
         """Ctrl+S handler – context-aware save."""
         tab = self._current_tab_name()
-        if tab == "Main Calculation":
+        if tab in ("Main Calculation", "Calculator"):
             self._mw.main_tab_instance.save_main_calculation()
-        elif tab == "Room Calculations":
-            self._mw.rooms_tab_instance.save_room_calculations()
         elif tab == "Rental Info":
             self._mw.rental_info_tab_instance.save_rental_record()
         # Else: no-op
 
     def _export_pdf(self):  # noqa: D401
-        if self._current_tab_name() in {"Main Calculation", "Room Calculations"}:
+        if self._current_tab_name() in {"Main Calculation", "Calculator"}:
             self._mw.save_to_pdf()
 
     def _save_cloud(self):  # noqa: D401
-        if self._current_tab_name() in {"Main Calculation", "Room Calculations"}:
+        if self._current_tab_name() in {"Main Calculation", "Calculator"}:
             self._mw.save_calculation_to_supabase()
 
     def _refresh_current_tab(self):  # noqa: D401
