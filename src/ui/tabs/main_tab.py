@@ -25,7 +25,12 @@ from qfluentwidgets import (
 
 from src.core.utils import resource_path
 from src.core.add_month_manager import AddMonthManager
-from src.ui.custom_widgets import CustomLineEdit, AutoScrollArea, CollapsibleSection, KpiChipBar
+from src.ui.custom_widgets import (
+    CustomLineEdit, AutoScrollArea, CollapsibleSection, KpiChipBar,
+    CalculatorTheme, calculator_card_style, apply_card_shadow,
+    section_header_style, section_divider_style, results_highlight_style,
+    input_style, primary_button_style, caption_label_style
+)
 from src.ui.flow_layout import FlowLayout
 
 def _clamp(v, lo=0, hi=255):
@@ -501,11 +506,11 @@ class ResultCard(QWidget):
     def enterEvent(self, event):
         """Do not invoke base CardWidget hover behavior."""
         return  # No-op to keep static appearance
-
+    
     def leaveEvent(self, event):
         """Do not invoke base CardWidget hover behavior."""
         return  # No-op to keep static appearance
-
+    
     def event(self, e):
         """Swallow hover events to prevent CardWidget's hover visuals."""
         if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
@@ -899,32 +904,37 @@ class MainTab(QWidget):
         root_layout.setSpacing(0)
         root_layout.setContentsMargins(0, 0, 0, 0)
 
+        # ── Tab background ──────────────────────────────────────────────
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
+        self.setStyleSheet(f"background-color: {CalculatorTheme.TAB_BG};")
+
         # ── Scroll area ─────────────────────────────────────────────────
         self.main_scroll_area = ScrollArea()
         self.main_scroll_area.setWidgetResizable(True)
         self.main_scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.main_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.main_scroll_area.setStyleSheet(f"background-color: {CalculatorTheme.TAB_BG}; border: none;")
 
         scroll_content_widget = QWidget()
         scroll_content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        scroll_content_widget.setStyleSheet(f"background-color: {CalculatorTheme.TAB_BG};")
 
         main_layout = QVBoxLayout(scroll_content_widget)
-        main_layout.setSpacing(24)
-        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
         # ── 1. Actions (collapsible, expanded by default) ──────────────
         actions_content = QWidget()
-        actions_content.setStyleSheet("""
-            background-color: #2b2b2b;
-            border: 1px solid #3d3d3d;
-            border-radius: 12px;
-        """)
+        actions_content.setObjectName("actions_card")
+        actions_content.setStyleSheet(calculator_card_style("actions_card"))
         actions_content.setAttribute(Qt.WA_StyledBackground, True)
         actions_content.setAutoFillBackground(True)
         actions_content.setFocusPolicy(Qt.NoFocus)
         actions_content.setAttribute(Qt.WA_Hover, False)
         actions_content.setMouseTracking(False)
+        apply_card_shadow(actions_content)
         self._load_data_group = actions_content
         actions_content.installEventFilter(self)
 
@@ -936,7 +946,7 @@ class MainTab(QWidget):
         load_data_container = self._create_load_data_container()
         actions_layout.addWidget(load_data_container)
 
-        actions_section = CollapsibleSection("\u26a1 Actions", actions_content, expanded=True)
+        actions_section = CollapsibleSection("\u26a1 Actions", actions_content, expanded=False)
         main_layout.addWidget(actions_section)
 
         # ── 2. Unified Billing & Calculation card ───────────────────────
@@ -1625,15 +1635,7 @@ class MainTab(QWidget):
         results_group.setFocusPolicy(Qt.NoFocus)
         results_group.setAttribute(Qt.WA_Hover, False)
         results_group.setMouseTracking(False)
-        results_group.setStyleSheet(
-            """
-            #results_group_container {
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-                border-radius: 12px;
-            }
-            """
-        )
+        results_group.setStyleSheet(results_highlight_style())
         group_layout = QVBoxLayout(results_group)
         group_layout.setContentsMargins(20, 20, 20, 20)
         group_layout.setSpacing(10)
@@ -1641,29 +1643,15 @@ class MainTab(QWidget):
         # Title and separator for the group
         group_title = TitleLabel("Calculation Results")
         group_title.setAlignment(Qt.AlignCenter)
-        group_title.setStyleSheet(
-            """
-            font-size: 28px;
-            font-weight: 800;
-            color: #0078D4;
-            letter-spacing: 1px;
-            margin: 8px 0px;
-            """
-        )
+        group_title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_RESULTS).replace(
+            str(CalculatorTheme.HEADER_SIZE) + "px", "28px"
+        ).replace("bold", "800") + "letter-spacing: 1px; margin: 8px 0px;")
         group_layout.addWidget(group_title)
 
         group_line = QFrame()
         group_line.setFrameShape(QFrame.HLine)
         group_line.setFrameShadow(QFrame.Plain)
-        group_line.setStyleSheet(
-            """
-            color: #0078D4;
-            background-color: #0078D4;
-            border: none;
-            height: 2px;
-            margin: 4px 20px;
-            """
-        )
+        group_line.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_RESULTS))
         group_layout.addWidget(group_line)
 
         # Inner container for the individual cards
@@ -1738,7 +1726,12 @@ class MainTab(QWidget):
         return results_group
 
     def create_unified_calculator_card(self):
-        """Create a unified card combining billing, reading pairs, additional amount, and results."""
+        """Create the main calculator card with a two-column layout:
+        Left column = inputs (billing period, reading pairs, additional amount)
+        Right column = live results
+        Calculate button sits prominently between them as a visual bridge.
+        Save buttons are under the results (near what they save).
+        """
         # ── Outer card ──────────────────────────────────────────────────
         card = QWidget()
         card.setObjectName("unified_calculator_card")
@@ -1747,39 +1740,33 @@ class MainTab(QWidget):
         card.setFocusPolicy(Qt.NoFocus)
         card.setAttribute(Qt.WA_Hover, False)
         card.setMouseTracking(False)
-        card.setStyleSheet("""
-            #unified_calculator_card {
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-                border-radius: 12px;
-            }
-        """)
+        card.setStyleSheet(calculator_card_style("unified_calculator_card"))
         self._billing_unified_group = card
         card.installEventFilter(self)
+        apply_card_shadow(card)
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(20, 20, 20, 20)
-        card_layout.setSpacing(16)
+        card_layout.setSpacing(12)
 
         # ── Title ───────────────────────────────────────────────────────
         title = TitleLabel("\U0001f4ca Billing & Calculation")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("""
-            font-size: 28px; font-weight: 800; color: #0078D4;
-            letter-spacing: 1px; margin: 8px 0px;
-        """)
+        title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_BILLING).replace(
+            str(CalculatorTheme.HEADER_SIZE) + "px", "28px"
+        ).replace("bold", "800") + "letter-spacing: 1px; margin: 4px 0px;")
         card_layout.addWidget(title)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Plain)
-        sep.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; height: 2px; margin: 4px 20px;")
+        sep.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_BILLING))
         card_layout.addWidget(sep)
 
         # ── Top bar: Month/Year (left) + Add Next Month (right) ─────────
         top_bar = QHBoxLayout()
         top_bar.setSpacing(12)
-        top_bar.setContentsMargins(0, 0, 0, 8)
+        top_bar.setContentsMargins(0, 0, 0, 4)
 
         # Left: Month/Year
         month_label = BodyLabel("Month:")
@@ -1812,7 +1799,7 @@ class MainTab(QWidget):
 
         top_bar.addWidget(month_label)
         top_bar.addWidget(self.month_combo)
-        top_bar.addSpacing(20)
+        top_bar.addSpacing(16)
         top_bar.addWidget(year_label)
         top_bar.addWidget(self.year_spinbox)
         top_bar.addStretch(1)
@@ -1842,50 +1829,47 @@ class MainTab(QWidget):
                 border-color: #FF6600;
             }
         """)
-        add_next_month_btn.setMinimumWidth(200)
+        add_next_month_btn.setMinimumWidth(180)
         top_bar.addWidget(add_next_month_btn)
 
         card_layout.addLayout(top_bar)
 
-        # ── Unified frosted input container ─────────────────────────────
-        unified_inputs = QWidget()
-        unified_inputs.setAttribute(Qt.WA_StyledBackground, True)
-        unified_inputs.setFocusPolicy(Qt.NoFocus)
-        unified_inputs.setAttribute(Qt.WA_Hover, False)
-        unified_inputs.setMouseTracking(False)
-        unified_inputs.setStyleSheet("""
-            background-color: rgba(255, 255, 255, 0.14);
-            border: 1px solid rgba(255, 255, 255, 0.28);
-            border-radius: 12px;
+        # ════════════════════════════════════════════════════════════════
+        # ── TWO-COLUMN BODY: Inputs (left) | Results (right) ────────────
+        # ════════════════════════════════════════════════════════════════
+        body_layout = QHBoxLayout()
+        body_layout.setSpacing(16)
+
+        # ── LEFT COLUMN: Inputs ─────────────────────────────────────────
+        left_col = QWidget()
+        left_col.setAttribute(Qt.WA_StyledBackground, True)
+        left_col.setFocusPolicy(Qt.NoFocus)
+        left_col.setAttribute(Qt.WA_Hover, False)
+        left_col.setMouseTracking(False)
+        left_col.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        left_col.setStyleSheet("""
+            background-color: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
         """)
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 2)
-        shadow.setColor(QColor(0, 0, 0, 120))
-        unified_inputs.setGraphicsEffect(shadow)
+        left_shadow = QGraphicsDropShadowEffect(self)
+        left_shadow.setBlurRadius(20)
+        left_shadow.setOffset(0, 3)
+        left_shadow.setColor(QColor(0, 0, 0, 100))
+        left_col.setGraphicsEffect(left_shadow)
 
-        inputs_layout = QVBoxLayout(unified_inputs)
-        inputs_layout.setContentsMargins(16, 12, 16, 12)
-        inputs_layout.setSpacing(12)
-
-        # -- Billing Period section --
-        bp_title = BodyLabel("Billing Period")
-        bp_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px;")
-        inputs_layout.addWidget(bp_title)
-        bp_sep = QFrame()
-        bp_sep.setFrameShape(QFrame.HLine)
-        bp_sep.setFrameShadow(QFrame.Plain)
-        bp_sep.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
-        inputs_layout.addWidget(bp_sep)
+        inputs_layout = QVBoxLayout(left_col)
+        inputs_layout.setContentsMargins(18, 14, 18, 14)
+        inputs_layout.setSpacing(14)
 
         # -- Reading Pairs section --
         rp_title = BodyLabel("Reading Pairs")
-        rp_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px;")
+        rp_title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_METER))
         inputs_layout.addWidget(rp_title)
         rp_sep = QFrame()
         rp_sep.setFrameShape(QFrame.HLine)
         rp_sep.setFrameShadow(QFrame.Plain)
-        rp_sep.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
+        rp_sep.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_METER))
         inputs_layout.addWidget(rp_sep)
 
         pairs_scroll = ScrollArea()
@@ -1904,9 +1888,9 @@ class MainTab(QWidget):
         inputs_layout.addWidget(pairs_scroll, 0, Qt.AlignTop)
         self.pairs_scroll = pairs_scroll
 
-        self._pairs_fixed_gap = 12
+        self._pairs_fixed_gap = 8
         inputs_layout.addSpacing(self._pairs_fixed_gap)
-        self._pairs_btn_top_gap = 14
+        self._pairs_btn_top_gap = 10
         add_pair_button = AddPairButton("Add Reading Pair", lambda: self.add_reading_pair())
         button_holder = QWidget()
         bh_layout = QVBoxLayout(button_holder)
@@ -1917,13 +1901,13 @@ class MainTab(QWidget):
         self._pairs_add_button = add_pair_button
 
         # -- Additional Amount section --
-        aa_title = BodyLabel("Additional Amount:")
-        aa_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #0078D4; margin: 4px 0px;")
+        aa_title = BodyLabel("Additional Amount")
+        aa_title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_BILLING))
         inputs_layout.addWidget(aa_title)
         aa_sep = QFrame()
         aa_sep.setFrameShape(QFrame.HLine)
         aa_sep.setFrameShadow(QFrame.Plain)
-        aa_sep.setStyleSheet("color: #1084d8; background-color: #1084d8; border: none; height: 3px; margin: 2px 0px 6px 0px;")
+        aa_sep.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_BILLING))
         inputs_layout.addWidget(aa_sep)
 
         aa_row = QHBoxLayout()
@@ -1938,116 +1922,123 @@ class MainTab(QWidget):
         aa_row.addWidget(currency_label)
         inputs_layout.addLayout(aa_row)
 
-        card_layout.addWidget(unified_inputs)
-
-        # ── Two-column body: results on right ───────────────────────────
-        body = QHBoxLayout()
-        body.setSpacing(16)
-
-        # Left: spacer (inputs are now above)
-        left_spacer = QWidget()
-        left_spacer.setStyleSheet("background: transparent; border: none;")
-        left_spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        body.addWidget(left_spacer, 3)
-
-        # Right column: results
-        right = QWidget()
-        right.setStyleSheet("background: transparent; border: none;")
-        right.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-
-        results_group = self.create_results_group()
-        self.results_group_widget = results_group
-        right_layout.addWidget(results_group, 0, Qt.AlignTop)
-        right_layout.addStretch(1)
-
-        body.addWidget(right, 2)
-        card_layout.addLayout(body)
-
-        # ── Calculate + Save buttons row ──────────────────────────────────
-        buttons_row = QHBoxLayout()
-        buttons_row.setSpacing(8)
-        buttons_row.setContentsMargins(0, 0, 0, 0)
-
+        # -- Calculate button (full width of left column, prominent) --
         self.main_calculate_button = PrimaryPushButton("Calculate")
         self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
         self.main_calculate_button.setIconSize(QSize(20, 20))
         self.main_calculate_button.clicked.connect(self.calculate_main)
-        self.main_calculate_button.setFixedHeight(40)
+        self.main_calculate_button.setFixedHeight(44)
         self.main_calculate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.main_calculate_button.setStyleSheet("""
+        self.main_calculate_button.setStyleSheet(primary_button_style() + """
             PrimaryPushButton {
-                color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0078D4, stop:1 #005a9e);
-                border: 2px solid #0078D4; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center; margin: 0px;
+                qproperty-iconSize: 20px 20px;
+                padding: 10px 16px 10px 36px;
+                text-align: center;
+                font-size: 15px;
             }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1084d8, stop:1 #106ebe); border-color: #1084d8; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #005a9e, stop:1 #004578); border-color: #005a9e; }
         """)
+        inputs_layout.addSpacing(4)
+        inputs_layout.addWidget(self.main_calculate_button)
+
+        body_layout.addWidget(left_col, 1)
+
+        # ── RIGHT COLUMN: Results ───────────────────────────────────────
+        right_col = QWidget()
+        right_col.setStyleSheet("background: transparent; border: none;")
+        right_col.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        right_layout = QVBoxLayout(right_col)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
+
+        results_group = self.create_results_group()
+        self.results_group_widget = results_group
+        right_layout.addWidget(results_group, 0, Qt.AlignTop)
+
+        # -- Save buttons (under results, near what they save) --
+        buttons_row = QHBoxLayout()
+        buttons_row.setSpacing(8)
+        buttons_row.setContentsMargins(0, 6, 0, 0)
 
         # Save PDF
         pdf_button = PrimaryPushButton("Save PDF")
         pdf_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
-        pdf_button.setIconSize(QSize(20, 20))
-        pdf_button.setFixedHeight(40)
+        pdf_button.setIconSize(QSize(18, 18))
+        pdf_button.setFixedHeight(36)
         pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         pdf_button.clicked.connect(self.main_window.save_to_pdf)
         pdf_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #d32f2f, stop:1 #b71c1c);
-                border: 2px solid #d32f2f; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
+                background-color: #d32f2f;
+                border: 1px solid #d32f2f;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 13px;
+                qproperty-iconSize: 18px 18px;
+                padding: 6px 12px 6px 30px;
+                text-align: center;
             }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f44336, stop:1 #d32f2f); border-color: #f44336; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #b71c1c, stop:1 #8f1414); border-color: #b71c1c; }
+            PrimaryPushButton:hover { background-color: #f44336; border-color: #f44336; }
+            PrimaryPushButton:pressed { background-color: #b71c1c; border-color: #b71c1c; }
         """)
 
         # Save CSV
         csv_button = PrimaryPushButton("Save CSV")
         csv_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
-        csv_button.setIconSize(QSize(20, 20))
-        csv_button.setFixedHeight(40)
+        csv_button.setIconSize(QSize(18, 18))
+        csv_button.setFixedHeight(36)
         csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
         csv_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #388e3c, stop:1 #2e7d32);
-                border: 2px solid #388e3c; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
+                background-color: #388e3c;
+                border: 1px solid #388e3c;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 13px;
+                qproperty-iconSize: 18px 18px;
+                padding: 6px 12px 6px 30px;
+                text-align: center;
             }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4caf50, stop:1 #388e3c); border-color: #4caf50; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2e7d32, stop:1 #1b5e20); border-color: #2e7d32; }
+            PrimaryPushButton:hover { background-color: #4caf50; border-color: #4caf50; }
+            PrimaryPushButton:pressed { background-color: #2e7d32; border-color: #2e7d32; }
         """)
 
         # Save Cloud
         cloud_button = PrimaryPushButton("Save Cloud")
         cloud_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
-        cloud_button.setIconSize(QSize(20, 20))
-        cloud_button.setFixedHeight(40)
+        cloud_button.setIconSize(QSize(18, 18))
+        cloud_button.setFixedHeight(36)
         cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
         cloud_button.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #7b1fa2, stop:1 #6a1b9a);
-                border: 2px solid #7b1fa2; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center;
+                background-color: #7b1fa2;
+                border: 1px solid #7b1fa2;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 13px;
+                qproperty-iconSize: 18px 18px;
+                padding: 6px 12px 6px 30px;
+                text-align: center;
             }
             PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9c27b0, stop:1 #7b1fa2); border-color: #9c27b0; }
             PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a1b9a, stop:1 #4a148c); border-color: #6a1b9a; }
         """)
 
-        buttons_row.addWidget(self.main_calculate_button, 2)
         buttons_row.addWidget(pdf_button, 1)
         buttons_row.addWidget(csv_button, 1)
         buttons_row.addWidget(cloud_button, 1)
         self._save_buttons_row = buttons_row
-        card_layout.addLayout(buttons_row)
+        right_layout.addLayout(buttons_row)
+
+        right_layout.addStretch(1)
+
+        body_layout.addWidget(right_col, 1)
+
+        card_layout.addLayout(body_layout)
 
         return card
 
@@ -2062,13 +2053,18 @@ class MainTab(QWidget):
         container.setMouseTracking(False)
         container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         container.setStyleSheet("""
-            #load_data_container {
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-                border-left: 3px solid #3d3d3d;
-                border-radius: 8px;
-            }
-        """)
+            #load_data_container {{
+                background-color: {bg};
+                border: 1px solid {border};
+                border-left: 3px solid {accent};
+                border-radius: {radius}px;
+            }}
+        """.format(
+            bg=CalculatorTheme.CARD_BG,
+            border=CalculatorTheme.CARD_BORDER,
+            accent=CalculatorTheme.ACCENT_ACTIONS,
+            radius=CalculatorTheme.CARD_RADIUS
+        ))
 
         layout = QHBoxLayout(container)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -2161,24 +2157,29 @@ class MainTab(QWidget):
         load_button.clicked.connect(self.load_info_to_inputs)
         load_button.setFixedHeight(36)
         load_button.setStyleSheet("""
-            PrimaryPushButton {
+            PrimaryPushButton {{
                 color: white;
-                background-color: #0078D4;
-                border: 1px solid #0078D4;
-                border-radius: 6px;
+                background-color: {primary};
+                border: 1px solid {primary};
+                border-radius: {radius}px;
                 font-weight: 600;
                 qproperty-iconSize: 20px 20px;
                 padding: 8px 16px 8px 36px;
-            }
-            PrimaryPushButton:hover {
-                background-color: #106ebe;
-                border-color: #106ebe;
-            }
-            PrimaryPushButton:pressed {
-                background-color: #005a9e;
-                border-color: #005a9e;
-            }
-        """)
+            }}
+            PrimaryPushButton:hover {{
+                background-color: {hover};
+                border-color: {hover};
+            }}
+            PrimaryPushButton:pressed {{
+                background-color: {pressed};
+                border-color: {pressed};
+            }}
+        """.format(
+            primary=CalculatorTheme.BTN_PRIMARY,
+            hover=CalculatorTheme.BTN_PRIMARY_HOVER,
+            pressed=CalculatorTheme.BTN_PRIMARY_PRESSED,
+            radius=CalculatorTheme.BTN_RADIUS
+        ))
         load_button.setMinimumWidth(120)
         load_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -2248,13 +2249,8 @@ class MainTab(QWidget):
         section = QWidget()
         section.setObjectName("rooms_section")
         section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        section.setStyleSheet("""
-            #rooms_section {
-                background-color: #2b2b2b;
-                border: 1px solid #3d3d3d;
-                border-radius: 12px;
-            }
-        """)
+        section.setStyleSheet(calculator_card_style("rooms_section"))
+        apply_card_shadow(section)
         section.setAttribute(Qt.WA_StyledBackground, True)
         section.setAutoFillBackground(True)
         section.setFocusPolicy(Qt.NoFocus)
@@ -2273,10 +2269,9 @@ class MainTab(QWidget):
         header_layout.setSpacing(12)
 
         title = TitleLabel("\U0001f3e0 Room Calculations")
-        title.setStyleSheet("""
-            font-size: 26px; font-weight: 800; color: #0078D4;
-            letter-spacing: 0.5px; background: transparent; border: none;
-        """)
+        title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_ROOMS).replace(
+            str(CalculatorTheme.HEADER_SIZE) + "px", "26px"
+        ).replace("bold", "800") + "letter-spacing: 0.5px; background: transparent; border: none;")
 
         rooms_label = BodyLabel("Number of Rooms:")
         rooms_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
@@ -2298,7 +2293,7 @@ class MainTab(QWidget):
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFrameShadow(QFrame.Plain)
-        sep.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; height: 2px; margin: 4px 0px;")
+        sep.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_ROOMS))
         layout.addWidget(sep)
 
         # Room cards container (FlowLayout expands naturally, outer scroll handles scrolling)
@@ -2306,7 +2301,7 @@ class MainTab(QWidget):
         rooms_card_container.setStyleSheet("background: transparent; border: none;")
         rooms_card_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.rooms_scroll_layout = FlowLayout(rooms_card_container)
-        self.rooms_scroll_layout.setSpacing(8)
+        self.rooms_scroll_layout.setSpacing(10)
         layout.addWidget(rooms_card_container)
 
         # Calculate Room Bills button
@@ -2318,16 +2313,12 @@ class MainTab(QWidget):
         self.calculate_rooms_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.calculate_rooms_button.setEnabled(False)
         self.calculate_rooms_button.setToolTip("Calculate meter readings first")
-        self.calculate_rooms_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0078D4, stop:1 #005a9e);
-                border: 2px solid #0078D4; border-radius: 8px; font-weight: 600; font-size: 14px;
-                qproperty-iconSize: 20px 20px; padding: 8px 16px 8px 36px; text-align: center; margin: 0px;
+        self.calculate_rooms_button.setStyleSheet(primary_button_style() + """
+            PrimaryPushButton:disabled {
+                background: #555;
+                border-color: #444;
+                color: #999;
             }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1084d8, stop:1 #106ebe); border-color: #1084d8; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #005a9e, stop:1 #004578); border-color: #005a9e; }
-            PrimaryPushButton:disabled { background: #555; border-color: #444; color: #999; }
         """)
         layout.addWidget(self.calculate_rooms_button)
 
@@ -2727,54 +2718,59 @@ class MainTab(QWidget):
         if "Cloud" in source_text:
             # Apply purple styling for Cloud
             self.load_source_button.setStyleSheet("""
-                DropDownPushButton {
+                DropDownPushButton {{
                     color: white;
-                    background-color: #6C5CE7;
-                    border: 1px solid #6C5CE7;
-                    border-radius: 6px;
+                    background-color: {primary};
+                    border: 1px solid {primary};
+                    border-radius: {radius}px;
                     font-weight: 600;
                     qproperty-iconSize: 20px 20px;
                     padding: 8px 40px 8px 36px;
-                }
-                DropDownPushButton:hover {
-                    background-color: #5A4FCF;
-                    border-color: #5A4FCF;
-                }
-                DropDownPushButton:pressed {
-                    background-color: #4834D4;
-                    border-color: #4834D4;
-                }
-                DropDownPushButton::menu-indicator {
+                }}
+                DropDownPushButton:hover {{
+                    background-color: {hover};
+                    border-color: {hover};
+                }}
+                DropDownPushButton:pressed {{
+                    background-color: {pressed};
+                    border-color: {pressed};
+                }}
+                DropDownPushButton::menu-indicator {{
                     subcontrol-position: right center;
                     subcontrol-origin: padding;
                     right: 8px;
-                }
-            """)
+                }}
+            """.format(
+                primary=CalculatorTheme.BTN_PRIMARY,
+                hover=CalculatorTheme.BTN_PRIMARY_HOVER,
+                pressed=CalculatorTheme.BTN_PRIMARY_PRESSED,
+                radius=CalculatorTheme.BTN_RADIUS
+            ))
         else:  # CSV
             # Apply green styling for CSV
             self.load_source_button.setStyleSheet("""
-                DropDownPushButton {
+                DropDownPushButton {{
                     color: white;
                     background-color: #2e7d32;
                     border: 1px solid #2e7d32;
-                    border-radius: 6px;
+                    border-radius: {radius}px;
                     font-weight: 600;
                     qproperty-iconSize: 20px 20px;
                     padding: 8px 40px 8px 36px;
-                }
-                DropDownPushButton:hover {
+                }}
+                DropDownPushButton:hover {{
                     background-color: #43a047;
                     border-color: #43a047;
-                }
-                DropDownPushButton:pressed {
+                }}
+                DropDownPushButton:pressed {{
                     background-color: #1b5e20;
                     border-color: #1b5e20;
-                }
-                DropDownPushButton::menu-indicator {
+                }}
+                DropDownPushButton::menu-indicator {{
                     subcontrol-position: right center;
                     subcontrol-origin: padding;
                     right: 8px;
-                }
+                }}
             """)
 
     def sync_source_button_display(self):
@@ -3202,7 +3198,6 @@ class MainTab(QWidget):
     
     def _apply_accent_colors(self):
         """Apply consistent accent colors across all themed elements."""
-        # This method ensures all themed elements use the same accent color
         accent_color = "#0078D4"
         
         # Update any dynamically created elements with consistent accent colors

@@ -1661,3 +1661,173 @@ class KpiChipBar(QWidget):
         """Update the value of a KPI chip by index."""
         if 0 <= index < len(self._value_labels):
             self._value_labels[index].setText(value)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Calculator Tab Theme System
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class CalculatorTheme:
+    """Centralized theme constants for the Calculator tab redesign."""
+
+    # ── Tab Background ────────────────────────────────────────────────────────
+    TAB_BG = "#1e1e1e"
+
+    # ── Section Accent Colors ─────────────────────────────────────────────────
+    ACCENT_ACTIONS = "#B97AFF"        # Purple
+    ACCENT_BILLING = "#6B8AFF"        # Soft Blue
+    ACCENT_METER = "#49C6FF"          # Cyan
+    ACCENT_RESULTS = "#9FE29D"        # Green
+    ACCENT_ROOMS = "#FFB86B"          # Orange
+
+    # ── Card Styling ──────────────────────────────────────────────────────────
+    CARD_BG = "#2b2b2b"
+    CARD_BG_ELEVATED = "#2b2b2b"
+    CARD_BORDER = "#3d3d3d"
+    CARD_BORDER_HOVER = "#3d3d3d"
+    CARD_RADIUS = 12
+    CARD_SHADOW_COLOR = "rgba(0, 0, 0, 0.3)"
+    CARD_SHADOW_BLUR = 20
+    CARD_SHADOW_OFFSET_Y = 4
+
+    # ── Typography ────────────────────────────────────────────────────────────
+    HEADER_SIZE = 14
+    HEADER_COLOR = "#E0E0E0"
+    BODY_SIZE = 13
+    CAPTION_SIZE = 11
+    CAPTION_COLOR = "#B4B4B4"
+
+    # ── Results Highlight ─────────────────────────────────────────────────────
+    RESULTS_BG = "rgba(159, 226, 157, 0.08)"
+    RESULTS_BORDER = "rgba(159, 226, 157, 0.15)"
+
+    # ── Input Styling ─────────────────────────────────────────────────────────
+    INPUT_BG = "#2f2f2f"
+    INPUT_BORDER = "#555555"
+    INPUT_FOCUS = "#0078D4"
+    INPUT_RADIUS = 8
+
+    # ── Button Styling ────────────────────────────────────────────────────────
+    BTN_PRIMARY = "#0078D4"
+    BTN_PRIMARY_HOVER = "#1084d8"
+    BTN_PRIMARY_PRESSED = "#005a9e"
+    BTN_RADIUS = 8
+
+    # ── Section header accent strip (left border) ─────────────────────────────
+    SECTION_STRIP_WIDTH = 3
+
+
+def calculator_card_style(object_name: str = "") -> str:
+    """Return QSS for a soft-elevated calculator card."""
+    selector = f"#{object_name}" if object_name else "QWidget"
+    return f"""
+        {selector} {{
+            background-color: {CalculatorTheme.CARD_BG};
+            border: 1px solid {CalculatorTheme.CARD_BORDER};
+            border-radius: {CalculatorTheme.CARD_RADIUS}px;
+        }}
+    """
+
+
+def apply_card_shadow(widget, blur: int = None, offset_y: int = None, color: str = None):
+    """Apply a QGraphicsDropShadowEffect to a widget."""
+    from PyQt5.QtWidgets import QGraphicsDropShadowEffect
+    from PyQt5.QtGui import QColor
+
+    shadow = QGraphicsDropShadowEffect(widget)
+    shadow.setBlurRadius(blur or CalculatorTheme.CARD_SHADOW_BLUR)
+    shadow.setYOffset(offset_y or CalculatorTheme.CARD_SHADOW_OFFSET_Y)
+    shadow.setColor(QColor(color or CalculatorTheme.CARD_SHADOW_COLOR))
+    widget.setGraphicsEffect(shadow)
+
+
+def section_header_style(accent_color: str = None) -> str:
+    """Return QSS for a section header label."""
+    color = accent_color or CalculatorTheme.HEADER_COLOR
+    return f"""
+        QLabel {{
+            color: {color};
+            font-size: {CalculatorTheme.HEADER_SIZE}px;
+            font-weight: bold;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+        }}
+    """
+
+
+def section_divider_style(accent_color: str = None) -> str:
+    """Return QSS for a section divider line."""
+    color = accent_color or CalculatorTheme.CARD_BORDER
+    return f"""
+        QFrame {{
+            background-color: {color};
+            max-height: 1px;
+            border: none;
+            margin: 4px 0;
+        }}
+    """
+
+
+def results_highlight_style() -> str:
+    """Return QSS for the results section with green tint."""
+    return f"""
+        QWidget {{
+            background-color: {CalculatorTheme.RESULTS_BG};
+            border: 1px solid {CalculatorTheme.RESULTS_BORDER};
+            border-radius: {CalculatorTheme.CARD_RADIUS}px;
+        }}
+    """
+
+
+def input_style() -> str:
+    """Return QSS for input fields."""
+    return f"""
+        QLineEdit {{
+            background-color: {CalculatorTheme.INPUT_BG};
+            color: #ffffff;
+            border: 1px solid {CalculatorTheme.INPUT_BORDER};
+            border-radius: {CalculatorTheme.INPUT_RADIUS}px;
+            padding: 6px 8px;
+            font-size: {CalculatorTheme.BODY_SIZE}px;
+        }}
+        QLineEdit:focus {{
+            border: 1px solid {CalculatorTheme.INPUT_FOCUS};
+        }}
+    """
+
+
+def primary_button_style() -> str:
+    """Return QSS for primary action buttons."""
+    return f"""
+        QPushButton {{
+            background-color: {CalculatorTheme.BTN_PRIMARY};
+            color: #ffffff;
+            border: none;
+            border-radius: {CalculatorTheme.BTN_RADIUS}px;
+            padding: 8px 16px;
+            font-size: {CalculatorTheme.BODY_SIZE}px;
+            font-weight: bold;
+        }}
+        QPushButton:hover {{
+            background-color: {CalculatorTheme.BTN_PRIMARY_HOVER};
+        }}
+        QPushButton:pressed {{
+            background-color: {CalculatorTheme.BTN_PRIMARY_PRESSED};
+        }}
+    """
+
+
+def caption_label_style() -> str:
+    """Return QSS for caption/secondary labels."""
+    return f"""
+        QLabel {{
+            color: {CalculatorTheme.CAPTION_COLOR};
+            font-size: {CalculatorTheme.CAPTION_SIZE}px;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+        }}
+    """
