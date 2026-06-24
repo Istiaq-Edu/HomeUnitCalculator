@@ -1546,13 +1546,33 @@ class CollapsibleSection(QWidget):
 
     def _toggle(self):
         self._expanded = not self._expanded
-        self._content_widget.setVisible(self._expanded)
-        self._chevron.setIcon(FluentIcon.CHEVRON_DOWN_MED if self._expanded else FluentIcon.CHEVRON_RIGHT)
+        self._do_toggle()
 
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
-        self._content_widget.setVisible(expanded)
-        self._chevron.setIcon(FluentIcon.CHEVRON_DOWN_MED if expanded else FluentIcon.CHEVRON_RIGHT)
+        self._do_toggle()
+
+    def _do_toggle(self):
+        # Freeze the entire window, force layout recalc, then repaint once
+        win = self.window()
+        if win:
+            win.setUpdatesEnabled(False)
+        self._content_widget.setVisible(self._expanded)
+        self._chevron.setIcon(FluentIcon.CHEVRON_DOWN_MED if self._expanded else FluentIcon.CHEVRON_RIGHT)
+        # Force immediate layout recalculation while updates are frozen
+        layout = self.layout()
+        if layout:
+            layout.invalidate()
+            layout.activate()
+        p = self.parent()
+        while p:
+            pl = p.layout()
+            if pl:
+                pl.invalidate()
+                pl.activate()
+            p = p.parent()
+        if win:
+            win.setUpdatesEnabled(True)
 
     def is_expanded(self) -> bool:
         return self._expanded

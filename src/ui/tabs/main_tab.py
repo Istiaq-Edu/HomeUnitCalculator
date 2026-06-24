@@ -79,82 +79,77 @@ class ReadingPairWidget(QWidget):
         self.pair_index = pair_index
         self.on_remove_callback = on_remove_callback
         
-        # Set responsive size policy and constraints
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(58)  # More compact row height
-        self.setMaximumHeight(58)  # Fixed compact height
+        self.setMinimumHeight(56)
+        self.setMaximumHeight(56)
         
-        # Create the input widgets with responsive behavior
         self.meter_input = CustomLineEdit()
         self.meter_input.setObjectName(f"meter_edit_{pair_index}")
-        numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))  # only whole numbers
+        numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))
         self.meter_input.setValidator(numeric_validator)
-        # Remove placeholder text as per requirement
         self.meter_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.meter_input.setMinimumWidth(100)  # Minimum width to prevent collapse
+        self.meter_input.setMinimumWidth(100)
         
         self.diff_input = CustomLineEdit()
         self.diff_input.setObjectName(f"diff_edit_{pair_index}")
         self.diff_input.setValidator(numeric_validator)
-        # Remove placeholder text as per requirement
         self.diff_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.diff_input.setMinimumWidth(100)  # Minimum width to prevent collapse
+        self.diff_input.setMinimumWidth(100)
         
-        # Connect focus events to ensure visibility in scroll area
         self.meter_input.focusInEvent = self._create_focus_handler(self.meter_input)
         self.diff_input.focusInEvent = self._create_focus_handler(self.diff_input)
         
-        # Create remove button with square glass-like background and curved corners
+        # Remove button — clean, minimal
         self.remove_button = PushButton()
-        # White close icon
         self.remove_button.setIcon(FluentIcon.CLOSE.icon(color=QColor(255, 255, 255)))
-        self.remove_button.setIconSize(QSize(14, 14))
-        self.remove_button.setFixedSize(22, 22)  # Square size; height will sync after layout
+        self.remove_button.setIconSize(QSize(12, 12))
+        self.remove_button.setFixedSize(24, 24)
         self.remove_button.clicked.connect(self._on_remove_clicked)
-        # No tooltip on remove button
         self.remove_button.setToolTip("")
-        # Square glass-like background with curved corners - no red circle
         self.remove_button.setStyleSheet("""
             PushButton {
-                background-color: rgba(255, 255, 255, 0.1);
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 6px;
                 color: white;
                 font-weight: bold;
-                padding: 0px; /* center the icon within square button */
+                padding: 0px;
             }
             PushButton:hover {
-                background-color: rgba(255, 255, 255, 0.2);
-                border-color: rgba(255, 255, 255, 0.3);
+                background-color: rgba(255, 80, 80, 0.25);
+                border-color: rgba(255, 80, 80, 0.40);
             }
             PushButton:pressed {
-                background-color: rgba(255, 255, 255, 0.15);
-                border-color: rgba(255, 255, 255, 0.25);
+                background-color: rgba(255, 80, 80, 0.15);
+                border-color: rgba(255, 80, 80, 0.30);
             }
         """)
         
-        # Grid layout for perfect alignment (labels row 0, inputs row 1, button at row 1)
         layout = QGridLayout(self)
-        layout.setContentsMargins(12, 2, 12, 2)
-        layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(1)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(0)
 
-        # Labels
-        meter_label = BodyLabel(f"Meter {pair_index + 1} Reading:")
+        # Labels — compact, with accent color for the number
+        meter_label = BodyLabel(f"Meter {pair_index + 1}")
         meter_label.setObjectName("meter_label")
         meter_label.setStyleSheet("""
-            font-weight: bold; 
-            color: #ffffff;
-            font-size: 12px;
+            font-weight: bold;
+            color: #49C6FF;
+            font-size: 11px;
             margin: 0px;
+            background: transparent;
+            border: none;
         """)
-        diff_label = BodyLabel(f"Difference {pair_index + 1} Reading:")
+        diff_label = BodyLabel(f"Difference {pair_index + 1}")
         diff_label.setObjectName("diff_label")
         diff_label.setStyleSheet("""
-            font-weight: bold; 
-            color: #ffffff;
-            font-size: 12px;
+            font-weight: bold;
+            color: #FFB74D;
+            font-size: 11px;
             margin: 0px;
+            background: transparent;
+            border: none;
         """)
 
         # Slimmer inputs
@@ -167,25 +162,24 @@ class ReadingPairWidget(QWidget):
         except Exception:
             pass
 
-        # Place items
         layout.addWidget(meter_label, 0, 0)
         layout.addWidget(diff_label, 0, 1)
-        # Wrap inputs with an inner layout to add horizontal padding without shrinking columns
         meter_wrap = QWidget()
+        meter_wrap.setStyleSheet("background: transparent; border: none;")
         meter_wrap_l = QHBoxLayout(meter_wrap)
-        meter_wrap_l.setContentsMargins(8, 0, 8, 0)  # left/right breathing space (even)
+        meter_wrap_l.setContentsMargins(4, 0, 4, 0)
         meter_wrap_l.setSpacing(0)
         meter_wrap_l.addWidget(self.meter_input)
         diff_wrap = QWidget()
+        diff_wrap.setStyleSheet("background: transparent; border: none;")
         diff_wrap_l = QHBoxLayout(diff_wrap)
-        diff_wrap_l.setContentsMargins(8, 0, 8, 0)  # even with meter side
+        diff_wrap_l.setContentsMargins(4, 0, 4, 0)
         diff_wrap_l.setSpacing(0)
         diff_wrap_l.addWidget(self.diff_input)
         layout.addWidget(meter_wrap, 1, 0)
         layout.addWidget(diff_wrap, 1, 1)
-        # Spacer between input and remove button: align with grid spacing for consistency
-        layout.setColumnMinimumWidth(2, 12)
-        spacer = QSpacerItem(12, 1, QSizePolicy.Fixed, QSizePolicy.Minimum)
+        layout.setColumnMinimumWidth(2, 8)
+        spacer = QSpacerItem(8, 1, QSizePolicy.Fixed, QSizePolicy.Minimum)
         layout.addItem(spacer, 0, 2, 2, 1)
 
         # Remove button aligned with input row center
@@ -205,17 +199,17 @@ class ReadingPairWidget(QWidget):
         # After layout, sync button height with input actual height to guarantee alignment
         QTimer.singleShot(0, self._align_controls)
         
-        # Apply enhanced styling to the pair widget itself
+        # Apply styling — transparent bg, subtle bottom border to separate rows
         self.setStyleSheet("""
             ReadingPairWidget {
-                background-color: #323232;
-                border: 1px solid #4a4a4a;
-                border-radius: 8px;
-                margin: 1px 0px;
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                margin: 0px;
             }
             ReadingPairWidget:hover {
-                background-color: #3a3a3a;
-                border: 1px solid #5a5a5a;
+                background: rgba(255, 255, 255, 0.03);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             }
         """)
     
@@ -268,47 +262,43 @@ class ReadingPairWidget(QWidget):
 
 
 class AddPairButton(QWidget):
-    """Composite button with a left white icon and bold white text (no overlap)."""
+    """Composite button with a left icon and bold text — styled with accent blue."""
     def __init__(self, text: str, on_click):
         super().__init__()
         self.on_click = on_click
         self.setObjectName("add_pair_btn")
-        # Ensure QSS background is painted on QWidget
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setFixedHeight(44)
+        self.setFixedHeight(40)
         self.setCursor(Qt.PointingHandCursor)
         self._hover = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setContentsMargins(16, 6, 16, 6)
         layout.setSpacing(8)
-        layout.setAlignment(Qt.AlignCenter)  # center contents horizontally
+        layout.setAlignment(Qt.AlignCenter)
 
-        # Left icon (white)
         icon_label = QLabel()
         try:
             icon = FluentIcon.ADD.icon(color=QColor(255, 255, 255))
-            icon_label.setPixmap(icon.pixmap(20, 20))
+            icon_label.setPixmap(icon.pixmap(18, 18))
         except Exception:
             icon_label.setText("+")
             icon_label.setStyleSheet("color: white; font-weight: bold;")
-        icon_label.setFixedSize(20, 20)
+        icon_label.setFixedSize(18, 18)
         icon_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         icon_label.setAlignment(Qt.AlignCenter)
 
-        # Text (bold white)
         text_label = BodyLabel(text)
-        text_label.setStyleSheet("font-weight: bold; color: white; font-size: 14px;")
+        text_label.setStyleSheet("font-weight: bold; color: white; font-size: 13px; background: transparent; border: none;")
         text_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         layout.addStretch(1)
         layout.addWidget(icon_label, 0, Qt.AlignVCenter)
-        layout.addSpacing(8)
+        layout.addSpacing(6)
         layout.addWidget(text_label, 0, Qt.AlignVCenter)
         layout.addStretch(1)
 
-        # Keep text labels white regardless of theme
         self.setStyleSheet("#add_pair_btn { color: white; }")
 
     def enterEvent(self, event):
@@ -328,11 +318,11 @@ class AddPairButton(QWidget):
         radius = 8
 
         if self._hover:
-            bg = QColor(80, 80, 80, 180)
-            border = QColor(120, 120, 120, 200)
+            bg = QColor(0, 120, 212, 180)
+            border = QColor(16, 132, 216, 200)
         else:
-            bg = QColor(60, 60, 60, 140)
-            border = QColor(100, 100, 100, 160)
+            bg = QColor(0, 120, 212, 100)
+            border = QColor(16, 132, 216, 140)
 
         painter.setBrush(QBrush(bg))
         painter.setPen(QPen(border, 1))
@@ -346,62 +336,42 @@ class AddPairButton(QWidget):
 
 
 class ResultCard(QWidget):
-    """Individual result card with icon, title, and value display with enhanced styling."""
+    """Individual result card with icon, title, and value — no panel background."""
     
     def __init__(self, title, icon, theme_color, value_label=None):
         super().__init__()
         self.title = title
         self.theme_color = theme_color
-        self.value_label = value_label  # Reference to existing label
+        self.value_label = value_label
         
-        # Set size policy and constraints (expand horizontally; height sized to fit large text/icon)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(90)
-        self.setMaximumHeight(90)
-        self.setFixedHeight(90)
-        # No maximum width so it can expand horizontally with the window
+        self.setMinimumHeight(64)
+        self.setMaximumHeight(64)
+        self.setFixedHeight(64)
         
-        # Disable interactive hover/focus like billing containers
         self.setAttribute(Qt.WA_Hover, False)
         self.setMouseTracking(False)
         self.setFocusPolicy(Qt.NoFocus)
         self.setCursor(Qt.ArrowCursor)
-        # Ensure stylesheet background is painted on QWidget
         self.setAttribute(Qt.WA_StyledBackground, True)
-        # Fill background from palette/QSS
-        self.setAutoFillBackground(True)
         
-        # Compute light/dark variants for background/value
-        light_bg = _lighten_color(self.theme_color, 0.92)
         dark_accent = _darken_color(self.theme_color, 0.40)
-        vivid_accent = _lighten_color(self.theme_color, 0.25)  # brighter number color
+        vivid_accent = _lighten_color(self.theme_color, 0.25)
 
-        # Assign a stable object name for precise QSS targeting
         self.setObjectName("result_card")
 
-        # Root layout (no padding); inner 'panel' draws background & padding
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-        panel = QWidget()
-        panel.setObjectName("result_card_panel")
-        panel.setAttribute(Qt.WA_StyledBackground, True)
-        panel.setAutoFillBackground(True)
-        # Fix the panel's height so content never expands it vertically
-        panel.setMinimumHeight(90)
-        panel.setMaximumHeight(90)
-        panel_layout = QHBoxLayout(panel)
-        panel_layout.setContentsMargins(24, 6, 24, 6)
-        panel_layout.setSpacing(10)
+        # Direct layout on the card itself — no inner panel, no background box
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 4, 16, 4)
+        layout.setSpacing(10)
         
-        # Icon section with enhanced styling
+        # Icon
         icon_label = QLabel()
         if isinstance(icon, FluentIconBase):
-            pixmap = icon.icon().pixmap(30, 30)
+            pixmap = icon.icon().pixmap(28, 28)
         else:
-            pixmap = icon.pixmap(30, 30) if hasattr(icon, 'pixmap') else QPixmap()
+            pixmap = icon.pixmap(28, 28) if hasattr(icon, 'pixmap') else QPixmap()
         
-        # Apply theme color to icon with better rendering
         if not pixmap.isNull():
             colored_pixmap = QPixmap(pixmap.size())
             colored_pixmap.fill(Qt.transparent)
@@ -414,114 +384,99 @@ class ResultCard(QWidget):
             painter.end()
             icon_label.setPixmap(colored_pixmap)
         
-        # Create a rounded "chip" container to get smooth corners (like the cards)
         icon_chip = QWidget()
         icon_chip.setObjectName("icon_chip")
-        icon_chip.setFixedSize(40, 40)
+        icon_chip.setFixedSize(36, 36)
         icon_chip.setAttribute(Qt.WA_StyledBackground, True)
-        icon_chip.setAutoFillBackground(True)
         chip_bg_rgba = _rgba_from_hex(self.theme_color, 0.10)
         icon_chip.setStyleSheet(f"""
             #icon_chip {{
                 background-color: {chip_bg_rgba};
-                border-radius: 12px;  /* 48px -> radius 12 for clean AA */
-                border: 1px solid {dark_accent}; /* opaque solid border */
+                border-radius: 10px;
+                border: 1px solid {dark_accent};
             }}
         """)
-        # No shadow to avoid dotted edges on borders
         icon_chip.setGraphicsEffect(None)
 
-        # Center the glyph inside the chip
         icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("background: transparent; border: none;")
         chip_layout = QVBoxLayout(icon_chip)
-        chip_layout.setContentsMargins(4, 4, 4, 4)
+        chip_layout.setContentsMargins(3, 3, 3, 3)
         chip_layout.setSpacing(0)
         chip_layout.addWidget(icon_label, 1, Qt.AlignCenter)
         
-        # Title with enhanced styling
+        # Title — no background
         title_label = CaptionLabel(title)
-        title_label.setStyleSheet(
-            """
-            color: #FFFFFF; 
-            font-weight: bold; 
+        title_label.setStyleSheet("""
+            color: #FFFFFF;
+            font-weight: bold;
             font-size: 13px;
             letter-spacing: 0.5px;
-        """
-        )
+            background: transparent;
+            border: none;
+        """)
         
-        # Value with improved typography (bigger & brighter)
+        # Value — no background
         if value_label:
             self.display_label = value_label
             self.display_label.setStyleSheet(f"""
-                color: {vivid_accent}; 
-                font-size: 40px; 
+                color: {vivid_accent};
+                font-size: 28px;
                 font-weight: 700;
-                line-height: 1.2;
+                background: transparent;
+                border: none;
             """)
             self.display_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         else:
             self.display_label = BodyLabel("0")
             self.display_label.setStyleSheet(f"""
-                color: {vivid_accent}; 
-                font-size: 44px; 
+                color: {vivid_accent};
+                font-size: 28px;
                 font-weight: 700;
-                line-height: 1.2;
+                background: transparent;
+                border: none;
             """)
             self.display_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         
-        # Header row: title left, value right (directly beside the icon)
+        # Title + value row
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
         header_row.setSpacing(6)
         header_row.addWidget(title_label, 1)
         header_row.addStretch(1)
         header_row.addWidget(self.display_label, 0, Qt.AlignRight | Qt.AlignVCenter)
-        # Ensure vertical centering with the icon
         header_row.setAlignment(title_label, Qt.AlignVCenter)
         header_row.setAlignment(self.display_label, Qt.AlignVCenter)
         
-        # Place icon and header row in the same horizontal line for perfect vertical alignment
-        panel_layout.addWidget(icon_chip)
-        panel_layout.addLayout(header_row, 1)
-        panel_layout.setAlignment(icon_chip, Qt.AlignVCenter)
-        panel_layout.setAlignment(header_row, Qt.AlignVCenter)
-        outer_layout.addWidget(panel)
+        layout.addWidget(icon_chip)
+        layout.addLayout(header_row, 1)
+        layout.setAlignment(icon_chip, Qt.AlignVCenter)
+        layout.setAlignment(header_row, Qt.AlignVCenter)
         
-        # Style the inner panel to ensure background renders
-        frosted_bg = _rgba_from_hex(self.theme_color, 0.16)
-        panel_border = _rgba_from_hex(self.theme_color, 0.35)
-        panel.setStyleSheet(f"""
-            #result_card_panel {{
-                background-color: {frosted_bg};
-                border: 1px solid {panel_border};
-                border-radius: 12px;
+        # No panel, no background box — just a thin bottom border to separate cards
+        self.setStyleSheet(f"""
+            #result_card {{
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             }}
         """)
-        # Remove panel shadow to avoid band-like separators between thin cards
-        panel.setGraphicsEffect(None)
         
-        # Add subtle entrance animation
         self._setup_animations()
     
     def enterEvent(self, event):
-        """Do not invoke base CardWidget hover behavior."""
-        return  # No-op to keep static appearance
+        return
     
     def leaveEvent(self, event):
-        """Do not invoke base CardWidget hover behavior."""
-        return  # No-op to keep static appearance
+        return
     
     def event(self, e):
-        """Swallow hover events to prevent CardWidget's hover visuals."""
         if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
             return True
         return super().event(e)
     
     def _setup_animations(self):
-        """Setup subtle animations for the card."""
         from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
-        
-        # Opacity animation for smooth appearance
         self._opacity_animation = QPropertyAnimation(self, b"windowOpacity")
         self._opacity_animation.setDuration(300)
         self._opacity_animation.setStartValue(0.0)
@@ -529,72 +484,50 @@ class ResultCard(QWidget):
         self._opacity_animation.setEasingCurve(QEasingCurve.OutCubic)
     
     def showEvent(self, event):
-        """Override show event to trigger entrance animation."""
         super().showEvent(event)
         if hasattr(self, '_opacity_animation'):
             self._opacity_animation.start()
     
     def update_value(self, value):
-        """Update the displayed value with smooth transition."""
         if self.value_label:
             self.value_label.setText(str(value))
         else:
             self.display_label.setText(str(value))
-        
-        # Add subtle pulse effect when value updates
         self._pulse_effect()
     
     def _pulse_effect(self):
-        """Add a subtle pulse effect when value updates."""
-        # Disabled to prevent geometry animation warnings
         pass
 
 
 class FinalAmountCard(QWidget):
-    """Special Final Amount card with prominent styling, animations, and enhanced visual appeal."""
+    """Final Amount card — no inner panel, no background box behind text."""
     
     def __init__(self, value_label):
         super().__init__()
         self.value_label = value_label
         
-        # Set size policy and constraints (fixed vertically at 120px, can expand horizontally)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(120)
-        self.setMaximumHeight(120)
-        self.setFixedHeight(120)
+        self.setMinimumHeight(90)
+        self.setMaximumHeight(90)
+        self.setFixedHeight(90)
         
-        # Disable interactive hover/focus like billing containers
         self.setAttribute(Qt.WA_Hover, False)
         self.setMouseTracking(False)
         self.setFocusPolicy(Qt.NoFocus)
         self.setCursor(Qt.ArrowCursor)
-        # Ensure stylesheet background is painted on QWidget
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setAutoFillBackground(True)
-        # Match stylesheet id selector
         self.setObjectName("final_amount_card")
         
-        # Root layout (no padding); inner 'panel' draws background & padding
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-        panel = QWidget()
-        panel.setObjectName("final_amount_panel")
-        panel.setAttribute(Qt.WA_StyledBackground, True)
-        panel.setAutoFillBackground(True)
-        # Fix inner panel to match card height so it doesn't expand vertically
-        panel.setMinimumHeight(120)
-        panel.setMaximumHeight(120)
-        layout = QHBoxLayout(panel)
-        layout.setContentsMargins(28, 14, 28, 14)  # extra horizontal padding
-        layout.setSpacing(16)
+        # Direct layout — no inner panel
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setSpacing(14)
         
-        # Icon section with enhanced money/total icon
+        # Icon
         icon_label = QLabel()
-        money_icon = FluentIcon.SHOPPING_CART  # Use shopping cart icon for final amount
-        pixmap = money_icon.icon().pixmap(48, 48)  # Even larger icon
+        money_icon = FluentIcon.SHOPPING_CART
+        pixmap = money_icon.icon().pixmap(40, 40)
         
-        # Apply accent color to icon with better rendering
         if not pixmap.isNull():
             colored_pixmap = QPixmap(pixmap.size())
             colored_pixmap.fill(Qt.transparent)
@@ -603,121 +536,101 @@ class FinalAmountCard(QWidget):
             painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
             painter.drawPixmap(0, 0, pixmap)
             painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
-            painter.fillRect(colored_pixmap.rect(), QColor("#0078D4"))  # Accent color
+            painter.fillRect(colored_pixmap.rect(), QColor("#0078D4"))
             painter.end()
             icon_label.setPixmap(colored_pixmap)
         
-        # Compute theme tints (blue theme) and frosted variants
         theme_color = "#0078D4"
-        light_bg = _lighten_color(theme_color, 0.90)
         dark_accent = _darken_color(theme_color, 0.40)
-        icon_bg_rgba = _rgba_from_hex(theme_color, 0.18)
-        border_rgba = _rgba_from_hex(theme_color, 0.45)
 
-        # Use a rounded chip container for smooth corners
         icon_chip = QWidget()
         icon_chip.setObjectName("final_amount_icon_chip")
-        icon_chip.setFixedSize(64, 64)
+        icon_chip.setFixedSize(52, 52)
         icon_chip.setAttribute(Qt.WA_StyledBackground, True)
-        icon_chip.setAutoFillBackground(True)
         chip_bg_rgba2 = _rgba_from_hex(theme_color, 0.10)
         icon_chip.setStyleSheet(f"""
             #final_amount_icon_chip {{
                 background-color: {chip_bg_rgba2};
-                border-radius: 16px;  /* 64px -> radius 16 for clean AA */
-                border: 1px solid {dark_accent}; /* opaque solid border */
+                border-radius: 14px;
+                border: 1px solid {dark_accent};
             }}
         """)
-        # No shadow to avoid dotted edges on borders
         icon_chip.setGraphicsEffect(None)
 
         icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("background: transparent; border: none;")
         chip_layout2 = QVBoxLayout(icon_chip)
-        chip_layout2.setContentsMargins(8, 8, 8, 8)
+        chip_layout2.setContentsMargins(6, 6, 6, 6)
         chip_layout2.setSpacing(0)
         chip_layout2.addWidget(icon_label, 1, Qt.AlignCenter)
         
-        # Content section with header row (title left, number right)
+        # Content — title, value, subtitle — all transparent bg
         content_layout = QVBoxLayout()
-        content_layout.setSpacing(6)
+        content_layout.setSpacing(2)
         content_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Title with enhanced typography
         title_label = CaptionLabel("Final Amount")
         title_label.setStyleSheet("""
-            color: #FFFFFF; 
-            font-weight: bold; 
-            font-size: 16px;
+            color: #FFFFFF;
+            font-weight: bold;
+            font-size: 14px;
             letter-spacing: 1px;
+            background: transparent;
+            border: none;
         """)
         
-        # Subtitle with better styling
         subtitle_label = CaptionLabel("Total utility cost")
         subtitle_label.setStyleSheet("""
-            color: #aaaaaa; 
-            font-size: 12px;
+            color: #aaaaaa;
+            font-size: 11px;
             font-style: italic;
-            margin-bottom: 4px;
+            background: transparent;
+            border: none;
         """)
         
-        # Value with premium typography (bigger & brighter)
         vivid_blue = _lighten_color(theme_color, 0.18)
         self.value_label.setStyleSheet(f"""
-            color: {vivid_blue}; 
-            font-size: 44px; 
+            color: {vivid_blue};
+            font-size: 32px;
             font-weight: 800;
-            line-height: 1.1;
+            background: transparent;
+            border: none;
         """)
         self.value_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
         
-        # Center title and value vertically stacked
         content_layout.addWidget(title_label, 0, Qt.AlignHCenter)
-        content_layout.addWidget(self.value_label, 0, Qt.AlignHCenter)
+        content_layout.addWidget(self.value_label, 1, Qt.AlignHCenter | Qt.AlignVCenter)
         content_layout.addWidget(subtitle_label, 0, Qt.AlignHCenter)
-        content_layout.addStretch()
         
-        # Add to panel then to outer layout
         layout.addWidget(icon_chip)
         layout.addLayout(content_layout, 1)
         layout.setAlignment(icon_chip, Qt.AlignVCenter)
         layout.setAlignment(content_layout, Qt.AlignVCenter)
-        outer_layout.addWidget(panel)
         
-        # Style the inner panel to ensure background renders
-        frosted_bg = _rgba_from_hex(theme_color, 0.14)
-        panel_border = _rgba_from_hex(theme_color, 0.45)
-        panel.setStyleSheet(f"""
-            #final_amount_panel {{
-                background-color: {frosted_bg};
-                border: 2px solid {panel_border};
-                border-radius: 12px;  /* match parent rounding */
+        # No panel background — just a top border to separate from result cards above
+        self.setStyleSheet(f"""
+            #final_amount_card {{
+                background: transparent;
+                border: none;
+                border-top: 2px solid {_rgba_from_hex(theme_color, 0.35)};
             }}
         """)
-        # Remove panel shadow for visual consistency with thin cards
-        panel.setGraphicsEffect(None)
         
-        # Setup premium animations
         self._setup_premium_animations()
     
     def enterEvent(self, event):
-        """Do not invoke base CardWidget hover behavior."""
-        return  # No-op to keep static appearance
+        return
 
     def leaveEvent(self, event):
-        """Do not invoke base CardWidget hover behavior."""
-        return  # No-op to keep static appearance
+        return
 
     def event(self, e):
-        """Swallow hover events to prevent CardWidget's hover visuals."""
         if e.type() in (QEvent.HoverEnter, QEvent.HoverMove, QEvent.HoverLeave):
             return True
         return super().event(e)
     
     def _setup_premium_animations(self):
-        """Setup premium animations for the final amount card."""
         from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
-        
-        # Only use opacity animation (geometry animation causes warnings)
         self._opacity_animation = QPropertyAnimation(self, b"windowOpacity")
         self._opacity_animation.setDuration(300)
         self._opacity_animation.setStartValue(0.0)
@@ -725,19 +638,15 @@ class FinalAmountCard(QWidget):
         self._opacity_animation.setEasingCurve(QEasingCurve.OutCubic)
     
     def showEvent(self, event):
-        """Override show event to trigger entrance animation."""
         super().showEvent(event)
         if hasattr(self, '_opacity_animation'):
             self._opacity_animation.start()
     
     def update_value(self, value):
-        """Update the displayed value with premium animation effects."""
         self.value_label.setText(str(value))
         self._premium_update_effect()
     
     def _premium_update_effect(self):
-        """Add premium visual effects when value updates."""
-        # Disabled to prevent animation warnings
         pass
 
 
@@ -915,7 +824,11 @@ class MainTab(QWidget):
         self.main_scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.main_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.main_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.main_scroll_area.setStyleSheet(f"background-color: {CalculatorTheme.TAB_BG}; border: none;")
+        self.main_scroll_area.setStyleSheet(f"ScrollArea {{ background-color: {CalculatorTheme.TAB_BG}; border: none; }}")
+        try:
+            self.main_scroll_area.enableTransparentBackground()
+        except Exception:
+            pass
 
         scroll_content_widget = QWidget()
         scroll_content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -930,11 +843,9 @@ class MainTab(QWidget):
         actions_content.setObjectName("actions_card")
         actions_content.setStyleSheet(calculator_card_style("actions_card"))
         actions_content.setAttribute(Qt.WA_StyledBackground, True)
-        actions_content.setAutoFillBackground(True)
         actions_content.setFocusPolicy(Qt.NoFocus)
         actions_content.setAttribute(Qt.WA_Hover, False)
         actions_content.setMouseTracking(False)
-        apply_card_shadow(actions_content)
         self._load_data_group = actions_content
         actions_content.installEventFilter(self)
 
@@ -949,7 +860,7 @@ class MainTab(QWidget):
         actions_section = CollapsibleSection("\u26a1 Actions", actions_content, expanded=False)
         main_layout.addWidget(actions_section)
 
-        # ── 2. Unified Billing & Calculation card ───────────────────────
+        # ── 2. Main Calculation card ────────────────────────────────────
         unified_card = self.create_unified_calculator_card()
         main_layout.addWidget(unified_card)
 
@@ -1726,11 +1637,8 @@ class MainTab(QWidget):
         return results_group
 
     def create_unified_calculator_card(self):
-        """Create the main calculator card with a two-column layout:
-        Left column = inputs (billing period, reading pairs, additional amount)
-        Right column = live results
-        Calculate button sits prominently between them as a visual bridge.
-        Save buttons are under the results (near what they save).
+        """Create the unified Main Calculation card — side-by-side inputs
+        and results in one polished card. Save buttons are in the Room Calculations section.
         """
         # ── Outer card ──────────────────────────────────────────────────
         card = QWidget()
@@ -1746,44 +1654,56 @@ class MainTab(QWidget):
         apply_card_shadow(card)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 20, 20, 20)
-        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(24, 18, 24, 18)
+        card_layout.setSpacing(10)
 
-        # ── Title ───────────────────────────────────────────────────────
-        title = TitleLabel("\U0001f4ca Billing & Calculation")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_BILLING).replace(
-            str(CalculatorTheme.HEADER_SIZE) + "px", "28px"
-        ).replace("bold", "800") + "letter-spacing: 1px; margin: 4px 0px;")
-        card_layout.addWidget(title)
+        # ── Title row: icon + title left, period bar right ──────────────
+        title_row = QHBoxLayout()
+        title_row.setSpacing(12)
+        title_row.setContentsMargins(0, 0, 0, 0)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Plain)
-        sep.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_BILLING))
-        card_layout.addWidget(sep)
+        title = TitleLabel("\U0001f4ca Main Calculation")
+        title.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        title.setStyleSheet("""
+            font-size: 24px;
+            font-weight: 800;
+            color: #0078D4;
+            letter-spacing: 1px;
+            background: transparent;
+            border: none;
+        """)
+        title_row.addWidget(title)
+        title_row.addStretch(1)
 
-        # ── Top bar: Month/Year (left) + Add Next Month (right) ─────────
-        top_bar = QHBoxLayout()
-        top_bar.setSpacing(12)
-        top_bar.setContentsMargins(0, 0, 0, 4)
+        # Period bar — Month/Year inline, styled as a pill
+        period_bar = QWidget()
+        period_bar.setAttribute(Qt.WA_StyledBackground, True)
+        period_bar.setStyleSheet("""
+            background-color: rgba(0, 120, 212, 0.12);
+            border: 1px solid rgba(0, 120, 212, 0.30);
+            border-radius: 8px;
+        """)
+        period_layout = QHBoxLayout(period_bar)
+        period_layout.setContentsMargins(10, 4, 10, 4)
+        period_layout.setSpacing(8)
 
-        # Left: Month/Year
         month_label = BodyLabel("Month:")
-        month_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        month_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none; font-size: 12px;")
         self.month_combo = ComboBox()
         self.month_combo.addItems([
             "January", "February", "March", "April", "May", "June",
             "July", "August", "September", "October", "November", "December"
         ])
+        self.month_combo.setMinimumWidth(120)
 
         year_label = BodyLabel("Year:")
-        year_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        year_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none; font-size: 12px;")
         self.year_spinbox = SpinBox()
         self.year_spinbox.setRange(2000, 2100)
         self.year_spinbox.setValue(datetime.now().year)
         self._apply_no_select_to_spinbox(self.year_spinbox)
         self.year_spinbox.setFocusPolicy(Qt.NoFocus)
+        self.year_spinbox.setMinimumWidth(90)
         try:
             le = self.year_spinbox.lineEdit() if hasattr(self.year_spinbox, 'lineEdit') else None
             if le is None:
@@ -1797,19 +1717,19 @@ class MainTab(QWidget):
         except Exception:
             pass
 
-        top_bar.addWidget(month_label)
-        top_bar.addWidget(self.month_combo)
-        top_bar.addSpacing(16)
-        top_bar.addWidget(year_label)
-        top_bar.addWidget(self.year_spinbox)
-        top_bar.addStretch(1)
+        period_layout.addWidget(month_label)
+        period_layout.addWidget(self.month_combo)
+        period_layout.addSpacing(4)
+        period_layout.addWidget(year_label)
+        period_layout.addWidget(self.year_spinbox)
+        title_row.addWidget(period_bar)
 
-        # Right: Add Next Month button
+        # Add Next Month button
         add_next_month_btn = PrimaryPushButton("Add Next Month")
         add_next_month_btn.setIcon(FluentIcon.ADD.icon(color=QColor(255, 255, 255)))
-        add_next_month_btn.setIconSize(QSize(20, 20))
+        add_next_month_btn.setIconSize(QSize(18, 18))
         add_next_month_btn.clicked.connect(self.add_month_action)
-        add_next_month_btn.setFixedHeight(36)
+        add_next_month_btn.setFixedHeight(34)
         add_next_month_btn.setStyleSheet("""
             PrimaryPushButton {
                 color: white;
@@ -1817,60 +1737,52 @@ class MainTab(QWidget):
                 border: 1px solid #FF8C00;
                 border-radius: 6px;
                 font-weight: 600;
-                qproperty-iconSize: 20px 20px;
-                padding: 8px 16px 8px 36px;
+                font-size: 13px;
+                qproperty-iconSize: 18px 18px;
+                padding: 6px 14px 6px 32px;
             }
-            PrimaryPushButton:hover {
-                background-color: #FF7F00;
-                border-color: #FF7F00;
-            }
-            PrimaryPushButton:pressed {
-                background-color: #FF6600;
-                border-color: #FF6600;
-            }
+            PrimaryPushButton:hover { background-color: #FF7F00; border-color: #FF7F00; }
+            PrimaryPushButton:pressed { background-color: #FF6600; border-color: #FF6600; }
         """)
-        add_next_month_btn.setMinimumWidth(180)
-        top_bar.addWidget(add_next_month_btn)
+        add_next_month_btn.setMinimumWidth(150)
+        title_row.addWidget(add_next_month_btn)
 
-        card_layout.addLayout(top_bar)
+        card_layout.addLayout(title_row)
+
+        # Main divider
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShadow(QFrame.Plain)
+        sep.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; max-height: 2px; margin: 0px 0px 2px 0px;")
+        card_layout.addWidget(sep)
 
         # ════════════════════════════════════════════════════════════════
-        # ── TWO-COLUMN BODY: Inputs (left) | Results (right) ────────────
+        # TWO-COLUMN BODY: Inputs (left) | Results (right)
         # ════════════════════════════════════════════════════════════════
-        body_layout = QHBoxLayout()
-        body_layout.setSpacing(16)
+        body = QHBoxLayout()
+        body.setSpacing(20)
 
-        # ── LEFT COLUMN: Inputs ─────────────────────────────────────────
-        left_col = QWidget()
-        left_col.setAttribute(Qt.WA_StyledBackground, True)
-        left_col.setFocusPolicy(Qt.NoFocus)
-        left_col.setAttribute(Qt.WA_Hover, False)
-        left_col.setMouseTracking(False)
-        left_col.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        left_col.setStyleSheet("""
-            background-color: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 14px;
+        # ── LEFT: Inputs ────────────────────────────────────────────────
+        left = QVBoxLayout()
+        left.setSpacing(10)
+
+        # Reading Pairs header
+        rp_title = BodyLabel("\U0001f4cf Reading Pairs")
+        rp_title.setStyleSheet("""
+            font-size: 14px;
+            font-weight: bold;
+            color: #49C6FF;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
         """)
-        left_shadow = QGraphicsDropShadowEffect(self)
-        left_shadow.setBlurRadius(20)
-        left_shadow.setOffset(0, 3)
-        left_shadow.setColor(QColor(0, 0, 0, 100))
-        left_col.setGraphicsEffect(left_shadow)
-
-        inputs_layout = QVBoxLayout(left_col)
-        inputs_layout.setContentsMargins(18, 14, 18, 14)
-        inputs_layout.setSpacing(14)
-
-        # -- Reading Pairs section --
-        rp_title = BodyLabel("Reading Pairs")
-        rp_title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_METER))
-        inputs_layout.addWidget(rp_title)
+        left.addWidget(rp_title)
         rp_sep = QFrame()
         rp_sep.setFrameShape(QFrame.HLine)
         rp_sep.setFrameShadow(QFrame.Plain)
-        rp_sep.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_METER))
-        inputs_layout.addWidget(rp_sep)
+        rp_sep.setStyleSheet("color: #49C6FF; background-color: #49C6FF; border: none; max-height: 1px; margin: 0px 0px 4px 0px;")
+        left.addWidget(rp_sep)
 
         pairs_scroll = ScrollArea()
         pairs_scroll.setWidgetResizable(True)
@@ -1878,37 +1790,48 @@ class MainTab(QWidget):
         pairs_scroll.setMinimumHeight(110)
         pairs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         pairs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        pairs_scroll.setStyleSheet("ScrollArea { background: transparent; border: none; }")
 
         pairs_container = QWidget()
+        pairs_container.setStyleSheet("background: transparent; border: none;")
         pairs_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.pairs_layout = QVBoxLayout(pairs_container)
         self.pairs_layout.setSpacing(2)
         self.pairs_layout.setContentsMargins(4, 2, 4, 10)
         pairs_scroll.setWidget(pairs_container)
-        inputs_layout.addWidget(pairs_scroll, 0, Qt.AlignTop)
+        left.addWidget(pairs_scroll, 0, Qt.AlignTop)
         self.pairs_scroll = pairs_scroll
 
-        self._pairs_fixed_gap = 8
-        inputs_layout.addSpacing(self._pairs_fixed_gap)
-        self._pairs_btn_top_gap = 10
+        self._pairs_fixed_gap = 6
+        left.addSpacing(self._pairs_fixed_gap)
+        self._pairs_btn_top_gap = 8
         add_pair_button = AddPairButton("Add Reading Pair", lambda: self.add_reading_pair())
         button_holder = QWidget()
+        button_holder.setStyleSheet("background: transparent; border: none;")
         bh_layout = QVBoxLayout(button_holder)
         bh_layout.setContentsMargins(0, self._pairs_btn_top_gap, 0, 0)
         bh_layout.setSpacing(0)
         bh_layout.addWidget(add_pair_button)
-        inputs_layout.addWidget(button_holder)
+        left.addWidget(button_holder)
         self._pairs_add_button = add_pair_button
 
-        # -- Additional Amount section --
-        aa_title = BodyLabel("Additional Amount")
-        aa_title.setStyleSheet(section_header_style(CalculatorTheme.ACCENT_BILLING))
-        inputs_layout.addWidget(aa_title)
+        # Additional Amount header
+        aa_title = BodyLabel("\U0001f4b0 Additional Amount")
+        aa_title.setStyleSheet("""
+            font-size: 14px;
+            font-weight: bold;
+            color: #0078D4;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+        """)
+        left.addWidget(aa_title)
         aa_sep = QFrame()
         aa_sep.setFrameShape(QFrame.HLine)
         aa_sep.setFrameShadow(QFrame.Plain)
-        aa_sep.setStyleSheet(section_divider_style(CalculatorTheme.ACCENT_BILLING))
-        inputs_layout.addWidget(aa_sep)
+        aa_sep.setStyleSheet("color: #0078D4; background-color: #0078D4; border: none; max-height: 1px; margin: 0px 0px 4px 0px;")
+        left.addWidget(aa_sep)
 
         aa_row = QHBoxLayout()
         aa_row.setContentsMargins(0, 0, 0, 0)
@@ -1917,128 +1840,79 @@ class MainTab(QWidget):
         self.additional_amount_input.setObjectName("main_additional_amount_input")
         self.additional_amount_input.setValidator(QRegExpValidator(QRegExp(r'^\d*\.?\d*$')))
         currency_label = CaptionLabel("TK")
-        currency_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px; padding: 8px 4px;")
+        currency_label.setStyleSheet("font-weight: bold; color: #ffffff; font-size: 12px; padding: 8px 4px; background: transparent; border: none;")
         aa_row.addWidget(self.additional_amount_input, 1)
         aa_row.addWidget(currency_label)
-        inputs_layout.addLayout(aa_row)
+        left.addLayout(aa_row)
 
-        # -- Calculate button (full width of left column, prominent) --
+        # Calculate button — full width, prominent
         self.main_calculate_button = PrimaryPushButton("Calculate")
         self.main_calculate_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
         self.main_calculate_button.setIconSize(QSize(20, 20))
         self.main_calculate_button.clicked.connect(self.calculate_main)
-        self.main_calculate_button.setFixedHeight(44)
+        self.main_calculate_button.setFixedHeight(42)
         self.main_calculate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.main_calculate_button.setStyleSheet(primary_button_style() + """
             PrimaryPushButton {
                 qproperty-iconSize: 20px 20px;
-                padding: 10px 16px 10px 36px;
+                padding: 8px 16px 8px 36px;
                 text-align: center;
                 font-size: 15px;
             }
         """)
-        inputs_layout.addSpacing(4)
-        inputs_layout.addWidget(self.main_calculate_button)
+        left.addSpacing(4)
+        left.addWidget(self.main_calculate_button)
+        left.addStretch(1)
 
-        body_layout.addWidget(left_col, 1)
+        body.addLayout(left, 1)
 
-        # ── RIGHT COLUMN: Results ───────────────────────────────────────
-        right_col = QWidget()
-        right_col.setStyleSheet("background: transparent; border: none;")
-        right_col.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        right_layout = QVBoxLayout(right_col)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(8)
+        # ── RIGHT: Results ──────────────────────────────────────────────
+        right = QVBoxLayout()
+        right.setSpacing(4)
 
-        results_group = self.create_results_group()
-        self.results_group_widget = results_group
-        right_layout.addWidget(results_group, 0, Qt.AlignTop)
-
-        # -- Save buttons (under results, near what they save) --
-        buttons_row = QHBoxLayout()
-        buttons_row.setSpacing(8)
-        buttons_row.setContentsMargins(0, 6, 0, 0)
-
-        # Save PDF
-        pdf_button = PrimaryPushButton("Save PDF")
-        pdf_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
-        pdf_button.setIconSize(QSize(18, 18))
-        pdf_button.setFixedHeight(36)
-        pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        pdf_button.clicked.connect(self.main_window.save_to_pdf)
-        pdf_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background-color: #d32f2f;
-                border: 1px solid #d32f2f;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 13px;
-                qproperty-iconSize: 18px 18px;
-                padding: 6px 12px 6px 30px;
-                text-align: center;
-            }
-            PrimaryPushButton:hover { background-color: #f44336; border-color: #f44336; }
-            PrimaryPushButton:pressed { background-color: #b71c1c; border-color: #b71c1c; }
+        results_title = TitleLabel("\u2705 Calculation Results")
+        results_title.setAlignment(Qt.AlignCenter)
+        results_title.setStyleSheet("""
+            font-size: 18px;
+            font-weight: 800;
+            color: #81C784;
+            letter-spacing: 0.8px;
+            background: transparent;
+            border: none;
+            margin: 0px 0px 2px 0px;
         """)
+        right.addWidget(results_title)
 
-        # Save CSV
-        csv_button = PrimaryPushButton("Save CSV")
-        csv_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
-        csv_button.setIconSize(QSize(18, 18))
-        csv_button.setFixedHeight(36)
-        csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
-        csv_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background-color: #388e3c;
-                border: 1px solid #388e3c;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 13px;
-                qproperty-iconSize: 18px 18px;
-                padding: 6px 12px 6px 30px;
-                text-align: center;
-            }
-            PrimaryPushButton:hover { background-color: #4caf50; border-color: #4caf50; }
-            PrimaryPushButton:pressed { background-color: #2e7d32; border-color: #2e7d32; }
-        """)
+        results_sep = QFrame()
+        results_sep.setFrameShape(QFrame.HLine)
+        results_sep.setFrameShadow(QFrame.Plain)
+        results_sep.setStyleSheet("color: #81C784; background-color: #81C784; border: none; max-height: 2px; margin: 0px 0px 2px 0px;")
+        right.addWidget(results_sep)
 
-        # Save Cloud
-        cloud_button = PrimaryPushButton("Save Cloud")
-        cloud_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
-        cloud_button.setIconSize(QSize(18, 18))
-        cloud_button.setFixedHeight(36)
-        cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
-        cloud_button.setStyleSheet("""
-            PrimaryPushButton {
-                color: white;
-                background-color: #7b1fa2;
-                border: 1px solid #7b1fa2;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 13px;
-                qproperty-iconSize: 18px 18px;
-                padding: 6px 12px 6px 30px;
-                text-align: center;
-            }
-            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9c27b0, stop:1 #7b1fa2); border-color: #9c27b0; }
-            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a1b9a, stop:1 #4a148c); border-color: #6a1b9a; }
-        """)
+        # Result cards — no background boxes
+        self.total_unit_value_label = BodyLabel("0")
+        self.total_diff_value_label = BodyLabel("0")
+        self.per_unit_cost_value_label = BodyLabel("0.00")
+        self.additional_amount_value_label = BodyLabel("0")
 
-        buttons_row.addWidget(pdf_button, 1)
-        buttons_row.addWidget(csv_button, 1)
-        buttons_row.addWidget(cloud_button, 1)
-        self._save_buttons_row = buttons_row
-        right_layout.addLayout(buttons_row)
+        right.addWidget(ResultCard("Total Units", FluentIcon.TILES, "#4FC3F7", self.total_unit_value_label))
+        right.addWidget(ResultCard("Total Difference", FluentIcon.REMOVE, "#FFB74D", self.total_diff_value_label))
+        right.addWidget(ResultCard("Per Unit Cost", FluentIcon.SHOPPING_CART, "#81C784", self.per_unit_cost_value_label))
+        right.addWidget(ResultCard("Added Amount", FluentIcon.ADD, "#BA68C8", self.additional_amount_value_label))
+        right.addWidget(ResultCard("Total Cost", FluentIcon.UP, "#26A69A"))
 
-        right_layout.addStretch(1)
+        self.in_total_value_label = BodyLabel("0.00")
+        self.final_amount_card = FinalAmountCard(self.in_total_value_label)
+        right.addWidget(self.final_amount_card)
 
-        body_layout.addWidget(right_col, 1)
+        right.addStretch(1)
 
-        card_layout.addLayout(body_layout)
+        body.addLayout(right, 1)
+
+        card_layout.addLayout(body)
+
+        # Keep reference for external code
+        self.results_group_widget = card
 
         return card
 
@@ -2047,7 +1921,6 @@ class MainTab(QWidget):
         container = QWidget()
         container.setObjectName("load_data_container")
         container.setAttribute(Qt.WA_StyledBackground, True)
-        container.setAutoFillBackground(True)
         container.setFocusPolicy(Qt.NoFocus)
         container.setAttribute(Qt.WA_Hover, False)
         container.setMouseTracking(False)
@@ -2072,7 +1945,7 @@ class MainTab(QWidget):
 
         # Month
         load_month_label = BodyLabel("Month:")
-        load_month_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        load_month_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
         self.load_month_combo = ComboBox()
         self.load_month_combo.addItems([
             "January", "February", "March", "April", "May", "June",
@@ -2084,7 +1957,7 @@ class MainTab(QWidget):
 
         # Year
         load_year_label = BodyLabel("Year:")
-        load_year_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        load_year_label.setStyleSheet("font-weight: bold; color: #ffffff; background: transparent; border: none;")
         self.load_year_spinbox = SpinBox()
         self.load_year_spinbox.setRange(2000, 2100)
         self.load_year_spinbox.setValue(datetime.now().year)
@@ -2304,7 +2177,11 @@ class MainTab(QWidget):
         self.rooms_scroll_layout.setSpacing(10)
         layout.addWidget(rooms_card_container)
 
-        # Calculate Room Bills button
+        # Calculate Room Bills button + Save buttons in one row
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(8)
+        bottom_row.setContentsMargins(0, 0, 0, 0)
+
         self.calculate_rooms_button = PrimaryPushButton("Calculate Room Bills")
         self.calculate_rooms_button.clicked.connect(self.calculate_rooms)
         self.calculate_rooms_button.setIcon(FluentIcon.ACCEPT_MEDIUM.icon(color=QColor(255, 255, 255)))
@@ -2314,13 +2191,91 @@ class MainTab(QWidget):
         self.calculate_rooms_button.setEnabled(False)
         self.calculate_rooms_button.setToolTip("Calculate meter readings first")
         self.calculate_rooms_button.setStyleSheet(primary_button_style() + """
+            PrimaryPushButton {
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 16px 8px 36px;
+                text-align: center;
+            }
             PrimaryPushButton:disabled {
                 background: #555;
                 border-color: #444;
                 color: #999;
             }
         """)
-        layout.addWidget(self.calculate_rooms_button)
+        bottom_row.addWidget(self.calculate_rooms_button, 2)
+
+        # Save buttons
+        pdf_button = PrimaryPushButton("Save PDF")
+        pdf_button.setIcon(FluentIcon.DOCUMENT.icon(color=QColor(255, 255, 255)))
+        pdf_button.setIconSize(QSize(18, 18))
+        pdf_button.setFixedHeight(40)
+        pdf_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        pdf_button.clicked.connect(self.main_window.save_to_pdf)
+        pdf_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #d32f2f;
+                border: 1px solid #d32f2f;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 13px;
+                qproperty-iconSize: 18px 18px;
+                padding: 8px 12px 8px 30px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover { background-color: #f44336; border-color: #f44336; }
+            PrimaryPushButton:pressed { background-color: #b71c1c; border-color: #b71c1c; }
+        """)
+        bottom_row.addWidget(pdf_button, 1)
+
+        csv_button = PrimaryPushButton("Save CSV")
+        csv_button.setIcon(FluentIcon.SAVE.icon(color=QColor(255, 255, 255)))
+        csv_button.setIconSize(QSize(18, 18))
+        csv_button.setFixedHeight(40)
+        csv_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        csv_button.clicked.connect(self.main_window.save_calculation_to_csv)
+        csv_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #388e3c;
+                border: 1px solid #388e3c;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 13px;
+                qproperty-iconSize: 18px 18px;
+                padding: 8px 12px 8px 30px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover { background-color: #4caf50; border-color: #4caf50; }
+            PrimaryPushButton:pressed { background-color: #2e7d32; border-color: #2e7d32; }
+        """)
+        bottom_row.addWidget(csv_button, 1)
+
+        cloud_button = PrimaryPushButton("Save Cloud")
+        cloud_button.setIcon(FluentIcon.CLOUD.icon(color=QColor(255, 255, 255)))
+        cloud_button.setIconSize(QSize(18, 18))
+        cloud_button.setFixedHeight(40)
+        cloud_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        cloud_button.clicked.connect(self.main_window.save_calculation_to_supabase)
+        cloud_button.setStyleSheet("""
+            PrimaryPushButton {
+                color: white;
+                background-color: #7b1fa2;
+                border: 1px solid #7b1fa2;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 13px;
+                qproperty-iconSize: 18px 18px;
+                padding: 8px 12px 8px 30px;
+                text-align: center;
+            }
+            PrimaryPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #9c27b0, stop:1 #7b1fa2); border-color: #9c27b0; }
+            PrimaryPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #6a1b9a, stop:1 #4a148c); border-color: #6a1b9a; }
+        """)
+        bottom_row.addWidget(cloud_button, 1)
+
+        self._save_buttons_row = bottom_row
+        layout.addLayout(bottom_row)
 
         # Initial room cards
         self.update_room_inputs()
@@ -2710,68 +2665,33 @@ class MainTab(QWidget):
             widget.up_widget = nav_sequence[prev_idx]
 
     def _update_source_button_color(self, source_text):
-        """Update button color based on selected data source.
-        
-        Args:
-            source_text: The label text of the selected source ("Load from Cloud" or "Load from CSV")
+        """Update button style based on selected data source.
+        Both sources use the same neutral dark style — no color coding.
         """
-        if "Cloud" in source_text:
-            # Apply purple styling for Cloud
-            self.load_source_button.setStyleSheet("""
-                DropDownPushButton {{
-                    color: white;
-                    background-color: {primary};
-                    border: 1px solid {primary};
-                    border-radius: {radius}px;
-                    font-weight: 600;
-                    qproperty-iconSize: 20px 20px;
-                    padding: 8px 40px 8px 36px;
-                }}
-                DropDownPushButton:hover {{
-                    background-color: {hover};
-                    border-color: {hover};
-                }}
-                DropDownPushButton:pressed {{
-                    background-color: {pressed};
-                    border-color: {pressed};
-                }}
-                DropDownPushButton::menu-indicator {{
-                    subcontrol-position: right center;
-                    subcontrol-origin: padding;
-                    right: 8px;
-                }}
-            """.format(
-                primary=CalculatorTheme.BTN_PRIMARY,
-                hover=CalculatorTheme.BTN_PRIMARY_HOVER,
-                pressed=CalculatorTheme.BTN_PRIMARY_PRESSED,
-                radius=CalculatorTheme.BTN_RADIUS
-            ))
-        else:  # CSV
-            # Apply green styling for CSV
-            self.load_source_button.setStyleSheet("""
-                DropDownPushButton {{
-                    color: white;
-                    background-color: #2e7d32;
-                    border: 1px solid #2e7d32;
-                    border-radius: {radius}px;
-                    font-weight: 600;
-                    qproperty-iconSize: 20px 20px;
-                    padding: 8px 40px 8px 36px;
-                }}
-                DropDownPushButton:hover {{
-                    background-color: #43a047;
-                    border-color: #43a047;
-                }}
-                DropDownPushButton:pressed {{
-                    background-color: #1b5e20;
-                    border-color: #1b5e20;
-                }}
-                DropDownPushButton::menu-indicator {{
-                    subcontrol-position: right center;
-                    subcontrol-origin: padding;
-                    right: 8px;
-                }}
-            """)
+        self.load_source_button.setStyleSheet("""
+            DropDownPushButton {{
+                color: white;
+                background-color: #3d3d3d;
+                border: 1px solid #4a4a4a;
+                border-radius: {radius}px;
+                font-weight: 600;
+                qproperty-iconSize: 20px 20px;
+                padding: 8px 40px 8px 36px;
+            }}
+            DropDownPushButton:hover {{
+                background-color: #454545;
+                border-color: #555555;
+            }}
+            DropDownPushButton:pressed {{
+                background-color: #353535;
+                border-color: #404040;
+            }}
+            DropDownPushButton::menu-indicator {{
+                subcontrol-position: right center;
+                subcontrol-origin: padding;
+                right: 8px;
+            }}
+        """.format(radius=CalculatorTheme.BTN_RADIUS))
 
     def sync_source_button_display(self):
         """Sync the dropdown button display with the combo box selection."""
