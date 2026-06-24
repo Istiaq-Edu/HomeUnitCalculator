@@ -854,6 +854,16 @@ class MainTab(QWidget):
         except Exception:
             pass
 
+        # Tune the smooth scroll to be grippy/responsive, not slidy
+        # Default: duration=400, stepRatio=1.5, acceleration=1 — too much glide
+        try:
+            vs = self.main_scroll_area.scrollDelagate.verticalSmoothScroll
+            vs.duration = 150       # was 400 — stop gliding quickly
+            vs.stepRatio = 1.0      # was 1.5 — scroll exactly what wheel sends
+            vs.acceleration = 0     # was 1 — no momentum buildup
+        except Exception:
+            pass
+
         scroll_content_widget = QWidget()
         scroll_content_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         scroll_content_widget.setStyleSheet(f"background-color: {CalculatorTheme.TAB_BG};")

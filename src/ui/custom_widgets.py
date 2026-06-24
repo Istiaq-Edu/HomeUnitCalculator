@@ -297,6 +297,17 @@ class AutoScrollArea(ScrollArea):
         except AttributeError:
             # Older versions may not have this helper; fall back to stylesheet
             self.setStyleSheet("QScrollArea{border:none;background:transparent}")
+
+        # Tune smooth scroll to be grippy/responsive, not slidy
+        # Default QFluentWidgets: duration=400, stepRatio=1.5, acceleration=1
+        try:
+            vs = self.scrollDelagate.verticalSmoothScroll
+            vs.duration = 150
+            vs.stepRatio = 1.0
+            vs.acceleration = 0
+        except Exception:
+            pass
+
         self._current_scale = 1.0
         self._scroll_timer = QTimer(self)
         self._scroll_timer.timeout.connect(self._perform_auto_scroll)
