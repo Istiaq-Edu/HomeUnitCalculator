@@ -19,7 +19,7 @@ from qfluentwidgets import (
     ComboBox, SpinBox, PrimaryPushButton,
     CardWidget, TitleLabel, BodyLabel, CaptionLabel,
     FluentIcon, PushButton, DropDownPushButton, RoundMenu, Action,
-    ScrollArea,
+    ScrollArea, SmoothMode,
     FluentIconBase, StrongBodyLabel
 )
 
@@ -854,13 +854,10 @@ class MainTab(QWidget):
         except Exception:
             pass
 
-        # Tune the smooth scroll to be grippy/responsive, not slidy
-        # Default: duration=400, stepRatio=1.5, acceleration=1 — too much glide
+        # Disable QFluentWidgets smooth scrolling — it causes a slidy/laggy feel
+        # Fall back to native Qt wheel scrolling which is immediate and grippy
         try:
-            vs = self.main_scroll_area.scrollDelagate.verticalSmoothScroll
-            vs.duration = 150       # was 400 — stop gliding quickly
-            vs.stepRatio = 1.0      # was 1.5 — scroll exactly what wheel sends
-            vs.acceleration = 0     # was 1 — no momentum buildup
+            self.main_scroll_area.setSmoothMode(SmoothMode.NO_SMOOTH, Qt.Vertical)
         except Exception:
             pass
 
