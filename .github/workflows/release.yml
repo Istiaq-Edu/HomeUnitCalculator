@@ -167,14 +167,18 @@ jobs:
         run: |
           $releaseId = "${{ needs.create-release.outputs.release_id }}"
           $repo = "${{ github.repository }}"
-          $apiBase = "https://api.github.com/repos/$repo/releases/$releaseId/assets"
+
+          # --- Get the upload_url from the release (strip the {?name,label} suffix) ---
+          $release = gh api "repos/$repo/releases/$releaseId" --silent | ConvertFrom-Json
+          $uploadUrl = $release.upload_url -replace '\{.*\}', ''
+          Write-Host "Upload URL: $uploadUrl"
 
           # --- Delete any existing assets with the same name (re-runs) ---
           $existing = gh api "repos/$repo/releases/$releaseId/assets" --jq ".[].name" 2>$null
           if ($existing) {
             $existing | ForEach-Object {
               Write-Host "Deleting existing asset: $_"
-              $delUrl = (gh api "repos/$repo/releases/$releaseId/assets" --jq ".[] | select(.name==\"$_\") | .url") 2>$null
+              $delUrl = (gh api "repos/$repo/releases/$releaseId/assets" --jq ".[] | select(.name==`"$_`") | .url") 2>$null
               if ($delUrl) { gh api -X DELETE $delUrl 2>$null }
             }
           }
@@ -184,7 +188,7 @@ jobs:
           if (!(Test-Path $portable)) { throw "Portable zip not found: $portable" }
           $portableName = [System.IO.Path]::GetFileName($portable)
           Write-Host "Uploading $portableName ..."
-          gh api --method POST "$apiBase?name=$portableName" `
+          gh api --method POST "${uploadUrl}?name=$portableName" `
             -H "Content-Type: application/zip" `
             --input $portable --silent | Out-Null
 
@@ -193,7 +197,7 @@ jobs:
           if (!$installer) { throw "No installer EXE found in dist\installer\" }
           $installerName = $installer.Name
           Write-Host "Uploading $installerName ..."
-          gh api --method POST "$apiBase?name=$installerName" `
+          gh api --method POST "${uploadUrl}?name=$installerName" `
             -H "Content-Type: application/vnd.microsoft.portable-executable" `
             --input $installer.FullName --silent | Out-Null
 
