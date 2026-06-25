@@ -2,7 +2,17 @@
 
 All notable changes to HomeUnitCalculator will be documented in this file.
 
+## [7.0.2] - 2026-06-25
+
+### Other
+
+- Enable console and add crash logging
+
 ## [7.0.1] - 2026-06-25
+
+### Documentation
+
+- Update CHANGELOG.md for v7.0.1
 
 ### Other
 
