@@ -1,6 +1,6 @@
 from PyQt5.QtCore import QThread, pyqtSignal
 from postgrest.exceptions import APIError
-from gotrue.errors import AuthApiError
+from supabase_auth.errors import AuthApiError
 import hashlib
 import json
 import logging
