@@ -62,6 +62,21 @@ class AsyncRealtimeClient:
     def __init__(self, *args, **kwargs):
         pass
 
+class SyncRealtimeChannel:
+    """Mock SyncRealtimeChannel for realtime compatibility (supabase v2.x sync client)"""
+    def __init__(self, *args, **kwargs):
+        pass
+
+class SyncRealtimeClient:
+    """Mock SyncRealtimeClient for realtime compatibility (supabase v2.x sync client)"""
+    def __init__(self, *args, **kwargs):
+        pass
+
+class SyncRealtimePresence:
+    """Mock SyncRealtimePresence for realtime compatibility (supabase v2.x sync client)"""
+    def __init__(self, *args, **kwargs):
+        pass
+
 class RealtimeChannelOptions:
     """Mock RealtimeChannelOptions for realtime compatibility"""
     def __init__(self, *args, **kwargs):
@@ -123,6 +138,9 @@ else:
         realtime_mock.NotConnectedError = NotConnectedError
         realtime_mock.AsyncRealtimeChannel = AsyncRealtimeChannel
         realtime_mock.AsyncRealtimeClient = AsyncRealtimeClient
+        realtime_mock.SyncRealtimeChannel = SyncRealtimeChannel
+        realtime_mock.SyncRealtimeClient = SyncRealtimeClient
+        realtime_mock.SyncRealtimePresence = SyncRealtimePresence
         realtime_mock.RealtimeChannelOptions = RealtimeChannelOptions
         realtime_mock.RealtimeChannel = RealtimeChannel
         realtime_mock.RealtimeClient = RealtimeClient
