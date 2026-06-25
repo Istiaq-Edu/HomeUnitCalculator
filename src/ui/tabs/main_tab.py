@@ -690,6 +690,7 @@ class MainTab(QWidget):
         self.total_diff_value_label = None
         self.per_unit_cost_value_label = None
         self.additional_amount_value_label = None
+        self.total_cost_card = None
         self.in_total_value_label = None
         self.main_calculate_button = None
         self.save_to_cloud_button = None # New button for saving to cloud
@@ -1330,7 +1331,8 @@ class MainTab(QWidget):
         right.addWidget(ResultCard("Total Difference", FluentIcon.REMOVE, "#FFB74D", self.total_diff_value_label))
         right.addWidget(ResultCard("Per Unit Cost", FluentIcon.SHOPPING_CART, "#81C784", self.per_unit_cost_value_label))
         right.addWidget(ResultCard("Added Amount", FluentIcon.ADD, "#BA68C8", self.additional_amount_value_label))
-        right.addWidget(ResultCard("Total Cost", FluentIcon.UP, "#26A69A"))
+        self.total_cost_card = ResultCard("Total Cost", FluentIcon.UP, "#26A69A")
+        right.addWidget(self.total_cost_card)
 
         self.in_total_value_label = BodyLabel("0.00")
         self.final_amount_card = FinalAmountCard(self.in_total_value_label)
