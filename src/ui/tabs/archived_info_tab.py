@@ -2410,7 +2410,7 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
                 try:
                     # Disconnect existing connections if any
                     self.archived_records_table.horizontalHeader().sectionResized.disconnect()
-                except:
+                except Exception:
                     pass
 
                 # Connect to debounced system

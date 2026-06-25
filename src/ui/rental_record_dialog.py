@@ -43,11 +43,7 @@ from .background_workers import FetchImageWorker, FetchMultipleImagesWorker
 from .custom_widgets import AutoScrollArea
 
 # Suppress SSL certificate warnings
-try:
-    import urllib3
-except ModuleNotFoundError:
-    import requests.packages.urllib3 as urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# TLS verification is always enabled for Supabase storage URLs (valid certs).
 
 # Define a namedtuple for rental records
 RentalRecord = namedtuple(
@@ -460,7 +456,7 @@ class RentalRecordDialog(ResponsiveDialog):
                 app_icon_label.setPixmap(
                     FluentIcon.DOCUMENT.icon(color=QColor(108, 92, 231)).pixmap(18, 18)
                 )
-        except:
+        except Exception:
             app_icon_label.setPixmap(
                 FluentIcon.DOCUMENT.icon(color=QColor(108, 92, 231)).pixmap(18, 18)
             )
@@ -1217,7 +1213,7 @@ class RentalRecordDialog(ResponsiveDialog):
         try:
             if img_type in self._image_workers:
                 self._image_workers.pop(img_type, None)
-            worker = FetchImageWorker(url, timeout=8, verify_tls=False, parent=self)
+            worker = FetchImageWorker(url, timeout=8, verify_tls=True, parent=self)
 
             def on_downloaded(data, it=img_type, u=url, lbl=label):
                 if self._current_image_urls.get(it) == u and data:

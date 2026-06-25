@@ -21,12 +21,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from PIL import Image
 
-# Suppress SSL warnings when verify=False is used
-try:
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-except ImportError:
-    pass
+# TLS verification is always enabled for Supabase storage URLs (valid certs).
 
 
 class OptimizedImageFetcher:
@@ -239,7 +234,7 @@ class OptimizedImageFetcher:
             Image bytes if successful, None otherwise
         """
         try:
-            response = self.session.get(url, timeout=timeout, verify=False)
+            response = self.session.get(url, timeout=timeout, verify=True)
             if response.status_code == 200 and response.content:
                 logging.info(f"✓ Downloaded: {url[:50]}... ({len(response.content)} bytes)")
                 return response.content

@@ -1,5 +1,6 @@
 import os
 import base64
+import logging
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -20,7 +21,29 @@ USERNAME = "default_user" # A generic username for keyring
 class KeyManager:
     def __init__(self):
         self.keyring_available = _KEYRING_INITIAL_AVAILABLE
-    
+
+    @staticmethod
+    def _restrict_file_permissions_windows(file_path: str):
+        """Restrict file permissions on Windows to the current user only.
+
+        Uses icacls to remove inherited permissions and grant full control
+        only to the current user, preventing other users from reading the key.
+        """
+        import subprocess
+        try:
+            username = os.environ.get("USERNAME") or os.environ.get("USER", "")
+            if not username:
+                return
+            # Disable inheritance and remove existing ACEs, then grant current user full control
+            # icacls handles quoted usernames correctly even with spaces.
+            # Using list args (not shell=True) to prevent shell injection.
+            subprocess.run(
+                ["icacls", file_path, "/inheritance:r", "/grant:r", f'"{username}":F'],
+                capture_output=True, timeout=10, check=False,
+            )
+        except Exception as e:
+            logging.warning(f"Could not restrict key file permissions on Windows: {e}")
+
     def _generate_key(self):
         """Generates a new encryption key."""
         return Fernet.generate_key()
@@ -34,14 +57,19 @@ class KeyManager:
             except Exception as e:
                 print(f"Keyring storage failed: {e}. Falling back to file.")
                 self.keyring_available = False # Disable keyring for this instance
-        
+
         # Fallback to file storage if keyring is not available or failed
         try:
             with open(KEY_FILE_PATH, "wb") as key_file:
                 key_file.write(key)
-            # Set restrictive permissions for the key file (Unix-like systems)
+            # Set restrictive permissions for the key file
             if os.name == 'posix':
                 os.chmod(KEY_FILE_PATH, 0o600) # Owner read/write only
+            else:
+                # Windows: restrict to current user only via icacls
+                self._restrict_file_permissions_windows(KEY_FILE_PATH)
+            logging.warning("Encryption key stored in file fallback (keyring unavailable). "
+                            "This is less secure than keyring.")
             return True
         except Exception as e:
             print(f"File storage failed: {e}")

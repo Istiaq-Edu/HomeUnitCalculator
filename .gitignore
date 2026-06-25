@@ -11,3 +11,4 @@ data/images/
 tests/
 build/
 dist/
+src/core/oauth_credentials.py
