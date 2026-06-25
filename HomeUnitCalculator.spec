@@ -1,5 +1,49 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
+# Read version from APP_VERSION env var (set by GitHub Actions workflow)
+# Falls back to a default for local builds
+_app_version = os.environ.get("APP_VERSION", "1.0.0")
+_parts = _app_version.split(".")
+while len(_parts) < 4:
+    _parts.append("0")
+_version_info = tuple(int(p) if p.isdigit() else 0 for p in _parts[:4])
+
+# Build PyInstaller version info structure
+_version_file = f"""
+# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={_version_info},
+    prodvers={_version_info},
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0),
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '040904B0',
+          [
+            StringEntry('CompanyName', 'Istiaq-Edu'),
+            StringEntry('FileDescription', 'Home Unit Calculator'),
+            StringEntry('FileVersion', '{_app_version}'),
+            StringEntry('ProductName', 'Home Unit Calculator'),
+            StringEntry('ProductVersion', '{_app_version}'),
+          ]
+        )
+      ]
+    ),
+    VarFileInfo([('Translation', 0x0409, 1200)])
+  ]
+)
+"""
+
 
 a = Analysis(
     ['src\\core\\HomeUnitCalculator.py'],
@@ -30,6 +74,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='HomeUnitCalculator',
+    version=_version_file,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
