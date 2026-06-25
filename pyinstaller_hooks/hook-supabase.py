@@ -16,12 +16,10 @@ from PyInstaller.utils.hooks import collect_submodules
 # Only collect Python submodules (no package data/binaries)
 hiddenimports = collect_submodules("supabase") + [
     # Core dependencies commonly used by supabase client:
-    "supabase_auth",
-    "supabase_auth.errors",
     "postgrest",
     "postgrest.exceptions",
     "storage3",
-]
+] + collect_submodules("supabase_auth") + collect_submodules("postgrest")
 
 # Keep these empty to avoid bundling extra assets/binaries
 datas = []

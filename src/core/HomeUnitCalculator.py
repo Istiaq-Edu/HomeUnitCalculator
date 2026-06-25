@@ -2581,6 +2581,22 @@ class MeterCalculationApp(FluentWindow):
 
 
 if __name__ == "__main__":
+    import traceback
+
+    def global_excepthook(exc_type, exc_value, exc_tb):
+        # Print to console (visible when console=True in spec)
+        traceback.print_exception(exc_type, exc_value, exc_tb)
+        # Also try to write to a crash log file
+        try:
+            crash_log = os.path.join(get_user_data_dir(), "crash.log")
+            with open(crash_log, "a") as f:
+                f.write(f"\n{'='*60}\n{datetime.now().isoformat()}\n")
+                traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+        except Exception:
+            pass
+
+    sys.excepthook = global_excepthook
+
     app = QApplication(sys.argv)
     # Set application style for better aesthetics
     app.setStyle("Fusion")
