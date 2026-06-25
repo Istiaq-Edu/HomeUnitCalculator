@@ -261,6 +261,7 @@ class MeterCalculationApp(FluentWindow):
         self.tab_loader.register_tab("rental", self._create_rental_tab)
         self.tab_loader.register_tab("archived", self._create_archived_tab)
         self.tab_loader.register_tab("supabase", self._create_cloud_connect_tab)
+        self.tab_loader.register_tab("about", self._create_about_tab)
 
         self._tab_interfaces = {
             "dashboard": self.tab_loader.get_placeholder("dashboard"),
@@ -269,6 +270,7 @@ class MeterCalculationApp(FluentWindow):
             "rental": self.tab_loader.get_placeholder("rental"),
             "archived": self.tab_loader.get_placeholder("archived"),
             "supabase": self.tab_loader.get_placeholder("supabase"),
+            "about": self.tab_loader.get_placeholder("about"),
         }
         self._route_to_tab = {}
         self._pending_tab_refreshes = set()
@@ -1264,6 +1266,11 @@ class MeterCalculationApp(FluentWindow):
 
         return CloudConnectTab(self)
 
+    def _create_about_tab(self):
+        from src.ui.tabs.about_tab import AboutTab
+
+        return AboutTab(self)
+
     @property
     def dashboard_tab_instance(self):
         return self.tab_loader.get_tab("dashboard")
@@ -1393,6 +1400,7 @@ class MeterCalculationApp(FluentWindow):
         self._tab_interfaces["rental"].setObjectName("RentalId")
         self._tab_interfaces["archived"].setObjectName("ArchivedId")
         self._tab_interfaces["supabase"].setObjectName("SupabaseId")
+        self._tab_interfaces["about"].setObjectName("AboutId")
 
         self._route_to_tab = {
             "DashboardId": "dashboard",
@@ -1401,6 +1409,7 @@ class MeterCalculationApp(FluentWindow):
             "RentalId": "rental",
             "ArchivedId": "archived",
             "SupabaseId": "supabase",
+            "AboutId": "about",
         }
 
         # Enable scroll policy for navigation interface content
@@ -1413,6 +1422,7 @@ class MeterCalculationApp(FluentWindow):
             "Rental Info",
             "Archived Info",
             "Cloud Connection",
+            "About",
         ]
 
         self.addSubInterface(
@@ -1434,6 +1444,12 @@ class MeterCalculationApp(FluentWindow):
             self._tab_interfaces["supabase"],
             FluentIcon.CLOUD,
             "Cloud Connection",
+            position=NavigationItemPosition.BOTTOM,
+        )
+        self.addSubInterface(
+            self._tab_interfaces["about"],
+            FluentIcon.INFO,
+            "About",
             position=NavigationItemPosition.BOTTOM,
         )
 

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS main_calculations (
 );
 
 ALTER TABLE main_calculations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all for anon" ON main_calculations;
 CREATE POLICY "Allow all for anon" ON main_calculations
     FOR ALL USING (true) WITH CHECK (true);
 
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS room_calculations (
 );
 
 ALTER TABLE room_calculations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all for anon" ON room_calculations;
 CREATE POLICY "Allow all for anon" ON room_calculations
     FOR ALL USING (true) WITH CHECK (true);
 
@@ -83,6 +85,7 @@ CREATE TABLE IF NOT EXISTS rental_records (
 );
 
 ALTER TABLE rental_records ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all for anon" ON rental_records;
 CREATE POLICY "Allow all for anon" ON rental_records
     FOR ALL USING (true) WITH CHECK (true);
 

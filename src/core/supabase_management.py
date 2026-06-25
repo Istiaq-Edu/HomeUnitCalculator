@@ -47,8 +47,8 @@ class SupabaseManagementClient:
         )
 
     def list_organizations(self) -> list[dict]:
-        """GET /v1/orgs — List all organizations for the authenticated user."""
-        resp = self._get("/orgs")
+        """GET /v1/organizations — List all organizations for the authenticated user."""
+        resp = self._get("/organizations")
         if resp.status_code != 200:
             raise Exception(f"Failed to list organizations: HTTP {resp.status_code} — {resp.text}")
         return resp.json()

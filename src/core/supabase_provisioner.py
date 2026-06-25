@@ -92,19 +92,49 @@ class SupabaseProvisioner:
                 self._apply_schema(project_ref)
         else:
             # Scenario A: No existing project → create new one
-            project_ref = self._create_new_project()
-            # Wait for it to become healthy before applying schema
-            self._wait_for_health(project_ref)
-            # Apply schema to the fresh project
-            self._apply_schema(project_ref)
+            try:
+                project_ref = self._create_new_project()
+                # Wait for it to become healthy before applying schema
+                self._wait_for_health(project_ref)
+                # Apply schema to the fresh project
+                self._apply_schema(project_ref)
+            except Exception as create_err:
+                # If creation failed because a project with that name already exists,
+                # re-list projects and use the first one (it might have been created
+                # by a previous attempt that timed out before storing credentials)
+                err_msg = str(create_err).lower()
+                if "already exists" in err_msg or "limit" in err_msg or "400" in err_msg:
+                    logger.warning(f"Project creation failed ({create_err}), trying to reuse existing...")
+                    projects = self.mgmt.list_projects()
+                    if projects:
+                        # Prefer one with HUC in the name
+                        reused = None
+                        for p in projects:
+                            if "HUC" in (p.get("name") or "").upper():
+                                reused = p
+                                break
+                        if not reused:
+                            reused = projects[0]
+                        project_ref = reused["ref"]
+                        logger.info(f"Reusing existing project: {project_ref}")
+                        schema_version = self._check_schema_version(project_ref)
+                        if schema_version < SCHEMA_VERSION:
+                            self._apply_schema(project_ref)
+                    else:
+                        raise
+                else:
+                    raise
 
         # Step 3: Fetch anon API key
         anon_key = self.mgmt.get_anon_api_key(project_ref)
         project_url = f"https://{project_ref}.supabase.co"
 
         # Step 4: Store credentials in local DB
-        db_manager.save_project_ref(project_ref)
+        # IMPORTANT: save_config must be called BEFORE save_project_ref,
+        # because the _ThreadSafeDBProxy emits the store_credentials signal
+        # on save_project_ref — and it needs url+key from save_config first.
         db_manager.save_config(project_url, anon_key)
+        db_manager.save_project_ref(project_ref)
 
         logger.info(f"✅ Provisioning complete. Project: {project_ref}")
 
@@ -150,21 +180,32 @@ class SupabaseProvisioner:
     def _find_huc_project(self, projects: list[dict]) -> dict | None:
         """Find a project that already has the HUC schema.
 
-        Heuristic: look for projects named "HUC Data" or with "HUC" in the name.
-        If only one active project exists, use it.
-        If multiple active projects exist and none are named "HUC Data",
-        return None (will create a new one).
+        Tries in order:
+        1. Projects named "HUC Data" or with "HUC" in the name (any status)
+        2. Any project that already has the HUC schema (checked separately)
+        3. If only one project exists (any status), use it
+        4. If multiple projects exist but none named HUC, pick the first one
+           rather than failing on free-tier limit
         """
+        # 1. Look for projects with HUC in the name (any status, not just ACTIVE)
         for project in projects:
-            if project.get("status") != "ACTIVE":
-                continue
-            name = project.get("name", "")
-            if name == HUC_PROJECT_NAME or "HUC" in name.upper():
+            name = (project.get("name") or "").strip().upper()
+            if name == HUC_PROJECT_NAME.upper() or "HUC" in name:
                 return project
-        # If only one active project exists, use it
+
+        # 2. If only one project exists, use it regardless of status
+        if len(projects) == 1:
+            return projects[0]
+
+        # 3. If multiple projects but none named HUC, pick the first one
+        #    rather than trying to create a new one and hitting the free-tier limit
+        #    (preferring ACTIVE status, but falling back to any)
         active = [p for p in projects if p.get("status") == "ACTIVE"]
-        if len(active) == 1:
+        if active:
             return active[0]
+        if projects:
+            return projects[0]
+
         return None
 
     def _create_new_project(self) -> str:

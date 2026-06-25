@@ -20,6 +20,22 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
         server: "OAuthCallbackServer" = self.server  # type: ignore
 
+        # Ignore requests with no query params (e.g., favicon, health checks)
+        # These would trigger a false state mismatch
+        if not params:
+            self._send_html(
+                "<html><body><p>Waiting for authorization callback...</p></body></html>"
+            )
+            return
+
+        # Ignore duplicate callbacks if we already received the auth code
+        if server.received:
+            self._send_html(
+                "<html><body><h2>Already received</h2>"
+                "<p>Authorization already processed. You can close this tab.</p></body></html>"
+            )
+            return
+
         # Extract parameters
         server.auth_code = params.get("code", [None])[0]
         server.state = params.get("state", [None])[0]
