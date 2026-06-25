@@ -13,7 +13,7 @@ RLS is enabled with permissive policies (each user owns their own project).
 """
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def get_migration_sql() -> str:
@@ -40,10 +40,15 @@ CREATE TABLE IF NOT EXISTS main_calculations (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Security note: Each user gets their own isolated Supabase project, so the
+-- anon key acts as the per-user credential. RLS is enabled as a defense-in-depth
+-- measure. Policies allow anon access (the app uses the anon key, not Supabase Auth).
+-- If the anon key leaks, an attacker can read/write data — protect it accordingly.
 ALTER TABLE main_calculations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow all for anon" ON main_calculations;
-CREATE POLICY "Allow all for anon" ON main_calculations
-    FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow anon read-write" ON main_calculations;
+CREATE POLICY "Allow anon read-write" ON main_calculations
+    FOR ALL USING (auth.role() = 'anon') WITH CHECK (auth.role() = 'anon');
 
 -- Table: room_calculations
 -- Stores per-room calculation data, linked to main_calculations
@@ -60,8 +65,9 @@ CREATE TABLE IF NOT EXISTS room_calculations (
 
 ALTER TABLE room_calculations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow all for anon" ON room_calculations;
-CREATE POLICY "Allow all for anon" ON room_calculations
-    FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow anon read-write" ON room_calculations;
+CREATE POLICY "Allow anon read-write" ON room_calculations
+    FOR ALL USING (auth.role() = 'anon') WITH CHECK (auth.role() = 'anon');
 
 -- Table: rental_records
 -- Stores tenant rental information with image URLs
@@ -86,15 +92,16 @@ CREATE TABLE IF NOT EXISTS rental_records (
 
 ALTER TABLE rental_records ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow all for anon" ON rental_records;
-CREATE POLICY "Allow all for anon" ON rental_records
-    FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow anon read-write" ON rental_records;
+CREATE POLICY "Allow anon read-write" ON rental_records
+    FOR ALL USING (auth.role() = 'anon') WITH CHECK (auth.role() = 'anon');
 
 -- Schema version marker (for idempotent provisioning checks)
 CREATE TABLE IF NOT EXISTS _huc_schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TIMESTAMPTZ DEFAULT NOW()
 );
-INSERT INTO _huc_schema_version (version) VALUES (1)
+INSERT INTO _huc_schema_version (version) VALUES (2)
 ON CONFLICT DO NOTHING;
 """
 

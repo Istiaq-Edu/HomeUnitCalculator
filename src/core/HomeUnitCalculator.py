@@ -2215,7 +2215,7 @@ class MeterCalculationApp(FluentWindow):
                                 if isinstance(room_group_widget, QGroupBox)
                                 else f"Room {i + 1}"
                             )
-                        except:
+                        except Exception:
                             room_name = f"Room {i + 1}"
 
                         present_text = room_data["present_entry"].text() or "0"

@@ -5,6 +5,7 @@ from the query string, and returns a user-friendly HTML page to the browser.
 """
 
 import logging
+from html import escape
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -57,7 +58,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         if server.error:
             self._send_html(
                 f"<html><body><h2>Authorization Denied</h2>"
-                f"<p>{server.error}: {server.error_description or ''}</p>"
+                f"<p>{escape(server.error)}: {escape(server.error_description or '')}</p>"
                 f"<p>You can close this tab and try again.</p></body></html>",
                 status=400,
             )

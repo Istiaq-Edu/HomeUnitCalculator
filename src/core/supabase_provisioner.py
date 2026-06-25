@@ -93,7 +93,7 @@ class SupabaseProvisioner:
         else:
             # Scenario A: No existing project → create new one
             try:
-                project_ref = self._create_new_project()
+                project_ref, db_password = self._create_new_project()
                 # Wait for it to become healthy before applying schema
                 self._wait_for_health(project_ref)
                 # Apply schema to the fresh project
@@ -130,10 +130,22 @@ class SupabaseProvisioner:
         project_url = f"https://{project_ref}.supabase.co"
 
         # Step 4: Store credentials in local DB
-        # IMPORTANT: save_config must be called BEFORE save_project_ref,
-        # because the _ThreadSafeDBProxy emits the store_credentials signal
-        # on save_project_ref — and it needs url+key from save_config first.
+        # IMPORTANT: save_config and save_db_password must be called BEFORE
+        # save_project_ref, because the _ThreadSafeDBProxy emits the
+        # store_credentials signal on save_project_ref — and it needs
+        # url+key and db_password from the prior calls first.
+        # If save_db_password is called AFTER save_project_ref, the main
+        # thread may process the queued signal before _pending_db_password
+        # is set (race condition).
         db_manager.save_config(project_url, anon_key)
+        # Store the auto-generated DB password if we created a new project
+        # (db_password is only set in the creation branch; in reuse branches it's unset)
+        try:
+            db_password
+        except NameError:
+            db_password = None
+        if db_password:
+            db_manager.save_db_password(db_password)
         db_manager.save_project_ref(project_ref)
 
         logger.info(f"✅ Provisioning complete. Project: {project_ref}")
@@ -208,11 +220,11 @@ class SupabaseProvisioner:
 
         return None
 
-    def _create_new_project(self) -> str:
+    def _create_new_project(self) -> tuple[str, str]:
         """Create a new Supabase project in the user's first organization.
 
         Returns:
-            The project reference ID.
+            Tuple of (project_ref, db_password).
 
         Raises:
             Exception: If creation fails (e.g., free tier 2-project limit).
@@ -231,7 +243,7 @@ class SupabaseProvisioner:
             db_password=db_password,
             region=DEFAULT_REGION,
         )
-        return result["ref"]
+        return result["ref"], db_password
 
     def _wait_for_health(self, project_ref: str, max_wait: int = MAX_HEALTH_WAIT) -> None:
         """Poll project health until all services are healthy or timeout.

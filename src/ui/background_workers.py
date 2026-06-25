@@ -551,7 +551,7 @@ class FetchImageWorker(QThread):
     error_occurred = pyqtSignal(str)  # Emitted with an error message on failure
 
     def __init__(
-        self, url: str, timeout: int = 8, verify_tls: bool = False, parent=None
+        self, url: str, timeout: int = 8, verify_tls: bool = True, parent=None
     ):
         super().__init__(parent)
         self._url = url
@@ -562,7 +562,7 @@ class FetchImageWorker(QThread):
         try:
             import requests
 
-            # Mirror existing behavior: allow TLS verify to be disabled in packaged builds
+            # TLS verification enabled — Supabase storage URLs have valid certificates
             resp = requests.get(self._url, timeout=self._timeout, verify=self._verify)
             if resp.status_code == 200 and resp.content:
                 self.image_downloaded.emit(resp.content)

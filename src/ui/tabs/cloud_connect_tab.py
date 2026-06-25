@@ -52,6 +52,11 @@ class _ThreadSafeDBProxy:
             getattr(self, "_pending_key", ""),
         )
 
+    def save_db_password(self, password: str):
+        # DB password is stored via the store_credentials signal handler
+        # on the main thread — piggyback on the same mechanism
+        self._pending_db_password = password
+
 
 class _ProvisionSignals(QObject):
     """Signals for cross-thread communication during provisioning."""
@@ -468,6 +473,7 @@ class CloudConnectTab(QWidget):
 
     def _run_oauth_flow(self):
         """The OAuth2 + provisioning flow, runs in a background thread."""
+        server = None
         try:
             # Step 1: Generate PKCE pair and state
             verifier, challenge = generate_pkce_pair()
@@ -493,7 +499,6 @@ class CloudConnectTab(QWidget):
                     "The browser authorization did not complete within 2 minutes.\n"
                     "Please try again and complete the login promptly."
                 )
-                server.server_close()
                 return
 
             if server.state_mismatch:
@@ -503,7 +508,6 @@ class CloudConnectTab(QWidget):
                     "have multiple browser tabs open. Please close all tabs\n"
                     "and try again."
                 )
-                server.server_close()
                 return
 
             if server.error:
@@ -518,10 +522,7 @@ class CloudConnectTab(QWidget):
                 if server.error_description:
                     detail += f"\nDetails: {server.error_description}"
                 self._signals.error.emit("Authorization Denied", detail)
-                server.server_close()
                 return
-
-            server.server_close()
 
             # Step 5: Exchange code for tokens
             self._signals.progress.emit("Exchanging authorization code", "Getting your access tokens...")
@@ -544,6 +545,7 @@ class CloudConnectTab(QWidget):
             from src.core.supabase_provisioner import SupabaseProvisioner
 
             db_proxy = _ThreadSafeDBProxy(self._signals.store_credentials)
+            self._current_db_proxy = db_proxy
             provisioner = SupabaseProvisioner(access_token=tokens["access_token"])
             result = provisioner.provision(db_manager=db_proxy)
 
@@ -611,6 +613,13 @@ class CloudConnectTab(QWidget):
                 )
             else:
                 self._signals.error.emit("Connection Failed", error_msg)
+        finally:
+            # Ensure the callback server socket is always released, even on exceptions
+            if server is not None:
+                try:
+                    server.server_close()
+                except Exception:
+                    pass
 
     def _on_progress(self, step_title: str, step_detail: str):
         self.progress_card.title.setText(step_title)
@@ -654,6 +663,12 @@ class CloudConnectTab(QWidget):
         try:
             self.main_window.db_manager.save_project_ref(project_ref)
             self.main_window.db_manager.save_config(project_url, anon_key)
+            # Also save DB password if it was set by the proxy
+            db_proxy = getattr(self, '_current_db_proxy', None)
+            if db_proxy:
+                db_password = getattr(db_proxy, '_pending_db_password', None)
+                if db_password:
+                    self.main_window.db_manager.save_db_password(db_password)
         except Exception as e:
             logger.error(f"Failed to store credentials: {e}")
 
@@ -694,6 +709,7 @@ class CloudConnectTab(QWidget):
             db = self.main_window.db_manager
             db.clear_oauth_tokens()
             db.clear_project_ref()
+            db.clear_db_password()
             # Also clear the Supabase URL/Key config
             try:
                 db.cursor.execute(

@@ -138,7 +138,7 @@ class SupabaseErrorHandler:
                 try:
                     # URL format: https://xxxxx.supabase.co
                     project_id = supabase_url.split("//")[1].split(".")[0]
-                except:
+                except Exception:
                     pass
             
             message = (

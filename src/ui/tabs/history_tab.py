@@ -190,7 +190,7 @@ class EditRecordDialog(ResponsiveDialog):
                         18, 18
                     )
                 )
-        except:
+        except Exception:
             app_icon_label.setPixmap(
                 FluentIcon.CALCULATOR.icon(color=QColor(108, 92, 231)).pixmap(18, 18)
             )
@@ -1074,7 +1074,7 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                             ),
                         )
                         return True
-            except:
+            except Exception:
                 pass
         return super().eventFilter(obj, event)
 

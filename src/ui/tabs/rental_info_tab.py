@@ -12,13 +12,7 @@ import uuid  # Import uuid for generating unique filenames
 import urllib.parse
 import re
 
-# Suppress SSL certificate warnings when verify=False is used in requests
-try:
-    import urllib3
-except ModuleNotFoundError:
-    import requests.packages.urllib3 as urllib3  # type: ignore
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# TLS verification is always enabled for Supabase storage URLs (valid certs).
 
 from PyQt5.QtCore import Qt, QRegExp, QEvent, QTimer, QSize
 from PyQt5.QtGui import (
@@ -2226,7 +2220,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                 try:
                     # Disconnect existing connections if any
                     self.rental_records_table.horizontalHeader().sectionResized.disconnect()
-                except:
+                except Exception:
                     pass
 
                 # Connect to debounced system
@@ -4482,7 +4476,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             if not dest.exists():
                 import requests
 
-                resp = requests.get(path_str, timeout=15, verify=False)
+                resp = requests.get(path_str, timeout=15, verify=True)
                 resp.raise_for_status()
                 dest.write_bytes(resp.content)
                 print(f"Downloaded remote image to {dest}")

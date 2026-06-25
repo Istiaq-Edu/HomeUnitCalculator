@@ -31,7 +31,10 @@ class DBManager:
 
     def __del__(self):
         """Destructor to ensure the connection is closed when the object is garbage collected."""
-        self.close()
+        try:
+            self.close()
+        except Exception:
+            pass
 
     @staticmethod
     def _utc_now_iso() -> str:
@@ -910,7 +913,7 @@ class DBManager:
                 return self.cursor.lastrowid
             return None
         except sqlite3.Error as e:
-            print(f"Database query error: {e}\nQuery: {query}\nParams: {params}")
+            print(f"Database query error: {e}\nQuery: {query[:200]}")
             self.conn.rollback()
             raise
         except Exception as e:
@@ -927,7 +930,7 @@ class DBManager:
             self.conn.commit()
         except sqlite3.Error as e:
             print(
-                f"Database batch query error: {e}\nQuery: {query}\nRows: {len(params_list)}"
+                f"Database batch query error: {e}\nQuery: {query[:200]}\nRows: {len(params_list)}"
             )
             self.conn.rollback()
             raise
@@ -1106,6 +1109,49 @@ class DBManager:
             self.conn.commit()
         except Exception as e:
             print(f"Error clearing project ref: {e}")
+
+    def save_db_password(self, password: str) -> None:
+        """Encrypts and saves the Supabase project database password.
+
+        Args:
+            password: The auto-generated database password for the Supabase project.
+        """
+        try:
+            encrypted = self.encryption_util.encrypt_data(password)
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
+                ("DB_PASSWORD", encrypted),
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error saving DB password: {e}")
+            raise
+
+    def get_db_password(self) -> str | None:
+        """Retrieves and decrypts the Supabase project database password.
+
+        Returns:
+            The database password, or None if not stored.
+        """
+        try:
+            self.cursor.execute(
+                "SELECT value FROM app_config WHERE key = 'DB_PASSWORD'"
+            )
+            row = self.cursor.fetchone()
+            if row:
+                return self.encryption_util.decrypt_data(row["value"])
+            return None
+        except Exception as e:
+            print(f"Error retrieving DB password: {e}")
+            return None
+
+    def clear_db_password(self) -> None:
+        """Removes the stored database password."""
+        try:
+            self.cursor.execute("DELETE FROM app_config WHERE key = 'DB_PASSWORD'")
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error clearing DB password: {e}")
 
     def close(self):
         """Closes the database connection."""

@@ -30,7 +30,7 @@ class RemoteChangeMonitor(QObject):
         if not self.main_window.isVisible() or self.main_window.isMinimized():
             interval_ms = 30000
         elif self.main_window.isActiveWindow():
-            interval_ms = 3000
+            interval_ms = 10000
         else:
             interval_ms = 10000
         self._timer.setInterval(interval_ms)
