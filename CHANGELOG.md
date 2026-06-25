@@ -2,6 +2,12 @@
 
 All notable changes to HomeUnitCalculator will be documented in this file.
 
+## [7.0.1] - 2026-06-25
+
+### Other
+
+- Replace gotrue imports with supabase_auth
+
 ## [7.0.0] - 2026-06-25
 
 ### Bug Fixes
@@ -10,6 +16,7 @@ All notable changes to HomeUnitCalculator will be documented in this file.
 
 ### Documentation
 
+- Update CHANGELOG.md for v7.0.0
 - Update CHANGELOG.md for v7.0.0
 
 ### Enhancements
