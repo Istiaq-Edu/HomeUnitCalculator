@@ -116,6 +116,12 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller pillow
 
+      - name: Write OAuth credentials from GitHub Secrets
+        run: |
+          echo "OAUTH_CLIENT_ID = '${{ secrets.OAUTH_CLIENT_ID }}'" > src/core/oauth_credentials.py
+          echo "OAUTH_CLIENT_SECRET = '${{ secrets.OAUTH_CLIENT_SECRET }}'" >> src/core/oauth_credentials.py
+        shell: pwsh
+
       - name: Generate icon.ico
         run: python tools/make_icon_ico.py
 
@@ -165,9 +171,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Ensure gh CLI is authenticated
+          gh auth status 2>&1 | Out-Null
+          
           $releaseId = "${{ needs.create-release.outputs.release_id }}"
           $repo = "${{ github.repository }}"
-
+          
+          Write-Host "Release ID: $releaseId"
+          Write-Host "Repo: $repo"
+          
+          # --- Verify the release exists before uploading ---
+          $releaseInfo = gh api "repos/$repo/releases/$releaseId" 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release not found by ID, trying by tag..."
+            $tag = "v${{ needs.create-release.outputs.version }}"
+            $releaseInfo = gh api "repos/$repo/releases/tags/$tag" --jq ".id" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not find release by ID ($releaseId) or tag ($tag). Error: $releaseInfo"
+            }
+            $releaseId = $releaseInfo
+            Write-Host "Found release by tag, ID: $releaseId"
+          }
+          
           # --- Get the upload_url from the release (strip the {?name,label} suffix) ---
           $uploadUrl = (gh api "repos/$repo/releases/$releaseId" --jq ".upload_url") -replace '\{.*\}', ''
           if (!$uploadUrl) { throw "Could not get upload_url for release $releaseId" }
