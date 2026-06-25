@@ -1023,6 +1023,90 @@ class DBManager:
             print(f"Error checking config existence: {e}")
             return False
 
+    # ─── OAuth2 Token Storage ───────────────────────────────────────────────
+
+    def save_oauth_tokens(self, tokens: dict) -> None:
+        """Encrypts and saves OAuth2 tokens (access, refresh, expiry) to the database.
+
+        Args:
+            tokens: Dict with keys: access_token, refresh_token, expires_at (ISO string).
+        """
+        try:
+            import json
+            tokens_json = json.dumps(tokens)
+            encrypted = self.encryption_util.encrypt_data(tokens_json)
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
+                ("OAUTH_TOKENS", encrypted),
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error saving OAuth tokens: {e}")
+            raise
+
+    def get_oauth_tokens(self) -> dict | None:
+        """Retrieves and decrypts OAuth2 tokens from the database.
+
+        Returns:
+            Dict with access_token, refresh_token, expires_at, or None if not stored.
+        """
+        try:
+            self.cursor.execute(
+                "SELECT value FROM app_config WHERE key = 'OAUTH_TOKENS'"
+            )
+            row = self.cursor.fetchone()
+            if row:
+                import json
+                decrypted = self.encryption_util.decrypt_data(row["value"])
+                return json.loads(decrypted)
+            return None
+        except Exception as e:
+            print(f"Error retrieving OAuth tokens: {e}")
+            return None
+
+    def clear_oauth_tokens(self) -> None:
+        """Removes stored OAuth2 tokens from the database."""
+        try:
+            self.cursor.execute("DELETE FROM app_config WHERE key = 'OAUTH_TOKENS'")
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error clearing OAuth tokens: {e}")
+
+    def save_project_ref(self, project_ref: str) -> None:
+        """Encrypts and saves the Supabase project reference ID."""
+        try:
+            encrypted = self.encryption_util.encrypt_data(project_ref)
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)",
+                ("PROJECT_REF", encrypted),
+            )
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error saving project ref: {e}")
+            raise
+
+    def get_project_ref(self) -> str | None:
+        """Retrieves and decrypts the Supabase project reference ID."""
+        try:
+            self.cursor.execute(
+                "SELECT value FROM app_config WHERE key = 'PROJECT_REF'"
+            )
+            row = self.cursor.fetchone()
+            if row:
+                return self.encryption_util.decrypt_data(row["value"])
+            return None
+        except Exception as e:
+            print(f"Error retrieving project ref: {e}")
+            return None
+
+    def clear_project_ref(self) -> None:
+        """Removes the stored project reference ID."""
+        try:
+            self.cursor.execute("DELETE FROM app_config WHERE key = 'PROJECT_REF'")
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error clearing project ref: {e}")
+
     def close(self):
         """Closes the database connection."""
         if self.conn:

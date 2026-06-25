@@ -260,7 +260,7 @@ class MeterCalculationApp(FluentWindow):
         self.tab_loader.register_tab("history", self._create_history_tab)
         self.tab_loader.register_tab("rental", self._create_rental_tab)
         self.tab_loader.register_tab("archived", self._create_archived_tab)
-        self.tab_loader.register_tab("supabase", self._create_supabase_config_tab)
+        self.tab_loader.register_tab("supabase", self._create_cloud_connect_tab)
 
         self._tab_interfaces = {
             "dashboard": self.tab_loader.get_placeholder("dashboard"),
@@ -1259,10 +1259,10 @@ class MeterCalculationApp(FluentWindow):
 
         return ArchivedInfoTab(self)
 
-    def _create_supabase_config_tab(self):
-        from src.ui.tabs.supabase_config_tab import SupabaseConfigTab
+    def _create_cloud_connect_tab(self):
+        from src.ui.tabs.cloud_connect_tab import CloudConnectTab
 
-        return SupabaseConfigTab(self)
+        return CloudConnectTab(self)
 
     @property
     def dashboard_tab_instance(self):
@@ -1412,7 +1412,7 @@ class MeterCalculationApp(FluentWindow):
             "Calculation History",
             "Rental Info",
             "Archived Info",
-            "Supabase Config",
+            "Cloud Connection",
         ]
 
         self.addSubInterface(
@@ -1432,8 +1432,8 @@ class MeterCalculationApp(FluentWindow):
         )
         self.addSubInterface(
             self._tab_interfaces["supabase"],
-            FluentIcon.SETTING,
-            "Supabase Config",
+            FluentIcon.CLOUD,
+            "Cloud Connection",
             position=NavigationItemPosition.BOTTOM,
         )
 
