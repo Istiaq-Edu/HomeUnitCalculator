@@ -10,6 +10,7 @@ import hashlib
 import base64
 import secrets
 import logging
+import os
 from urllib.parse import urlencode
 
 import requests
@@ -26,8 +27,9 @@ logger = logging.getLogger(__name__)
 try:
     from src.core.oauth_credentials import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 except ImportError:
-    OAUTH_CLIENT_ID = "YOUR_CLIENT_ID_HERE"
-    OAUTH_CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
+    # Fallback: check environment variables (useful for dev and packaged builds)
+    OAUTH_CLIENT_ID = os.environ.get("OAUTH_CLIENT_ID", "YOUR_CLIENT_ID_HERE")
+    OAUTH_CLIENT_SECRET = os.environ.get("OAUTH_CLIENT_SECRET", "YOUR_CLIENT_SECRET_HERE")
 
 OAUTH_REDIRECT_URI = "http://localhost:8765/callback"
 

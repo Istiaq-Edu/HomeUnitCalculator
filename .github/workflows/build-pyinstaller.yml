@@ -28,6 +28,12 @@ jobs:
           # Build-only tools
           pip install pyinstaller pillow
 
+      - name: Write OAuth credentials from GitHub Secrets
+        run: |
+          echo "OAUTH_CLIENT_ID = '${{ secrets.OAUTH_CLIENT_ID }}'" > src/core/oauth_credentials.py
+          echo "OAUTH_CLIENT_SECRET = '${{ secrets.OAUTH_CLIENT_SECRET }}'" >> src/core/oauth_credentials.py
+        shell: pwsh
+
       - name: Generate icon.ico (for EXE + installer)
         run: python tools/make_icon_ico.py
 
