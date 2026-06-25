@@ -17,51 +17,33 @@ APP_REPO = "https://github.com/Istiaq-Edu/HomeUnitCalculator"
 
 def _get_app_version() -> str:
     """Get app version from (in order of priority):
-    1. OAUTH_CLIENT_VERSION env var (set by GitHub Actions workflow)
-    2. PyInstaller exe file version metadata
+    1. Bundled version.txt file (written by PyInstaller spec during build)
+    2. APP_VERSION env var (set by GitHub Actions workflow)
     3. Fallback to a default
     """
-    # 1. Check env var (set during PyInstaller build in GitHub Actions)
+    # 1. Try reading bundled version.txt (in PyInstaller, it's in sys._MEIPASS)
+    try:
+        if getattr(sys, "frozen", False):
+            # PyInstaller bundles datas relative to sys._MEIPASS
+            version_path = os.path.join(sys._MEIPASS, "version.txt")
+        else:
+            # Dev mode: check for version.txt next to the project root
+            version_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+                "version.txt",
+            )
+        if os.path.exists(version_path):
+            with open(version_path, "r", encoding="utf-8") as f:
+                ver = f.read().strip()
+            if ver:
+                return ver
+    except Exception:
+        pass
+
+    # 2. Check env var
     env_ver = os.environ.get("APP_VERSION")
     if env_ver and env_ver.strip():
         return env_ver.strip()
-
-    # 2. Try reading from PyInstaller exe version metadata
-    if getattr(sys, "frozen", False):
-        try:
-            import ctypes
-            # GetModuleFileName gives us the exe path
-            buf = ctypes.create_unicode_buffer(1024)
-            ctypes.windll.kernel32.GetModuleFileNameW(None, buf, 1024)
-            exe_path = buf.value
-            # Read version info via Windows API
-            size = ctypes.windll.version.GetFileVersionInfoSizeW(exe_path, None)
-            if size > 0:
-                res = ctypes.create_string_buffer(size)
-                ctypes.windll.version.GetFileVersionInfoW(exe_path, None, size, res)
-                # Extract fixed version info
-                class VS_FIXEDFILEINFO(ctypes.Structure):
-                    _fields_ = [
-                        ("dwSignature", ctypes.c_uint32),
-                        ("dwStrucVersion", ctypes.c_uint32),
-                        ("dwFileVersionMS", ctypes.c_uint32),
-                        ("dwFileVersionLS", ctypes.c_uint32),
-                        ("dwProductVersionMS", ctypes.c_uint32),
-                        ("dwProductVersionLS", ctypes.c_uint32),
-                    ]
-                ptr = ctypes.c_void_p()
-                length = ctypes.c_uint32()
-                ctypes.windll.version.VerQueryValueW(
-                    res, "\\", ctypes.byref(ptr), ctypes.byref(length)
-                )
-                if ptr.value and length.value >= ctypes.sizeof(VS_FIXEDFILEINFO):
-                    ffi = VS_FIXEDFILEINFO.from_address(ptr.value)
-                    major = (ffi.dwFileVersionMS >> 16) & 0xFFFF
-                    minor = ffi.dwFileVersionMS & 0xFFFF
-                    patch = (ffi.dwFileVersionLS >> 16) & 0xFFFF
-                    return f"{major}.{minor}.{patch}"
-        except Exception:
-            pass
 
     # 3. Fallback
     return "6.5.0"

@@ -12,3 +12,4 @@ tests/
 build/
 dist/
 src/core/oauth_credentials.py
+version.txt
