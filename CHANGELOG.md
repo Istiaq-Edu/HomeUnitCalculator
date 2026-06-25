@@ -4,6 +4,14 @@ All notable changes to HomeUnitCalculator will be documented in this file.
 
 ## [7.0.2] - 2026-06-25
 
+### Documentation
+
+- Update CHANGELOG.md for v7.0.2
+
+### Features
+
+- Add sync realtime mocks and disable console
+
 ### Other
 
 - Enable console and add crash logging
