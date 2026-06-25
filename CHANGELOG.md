@@ -4,10 +4,16 @@ All notable changes to HomeUnitCalculator will be documented in this file.
 
 ## [7.0.5] - 2026-06-25
 
+### Documentation
+
+- Update CHANGELOG.md for v7.0.5
+
 ### Enhancements
 
 - Update HomeUnitCalculator.spec
 - Update HomeUnitCalculator.spec
+- Update HomeUnitCalculator.spec
+- Update release.yml
 
 ### Other
 
