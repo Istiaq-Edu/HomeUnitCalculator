@@ -11,7 +11,7 @@ except ImportError:
     pass
 from supabase import create_client, Client
 from postgrest.exceptions import APIError
-from gotrue.errors import AuthApiError
+from supabase_auth.errors import AuthApiError
 from src.core.db_manager import DBManager  # To get Supabase URL and Key
 from src.core.supabase_error_handler import SupabaseErrorHandler
 from datetime import datetime
