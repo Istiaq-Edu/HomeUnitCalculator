@@ -2,6 +2,28 @@
 
 All notable changes to HomeUnitCalculator will be documented in this file.
 
+## [7.0.0] - 2026-06-25
+
+### Bug Fixes
+
+- Resolve multiple OAuth2 flow bugs + add About tab
+
+### Documentation
+
+- Update CHANGELOG.md for v7.0.0
+
+### Enhancements
+
+- Update main_tab.py
+
+### Features
+
+- Add Supabase OAuth2 auto-provisioning — replace URL+key pasting with one-click browser login
+
+### Other
+
+- Apply security & stability audit fixes
+
 ## [6.5.0] - 2026-06-24
 
 ### Bug Fixes
