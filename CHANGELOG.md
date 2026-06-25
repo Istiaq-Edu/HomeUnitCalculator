@@ -14,6 +14,7 @@ All notable changes to HomeUnitCalculator will be documented in this file.
 ### Documentation
 
 - Add action section redesign spec
+- Update CHANGELOG.md for v6.5.0
 
 ### Enhancements
 
