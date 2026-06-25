@@ -10,9 +10,9 @@ while len(_parts) < 4:
     _parts.append("0")
 _version_info = tuple(int(p) if p.isdigit() else 0 for p in _parts[:4])
 
-# Build PyInstaller version info structure
-_version_file = f"""
-# UTF-8
+# Build PyInstaller version info file (PyInstaller expects a file path, not content)
+import tempfile as _tempfile
+_version_content = f"""# UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
     filevers={_version_info},
@@ -43,6 +43,9 @@ VSVersionInfo(
   ]
 )
 """
+_version_file = os.path.join(_tempfile.gettempdir(), "huc_version_info.txt")
+with open(_version_file, "w", encoding="utf-8") as _f:
+    _f.write(_version_content)
 
 
 a = Analysis(
