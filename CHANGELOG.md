@@ -2,6 +2,28 @@
 
 All notable changes to HomeUnitCalculator will be documented in this file.
 
+## [7.0.5] - 2026-06-25
+
+### Enhancements
+
+- Update HomeUnitCalculator.spec
+- Update HomeUnitCalculator.spec
+
+### Other
+
+- Get app version from env/PyInstaller metadata
+- Simplify version handling with bundled version.txt
+
+## [7.0.3] - 2026-06-25
+
+### Documentation
+
+- Update CHANGELOG.md for v7.0.3
+
+### Other
+
+- Write OAuth secrets in CI and add env fallback
+
 ## [7.0.2] - 2026-06-25
 
 ### Documentation
