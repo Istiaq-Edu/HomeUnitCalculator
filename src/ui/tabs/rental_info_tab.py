@@ -3164,8 +3164,11 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         local_record_data.get(key)
                     )
 
-            local_save_success = True
-            cloud_save_success = True
+            # Per-destination outcomes (DATA-04): unrequested destinations are
+            # None, so they can neither fabricate success nor turn a single
+            # requested failure into a misleading "partial success".
+            local_outcome = None
+            cloud_outcome = None
 
             if save_to_pc:
                 try:
@@ -3188,7 +3191,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                                 self.current_rental_id = new_id
                             except Exception as ins_e:
                                 print(f"Local insert fallback failed: {ins_e}")
-                                local_save_success = False
+                                local_outcome = False
                     else:
                         # Keep the returned identity: later saves must update
                         # this row instead of inserting duplicates (DATA-03).
@@ -3196,8 +3199,9 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                             local_record_data
                         )
                     print("Record saved to local DB successfully.")
+                    local_outcome = True
                 except Exception as e:
-                    local_save_success = False
+                    local_outcome = False
                     QMessageBox.critical(
                         self,
                         "Local DB Error",
@@ -3218,15 +3222,16 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         )
                         if isinstance(result, str) and "Successfully" in result:
                             print("Record saved to Supabase successfully.")
+                            cloud_outcome = True
                         else:
-                            cloud_save_success = False
+                            cloud_outcome = False
                             QMessageBox.critical(
                                 self,
                                 "Supabase Error",
                                 f"Failed to save record to Supabase: {result}",
                             )
                     except Exception as e:
-                        cloud_save_success = False
+                        cloud_outcome = False
                         QMessageBox.critical(
                             self,
                             "Supabase Error",
@@ -3238,9 +3243,17 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         "Supabase Not Configured",
                         "Supabase client is not initialized. Cannot save to cloud.",
                     )
-                    cloud_save_success = False
+                    cloud_outcome = False
 
-            if local_save_success and cloud_save_success:
+            # Classify over the requested destinations only (DATA-04): a
+            # single requested failure with no successful destination is a
+            # complete failure, not a "partial success".
+            requested_outcomes = [
+                outcome
+                for outcome in (local_outcome, cloud_outcome)
+                if outcome is not None
+            ]
+            if requested_outcomes and all(requested_outcomes):
                 QMessageBox.information(
                     self, "Success", "Rental record saved successfully."
                 )
@@ -3256,7 +3269,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                         },
                     )
                 self.load_rental_records()
-            elif local_save_success or cloud_save_success:
+            elif any(requested_outcomes):
                 QMessageBox.information(
                     self,
                     "Partial Success",
