@@ -34,6 +34,14 @@ from src.ui.custom_widgets import (
 )
 from src.ui.flow_layout import FlowLayout
 
+
+class StaticRoomCard(CardWidget):
+    def enterEvent(self, event):
+        return
+
+    def leaveEvent(self, event):
+        return
+
 def _clamp(v, lo=0, hi=255):
     return max(lo, min(hi, int(round(v))))
 
@@ -1770,7 +1778,7 @@ class MainTab(QWidget):
 
         for i in range(num_rooms):
             data = room_data[i] if i < len(room_data) and isinstance(room_data[i], dict) else {}
-            room_group = CardWidget()
+            room_group = StaticRoomCard()
             room_group.setObjectName(f"room_{i}_card")
             room_group.setStyleSheet("""
                 CardWidget { background-color: #2b2b2b; border: 1px solid #3d3d3d; border-radius: 8px; }

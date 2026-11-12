@@ -447,6 +447,25 @@ class DashboardTab(QWidget):
         self._owner_room_main_sync_worker = None
         self._room_sync_worker = None
         self._rentals_sync_worker = None
+
+        # Per-lane request scope (audit DASH-03 / DATA-10): each async lane
+        # carries a monotonic generation; a completion publishes only when its
+        # generation is still current, and a request made while the lane is
+        # busy is retained (latest intent wins) instead of silently dropped.
+        self._lane_generations = {
+            "years": 0,
+            "main": 0,
+            "owner_main": 0,
+            "room": 0,
+            "rentals": 0,
+        }
+        self._lane_pending = {
+            "years": None,
+            "main": None,
+            "owner_main": None,
+            "room": None,
+            "rentals": None,
+        }
         self._chart_view = None
         self._chart_widget = None
         self._rate_chart_view = None
@@ -1172,8 +1191,10 @@ class DashboardTab(QWidget):
             chart.layout().setContentsMargins(20, 4, 12, 34)
         except Exception:
             pass
-        chart.setAnimationOptions(QChart.SeriesAnimations)
-        chart.setAnimationDuration(550)
+        # SeriesAnimations triggered native access violations with PyQtChart
+        # 5.15.7 on Qt 5.15.2 (Windows) during the 2026-11-12 verification;
+        # charts render identically without it. See docs/audits/2026-11-12.
+        chart.setAnimationOptions(QChart.NoAnimation)
 
         axis_x = QCategoryAxis()
         for i, m in enumerate(MONTHS):
@@ -1484,7 +1505,7 @@ class DashboardTab(QWidget):
         bar_series.setBarWidth(0.6)
 
         bar_set.hovered.connect(
-            lambda idx, state, tv=tooltips, cv=chart_view: self._on_bar_hovered(
+            lambda state, idx, tv=tooltips, cv=chart_view: self._on_bar_hovered(
                 idx, state, tv, cv
             )
         )
@@ -1563,7 +1584,7 @@ class DashboardTab(QWidget):
 
         for bs in bar_sets:
             bs.hovered.connect(
-                lambda idx, state, tv=tooltips, cv=chart_view: self._on_bar_hovered(
+                lambda state, idx, tv=tooltips, cv=chart_view: self._on_bar_hovered(
                     idx, state, tv, cv
                 )
             )
@@ -1689,9 +1710,37 @@ class DashboardTab(QWidget):
             self._render_owner_room_from_cache(owner_year)
         else:
             self._set_status("No cached years yet.")
-            self._render_values([0.0] * 12)
+            self._render_values([None] * 12)
             self._set_owner_room_status("No cached years yet.")
-            self._render_owner_room_values([0.0] * 12, [""] * 12)
+            self._render_owner_room_values([0.0] * 12, [""] * 12, [None] * 12)
+
+    def _lane_request(self, lane: str) -> int:
+        """Register a new request in *lane* and return its generation."""
+        self._lane_generations[lane] = self._lane_generations.get(lane, 0) + 1
+        return self._lane_generations[lane]
+
+    def _lane_is_current(self, lane: str, generation) -> bool:
+        """True when *generation* is still the newest request in *lane*.
+
+        A completion from a worker without scope metadata (e.g. legacy or
+        test fakes) is treated as current so behaviour stays conservative.
+        """
+        if generation is None:
+            return True
+        return generation == self._lane_generations.get(lane)
+
+    def _drain_lane_pending(self, lane: str):
+        """Start the latest request retained while *lane* was busy.
+
+        Clears the entry before dispatch so the follow-up request cannot
+        recurse into another drain of the same retained entry.
+        """
+        pending = self._lane_pending.get(lane)
+        self._lane_pending[lane] = None
+        if pending is None:
+            return
+        dispatch, args = pending
+        dispatch(*args)
 
     def _refresh_years_from_supabase_async(self):
         from src.ui.background_workers import FetchSupabaseAvailableYearsWorker
@@ -1703,20 +1752,34 @@ class DashboardTab(QWidget):
             )
             return
 
+        gen = self._lane_request("years")
         if self._years_worker and self._years_worker.isRunning():
+            self._lane_pending["years"] = (
+                self._refresh_years_from_supabase_async,
+                (),
+            )
             return
 
         self._set_status("Fetching available years from Supabase…")
         self._begin_global_update_activity(
             "dashboard-years", "Updates: syncing dashboard"
         )
-        self._years_worker = FetchSupabaseAvailableYearsWorker(supabase_manager)
-        self._years_worker.years_fetched.connect(self._on_years_fetched)
-        self._years_worker.error_occurred.connect(self._on_years_error)
-        self._years_worker.start()
+        worker = FetchSupabaseAvailableYearsWorker(supabase_manager)
+        worker._scope_lane = "years"
+        worker._scope_gen = gen
+        self._years_worker = worker
+        worker.years_fetched.connect(self._on_years_fetched)
+        worker.error_occurred.connect(self._on_years_error)
+        worker.start()
 
     def _on_years_fetched(self, years: list):
+        worker = self._years_worker
+        lane = getattr(worker, "_scope_lane", "years")
+        gen = getattr(worker, "_scope_gen", None)
         self._end_global_update_activity("dashboard-years")
+        if not self._lane_is_current(lane, gen):
+            self._drain_lane_pending(lane)
+            return
         self._years_fetched_from_supabase_this_session = True
         years_int = []
         for y in years or []:
@@ -1728,6 +1791,7 @@ class DashboardTab(QWidget):
 
         if not years_int:
             self._set_status("No years found in Supabase.")
+            self._drain_lane_pending(lane)
             return
 
         self._sync_all_year_combos(years_int)
@@ -1743,6 +1807,7 @@ class DashboardTab(QWidget):
         self._set_status("")
         self._sync_year_async(selected_year)
         self._sync_owner_room_year_async(selected_owner_room_year)
+        self._drain_lane_pending(lane)
 
     def _on_years_error(self, msg: str):
         self._end_global_update_activity("dashboard-years")
@@ -1753,6 +1818,7 @@ class DashboardTab(QWidget):
         # Show offline banner when Supabase connection fails
         if hasattr(self, "_offline_banner"):
             self._offline_banner.show()
+        self._drain_lane_pending("years")
 
     def _on_refresh_clicked(self):
         sender = self.sender()
@@ -1831,7 +1897,10 @@ class DashboardTab(QWidget):
             return
         if not self._db_path:
             return
+
+        gen = self._lane_request("main")
         if self._sync_worker and self._sync_worker.isRunning():
+            self._lane_pending["main"] = (self._sync_year_async, (int(year),))
             return
 
         self._set_status("Syncing year from Supabase…")
@@ -1839,19 +1908,28 @@ class DashboardTab(QWidget):
         self._begin_global_update_activity(
             f"dashboard-main-{year}", "Updates: syncing dashboard"
         )
-        self._sync_worker = SyncSupabaseMainCalculationsYearWorker(
+        worker = SyncSupabaseMainCalculationsYearWorker(
             supabase_manager, self._db_path, year
         )
-        self._sync_worker.sync_finished.connect(self._on_sync_finished)
-        self._sync_worker.error_occurred.connect(self._on_sync_error)
-        self._sync_worker.start()
+        worker._scope_lane = "main"
+        worker._scope_gen = gen
+        self._sync_worker = worker
+        worker.sync_finished.connect(self._on_sync_finished)
+        worker.error_occurred.connect(self._on_sync_error)
+        worker.start()
 
     def _on_sync_finished(self, year: int):
+        worker = self._sync_worker
+        lane = getattr(worker, "_scope_lane", "main")
+        gen = getattr(worker, "_scope_gen", None)
         sync_year = getattr(self, "_sync_worker_year", year)
         self._end_global_update_activity(f"dashboard-main-{sync_year}")
         self._set_status("")
-        # Refresh all sections using their own combo's selected year
-        self._render_year_from_cache(year)
+        # Publish only when this completion still matches the latest request;
+        # otherwise the newest user intent is preserved and re-dispatched.
+        if self._lane_is_current(lane, gen):
+            self._render_year_from_cache(year)
+        self._drain_lane_pending(lane)
 
     def _on_sync_error(self, msg: str):
         sync_year = getattr(self, "_sync_worker_year", None)
@@ -1861,18 +1939,19 @@ class DashboardTab(QWidget):
             self._set_status("Supabase project is paused.")
         else:
             self._set_status(msg)
+        self._drain_lane_pending("main")
 
     def _render_year_from_cache(self, year: int):
         self._active_year = int(year)
         snapshot = self._get_dashboard_year_snapshot(year)
         totals = snapshot.get("monthly_totals", {}) if snapshot else {}
-        values = []
-        for m in MONTHS:
-            values.append(float(totals.get(m, 0.0) or 0.0))
-        self._update_meta(
-            year, last_sync=snapshot.get("last_sync") if snapshot else None
+        # Absent months stay None (no recorded data) instead of pretending to
+        # be a measured zero (audit DASH-05).
+        raw = [totals.get(m) for m in MONTHS]
+        self._set_section_meta(
+            self.meta_label, snapshot.get("last_sync") if snapshot else None
         )
-        self._render_values(values)
+        self._render_values(raw)
         # Update summary KPI cards
         self._update_summary_kpis(snapshot, year)
         # When called during global refresh, render rate/elec using their own combo years
@@ -1893,12 +1972,15 @@ class DashboardTab(QWidget):
                 snapshot=snapshot if elec_year == int(year) else None,
             )
 
-    def _render_values(self, values: list[float]):
+    def _render_values(self, values: list):
+        """Render monthly values; ``None`` means no recorded data (DASH-05)."""
         values = (values or [])[:12]
         if len(values) < 12:
-            values = values + [0.0] * (12 - len(values))
+            values = values + [None] * (12 - len(values))
 
-        self._current_values = values[:]
+        self._current_values = [
+            float(v or 0.0) if v is not None else 0.0 for v in values
+        ]
         self._current_tooltips = self._build_tooltips(values)
         self._update_kpis(values)
 
@@ -1915,11 +1997,15 @@ class DashboardTab(QWidget):
             return
 
         if isinstance(self._chart_widget, (SimpleLineChartWidget, SimpleBarChartWidget)):
-            self._chart_widget.set_data(MONTHS, values, tooltips=self._current_tooltips)
+            self._chart_widget.set_data(
+                MONTHS, self._current_values, tooltips=self._current_tooltips
+            )
 
     def _render_rate_from_cache(self, year: int, snapshot: dict | None = None):
-        rates = (snapshot or self._get_dashboard_year_snapshot(year)).get(
-            "monthly_per_unit_cost", {}
+        snap = snapshot or self._get_dashboard_year_snapshot(year)
+        rates = snap.get("monthly_per_unit_cost", {})
+        self._set_section_meta(
+            getattr(self, "rate_meta_label", None), snap.get("last_sync")
         )
 
         raw = []
@@ -1967,6 +2053,12 @@ class DashboardTab(QWidget):
 
     def _update_rate_kpis(self, raw_values: list[float | None]):
         year = int(getattr(self, "_active_year", datetime.now().year))
+        now = datetime.now()
+        prev_year_raw = None
+        if year == now.year and now.month == 1:
+            prev_year_raw = (self._get_dashboard_year_snapshot(year - 1) or {}).get(
+                "monthly_per_unit_cost"
+            )
         self._update_section_kpis(
             kpis={
                 "current": getattr(self, "rate_kpi_current", None),
@@ -1979,11 +2071,14 @@ class DashboardTab(QWidget):
             fmt_fn=self._fmt_rate,
             current_prefix="Per unit cost",
             extreme_prefix="per unit cost",
+            prev_year_raw=prev_year_raw,
         )
 
     def _render_elec_from_cache(self, year: int, snapshot: dict | None = None):
-        bills = (snapshot or self._get_dashboard_year_snapshot(year)).get(
-            "monthly_total_electricity_bills", {}
+        snap = snapshot or self._get_dashboard_year_snapshot(year)
+        bills = snap.get("monthly_total_electricity_bills", {})
+        self._set_section_meta(
+            getattr(self, "elec_meta_label", None), snap.get("last_sync")
         )
 
         raw = []
@@ -2032,6 +2127,12 @@ class DashboardTab(QWidget):
 
     def _update_elec_kpis(self, raw_values: list[float | None]):
         year = int(getattr(self, "_active_year", datetime.now().year))
+        now = datetime.now()
+        prev_year_raw = None
+        if year == now.year and now.month == 1:
+            prev_year_raw = (
+                self._get_dashboard_year_snapshot(year - 1) or {}
+            ).get("monthly_total_electricity_bills")
 
         def _fmt_elec(v):
             if v is None:
@@ -2053,19 +2154,26 @@ class DashboardTab(QWidget):
             fmt_fn=_fmt_elec,
             current_prefix="Total electricity bill",
             extreme_prefix="total electricity bill",
+            prev_year_raw=prev_year_raw,
         )
 
-    def _build_tooltips(self, values: list[float]) -> list[str]:
+    def _build_tooltips(self, values: list) -> list[str]:
+        """Monthly tooltips; ``None`` months render as “No data” (DASH-05)."""
         out = []
+        prev_val = None
         for i, m in enumerate(MONTHS):
-            v = float(values[i] or 0.0)
-            prev = float(values[i - 1] or 0.0) if i > 0 else 0.0
-            d = v - prev if i > 0 else 0.0
-            if i == 0:
-                out.append(f"📅 {m}\n━━━━━━━━━━━━━━\n💰 {self._fmt_tk(v)}")
+            v = values[i] if i < len(values) else None
+            if v is None:
+                out.append(f"📅 {m}\n━━━━━━━━━━━━━━\n💰 No data")
+                continue
+            fv = float(v)
+            if prev_val is None:
+                out.append(f"📅 {m}\n━━━━━━━━━━━━━━\n💰 {self._fmt_tk(fv)}")
             else:
+                d = fv - prev_val
                 delta_icon = "📈" if d >= 0 else "📉"
-                out.append(f"📅 {m}\n━━━━━━━━━━━━━━\n💰 {self._fmt_tk(v)}\n{delta_icon} {self._fmt_delta(d)}")
+                out.append(f"📅 {m}\n━━━━━━━━━━━━━━\n💰 {self._fmt_tk(fv)}\n{delta_icon} {self._fmt_delta(d)}")
+            prev_val = fv
         return out
 
     # ------------------------------------------------------------------
@@ -2085,28 +2193,68 @@ class DashboardTab(QWidget):
         current_prefix="Bill",
         extreme_prefix="month",
         default_idx=(11, 10),
+        prev_year_raw=None,
     ):
         """Unified KPI update for a dashboard section.
 
         *kpis* maps role names ("current", "prev", "high", "low") to
         ``InfoResultCard`` instances.  *raw_values* is a list of per-month
-        values that may contain ``None``.
+        values that may contain ``None``.  *prev_year_raw* optionally carries
+        the previous year's monthly values so the January "recent month"
+        resolves December of the previous year (audit DASH-04).
         """
         now = datetime.now()
 
         if consider_fn is None:
             consider_fn = lambda v: v is not None
 
+        def _value_at(idx, values=None):
+            values = raw_values if values is None else values
+            if idx is None or not (0 <= idx < len(values or [])):
+                return None
+            return (values or [])[idx]
+
+        def _presentable(value):
+            # Missing data must not render as a measured zero (DASH-05).
+            return "\u2014" if value is None else fmt_fn(value)
+
         # Recent month = previous month (bills are added after month ends)
         current_idx = default_idx[0]
         prev_idx = default_idx[1]
+        january_prev_year = False
         if year == now.year:
             # Use previous month as "recent month"
             if now.month == 1:
-                current_idx = 11  # December of previous year
+                # December of the previous year is not part of the displayed
+                # year's own value list (audit DASH-04).
+                if prev_year_raw:
+                    january_prev_year = True
+                    current_idx = 11
+                    prev_idx = 10
+                else:
+                    current_idx = None
+                    prev_idx = None
             else:
                 current_idx = max(0, min(11, now.month - 2))  # Previous month
-            prev_idx = max(0, current_idx - 1)
+                if consider_fn(_value_at(current_idx)):
+                    prev_idx = max(0, current_idx - 1)
+                else:
+                    # The calendar's previous month is not recorded yet: fall
+                    # back to the most recent month that actually has data
+                    # rather than rendering a blank card.
+                    present = [
+                        i for i, v in enumerate(raw_values or []) if consider_fn(v)
+                    ]
+                    if present:
+                        current_idx = present[-1]
+                        prev_present = [i for i in present if i < current_idx]
+                        prev_idx = (
+                            prev_present[-1]
+                            if prev_present
+                            else (max(0, current_idx - 1) if current_idx > 0 else None)
+                        )
+                    else:
+                        prev_idx = None
         else:
             present = [i for i, v in enumerate(raw_values or []) if consider_fn(v)]
             if present:
@@ -2118,13 +2266,12 @@ class DashboardTab(QWidget):
                     else (max(0, current_idx - 1) if current_idx is not None else None)
                 )
 
-        def _value_at(idx):
-            if idx is None or not (0 <= idx < len(raw_values or [])):
-                return None
-            return (raw_values or [])[idx]
-
-        cv = _value_at(current_idx)
-        pv = _value_at(prev_idx)
+        if january_prev_year:
+            cv = _value_at(current_idx, prev_year_raw)
+            pv = _value_at(prev_idx, prev_year_raw)
+        else:
+            cv = _value_at(current_idx)
+            pv = _value_at(prev_idx)
 
         def _month_label(idx):
             try:
@@ -2136,7 +2283,7 @@ class DashboardTab(QWidget):
         if cur_card:
             if current_idx is not None:
                 cur_card._kpi_value_label.setText(
-                    f"{_month_label(current_idx)} \u00b7 {fmt_fn(cv)}"
+                    f"{_month_label(current_idx)} \u00b7 {_presentable(cv)}"
                 )
             else:
                 cur_card._kpi_value_label.setText("\u2014")
@@ -2145,7 +2292,7 @@ class DashboardTab(QWidget):
         if prev_card:
             if prev_idx is not None:
                 prev_card._kpi_value_label.setText(
-                    f"{_month_label(prev_idx)} \u00b7 {fmt_fn(pv)}"
+                    f"{_month_label(prev_idx)} \u00b7 {_presentable(pv)}"
                 )
             else:
                 prev_card._kpi_value_label.setText("\u2014")
@@ -2178,7 +2325,7 @@ class DashboardTab(QWidget):
         high_card = kpis.get("high")
         if high_card:
             high_card._kpi_value_label.setText(
-                f"{_month_label(max_idx)} \u00b7 {fmt_fn((raw_values or [])[max_idx])}"
+                f"{_month_label(max_idx)} \u00b7 {_presentable((raw_values or [])[max_idx])}"
                 if max_idx is not None
                 else "\u2014"
             )
@@ -2186,7 +2333,7 @@ class DashboardTab(QWidget):
         low_card = kpis.get("low")
         if low_card:
             low_card._kpi_value_label.setText(
-                f"{_month_label(min_idx)} \u00b7 {fmt_fn((raw_values or [])[min_idx])}"
+                f"{_month_label(min_idx)} \u00b7 {_presentable((raw_values or [])[min_idx])}"
                 if min_idx is not None
                 else "\u2014"
             )
@@ -2215,8 +2362,16 @@ class DashboardTab(QWidget):
                 f"Lowest {extreme_prefix} in {year}: {MONTHS[min_idx]}"
             )
 
-    def _update_kpis(self, values: list[float]):
+    def _update_kpis(self, values: list):
         year = int(getattr(self, "_active_year", datetime.now().year))
+        now = datetime.now()
+        # January of the current year: the recent month is December of the
+        # previous year (audit DASH-04).
+        prev_year_raw = None
+        if year == now.year and now.month == 1:
+            prev_year_raw = (self._get_dashboard_year_snapshot(year - 1) or {}).get(
+                "monthly_totals"
+            )
         self._update_section_kpis(
             kpis={
                 "current": getattr(self, "kpi_total", None),
@@ -2227,9 +2382,12 @@ class DashboardTab(QWidget):
             raw_values=values,
             year=year,
             fmt_fn=self._fmt_tk,
-            consider_fn=lambda v: float(v or 0.0) > 0.0,
+            # None means "no recorded data"; a recorded 0.0 is measured data
+            # and must stay distinct (audit DASH-05).
+            consider_fn=lambda v: v is not None,
             clamp_to_current_year=True,
             empty_consider_fallback=True,
+            prev_year_raw=prev_year_raw,
         )
 
     # ------------------------------------------------------------------
@@ -2249,81 +2407,113 @@ class DashboardTab(QWidget):
 
         # Determine recent month (previous month - bills are added after month ends)
         now = datetime.now()
+        recent_year = year
+
+        def _last_present_month(month_map, limit_idx=None):
+            candidates = reversed(MONTHS if limit_idx is None else MONTHS[: limit_idx + 1])
+            for m in candidates:
+                if month_map.get(m) is not None:
+                    return m
+            return None
+
         if year == now.year:
-            # Previous month (if current month is Jan, previous is Dec of previous year)
             if now.month == 1:
-                recent_month = "December"
+                # Recent month is December of the PREVIOUS year (audit
+                # DASH-04), so the previous year's snapshot supplies the data.
+                recent_year = year - 1
+                prev_snapshot = self._get_dashboard_year_snapshot(recent_year) or {}
+                monthly_totals = prev_snapshot.get("monthly_totals", {})
+                monthly_elec = prev_snapshot.get("monthly_total_electricity_bills", {})
+                monthly_rates = prev_snapshot.get("monthly_per_unit_cost", {})
+                recent_month = _last_present_month(monthly_totals)
             else:
                 recent_month = MONTHS[now.month - 2]  # Previous month
+                if monthly_totals.get(recent_month) is None:
+                    # The calendar month is not recorded yet: keep the last
+                    # month that actually has data instead of blanking the
+                    # cards after a month passes.
+                    recent_month = _last_present_month(
+                        monthly_totals, limit_idx=MONTHS.index(recent_month)
+                    )
         else:
             # For past years, find the last month with data
-            recent_month = None
-            for m in reversed(MONTHS):
-                if m in monthly_totals and monthly_totals[m] is not None:
-                    recent_month = m
-                    break
-            if not recent_month:
-                recent_month = MONTHS[0] if monthly_totals else None
+            recent_month = _last_present_month(monthly_totals)
 
-        # Get recent month data
-        total_bill = 0.0
-        elec_bill = 0.0
-        rate_val = 0.0
-        units = 0
-        added_amount = 0.0
-        water_bill = 0.0
+        # Get recent month data; missing months stay missing (audit DASH-05)
+        total_bill = None
+        elec_bill = None
+        rate_val = None
+        units = None
 
         if recent_month:
             # Total bill (grand_total)
-            total_bill = float(monthly_totals.get(recent_month, 0.0) or 0.0)
+            t = monthly_totals.get(recent_month)
+            total_bill = float(t) if t is not None else None
 
             # Electricity bill (total_unit_cost)
-            elec_bill = float(monthly_elec.get(recent_month, 0.0) or 0.0)
+            e = monthly_elec.get(recent_month)
+            elec_bill = float(e) if e is not None else None
 
             # Per unit cost
             r = monthly_rates.get(recent_month)
-            rate_val = float(r) if r is not None else 0.0
+            rate_val = float(r) if r is not None else None
 
             # Total units (elec_bill / per_unit_cost) - show as integer
-            if rate_val > 0:
+            if rate_val and elec_bill is not None:
                 units = int(round(elec_bill / rate_val))
 
-        # Update KPI cards
-        self._summary_total_bill._kpi_value_label.setText(self._fmt_tk(total_bill))
-        self._summary_elec_bill._kpi_value_label.setText(self._fmt_tk(elec_bill))
-        self._summary_rate._kpi_value_label.setText(self._fmt_rate(rate_val) if rate_val > 0 else "---")
-        self._summary_units._kpi_value_label.setText(f"{units:,}" if units > 0 else "---")
+        # Update KPI cards; "None" data renders as "---", not TK 0 (DASH-05)
+        self._summary_total_bill._kpi_value_label.setText(
+            self._fmt_tk(total_bill) if total_bill is not None else "---"
+        )
+        self._summary_elec_bill._kpi_value_label.setText(
+            self._fmt_tk(elec_bill) if elec_bill is not None else "---"
+        )
+        self._summary_rate._kpi_value_label.setText(
+            self._fmt_rate(rate_val) if rate_val is not None and rate_val > 0 else "---"
+        )
+        self._summary_units._kpi_value_label.setText(
+            f"{units:,}" if units else "---"
+        )
 
         # Owner bill, Tenant bill, Added amount, and Water bill from room data
-        owner_bill = 0.0
+        owner_bill = None
+        added_amount = 0.0
         tenant_elec_bill = 0.0
         tenant_water_bill = 0.0
         if recent_month and self.db_manager:
             try:
+                # Owner/room caches must match the recent month's year
+                # (previous year's December when selected in January).
+                data_year = recent_year
+
                 # Get owner bill
-                owner_data = self.db_manager.get_cached_monthly_owner_unit_bills(year, source="supabase")
-                owner_bill = float(owner_data.get(recent_month, 0.0) or 0.0)
+                owner_data = self.db_manager.get_cached_monthly_owner_unit_bills(data_year, source="supabase")
+                o = owner_data.get(recent_month)
+                owner_bill = float(o) if o is not None else None
 
                 # Get added amount
-                added_data = self.db_manager.get_cached_monthly_owner_added_amounts(year, source="supabase")
+                added_data = self.db_manager.get_cached_monthly_owner_added_amounts(data_year, source="supabase")
                 added_amount = float(added_data.get(recent_month, 0.0) or 0.0)
 
                 # Get room bills for tenant calculation and water bills
-                rooms = self.db_manager.get_cached_rooms(year, source="supabase") or []
+                rooms = self.db_manager.get_cached_rooms(data_year, source="supabase") or []
                 for room in rooms:
-                    room_data = self.db_manager.get_cached_monthly_room_unit_bills(year, room, source="supabase")
+                    room_data = self.db_manager.get_cached_monthly_room_unit_bills(data_year, room, source="supabase")
                     tenant_elec_bill += float(room_data.get(recent_month, 0.0) or 0.0)
 
                     # Get water bills from room data
                     try:
-                        water_data = self.db_manager.get_cached_monthly_room_water_bills(year, room, source="supabase")
+                        water_data = self.db_manager.get_cached_monthly_room_water_bills(data_year, room, source="supabase")
                         tenant_water_bill += float(water_data.get(recent_month, 0.0) or 0.0)
                     except Exception:
                         pass
             except Exception:
                 pass
 
-        self._summary_owner_bill._kpi_value_label.setText(self._fmt_tk(owner_bill))
+        self._summary_owner_bill._kpi_value_label.setText(
+            self._fmt_tk(owner_bill) if owner_bill is not None else "---"
+        )
 
         # Tenant's Electricity and Water Bill - show electricity + water = total
         tenant_total = tenant_elec_bill + tenant_water_bill
@@ -2370,21 +2560,18 @@ class DashboardTab(QWidget):
                 return {}
         return {}
 
-    def _update_meta(self, year: int, last_sync: str | None = None):
+    def _set_section_meta(self, label, last_sync=None):
+        """Freshness belongs to the snapshot being displayed (DASH-06).
+
+        Each section writes its own label from its own year's snapshot
+        instead of copying one timestamp across independent lanes.
+        """
+        if label is None or not hasattr(label, "setText"):
+            return
         if last_sync:
-            text = f"Source: Supabase Cache · Last sync: {last_sync}"
-            self.meta_label.setText(text)
-            if hasattr(self, "rate_meta_label"):
-                self.rate_meta_label.setText(text)
-            if hasattr(self, "elec_meta_label"):
-                self.elec_meta_label.setText(text)
+            label.setText(f"Source: Supabase Cache · Last sync: {last_sync}")
         else:
-            text = "Source: Supabase Cache"
-            self.meta_label.setText(text)
-            if hasattr(self, "rate_meta_label"):
-                self.rate_meta_label.setText(text)
-            if hasattr(self, "elec_meta_label"):
-                self.elec_meta_label.setText(text)
+            label.setText("Source: Supabase Cache")
 
     def _set_owner_room_status(self, text: str):
         t = (text or "").strip()
@@ -2461,10 +2648,15 @@ class DashboardTab(QWidget):
         if not self._db_path:
             return
 
+        gen = self._lane_request("owner_main")
         if (
             self._owner_room_main_sync_worker
             and self._owner_room_main_sync_worker.isRunning()
         ):
+            self._lane_pending["owner_main"] = (
+                self._sync_owner_room_year_async,
+                (int(year),),
+            )
             return
 
         self._set_owner_room_status("Syncing owner data from Supabase…")
@@ -2472,26 +2664,34 @@ class DashboardTab(QWidget):
         self._begin_global_update_activity(
             f"dashboard-owner-main-{year}", "Updates: syncing room data"
         )
-        self._owner_room_main_sync_worker = SyncSupabaseMainCalculationsYearWorker(
+        worker = SyncSupabaseMainCalculationsYearWorker(
             supabase_manager, self._db_path, year
         )
-        self._owner_room_main_sync_worker.sync_finished.connect(
+        worker._scope_lane = "owner_main"
+        worker._scope_gen = gen
+        self._owner_room_main_sync_worker = worker
+        worker.sync_finished.connect(
             self._on_owner_room_main_sync_finished
         )
-        self._owner_room_main_sync_worker.error_occurred.connect(
+        worker.error_occurred.connect(
             self._on_owner_room_main_sync_error
         )
-        self._owner_room_main_sync_worker.start()
+        worker.start()
 
         self._sync_room_year_async(year)
         if self.scope_combo.currentText().strip() == "Room":
             self._sync_rentals_cache_async()
 
     def _on_owner_room_main_sync_finished(self, year: int):
+        worker = self._owner_room_main_sync_worker
+        lane = getattr(worker, "_scope_lane", "owner_main")
+        gen = getattr(worker, "_scope_gen", None)
         sync_year = getattr(self, "_owner_room_main_sync_year", year)
         self._end_global_update_activity(f"dashboard-owner-main-{sync_year}")
         self._set_owner_room_status("")
-        self._render_owner_room_from_cache(year)
+        if self._lane_is_current(lane, gen):
+            self._render_owner_room_from_cache(year)
+        self._drain_lane_pending(lane)
 
     def _on_owner_room_main_sync_error(self, msg: str):
         sync_year = getattr(self, "_owner_room_main_sync_year", None)
@@ -2501,6 +2701,7 @@ class DashboardTab(QWidget):
             self._set_owner_room_status("Supabase project is paused.")
         else:
             self._set_owner_room_status(msg)
+        self._drain_lane_pending("owner_main")
 
     def _sync_room_year_async(self, year: int):
         from src.ui.background_workers import SyncSupabaseRoomCalculationsYearWorker
@@ -2510,7 +2711,10 @@ class DashboardTab(QWidget):
             return
         if not self._db_path:
             return
+
+        gen = self._lane_request("room")
         if self._room_sync_worker and self._room_sync_worker.isRunning():
+            self._lane_pending["room"] = (self._sync_room_year_async, (int(year),))
             return
 
         self._set_owner_room_status("Syncing room bills from Supabase…")
@@ -2518,19 +2722,33 @@ class DashboardTab(QWidget):
         self._begin_global_update_activity(
             f"dashboard-room-{year}", "Updates: syncing room data"
         )
-        self._room_sync_worker = SyncSupabaseRoomCalculationsYearWorker(
+        worker = SyncSupabaseRoomCalculationsYearWorker(
             supabase_manager, self._db_path, year
         )
-        self._room_sync_worker.sync_finished.connect(self._on_room_sync_finished)
-        self._room_sync_worker.error_occurred.connect(self._on_room_sync_error)
-        self._room_sync_worker.start()
+        worker._scope_lane = "room"
+        worker._scope_gen = gen
+        self._room_sync_worker = worker
+        worker.sync_finished.connect(self._on_room_sync_finished)
+        worker.error_occurred.connect(self._on_room_sync_error)
+        worker.start()
 
     def _on_room_sync_finished(self, year: int):
+        worker = self._room_sync_worker
+        lane = getattr(worker, "_scope_lane", "room")
+        gen = getattr(worker, "_scope_gen", None)
         sync_year = getattr(self, "_room_sync_year", year)
         self._end_global_update_activity(f"dashboard-room-{sync_year}")
         self._set_owner_room_status("")
-        self._populate_rooms_from_cache()
-        self._render_owner_room_from_cache(year)
+        if self._lane_is_current(lane, gen):
+            self._populate_rooms_from_cache()
+            self._render_owner_room_from_cache(year)
+            # Room data feeds owner/room-dependent summary KPIs; refresh the
+            # currently displayed year so its cards cannot stay stale (DASH-06).
+            if getattr(self, "_active_year", None) == int(year):
+                self._update_summary_kpis(
+                    self._get_dashboard_year_snapshot(int(year)), int(year)
+                )
+        self._drain_lane_pending(lane)
 
     def _on_room_sync_error(self, msg: str):
         sync_year = getattr(self, "_room_sync_year", None)
@@ -2540,6 +2758,7 @@ class DashboardTab(QWidget):
             self._set_owner_room_status("Supabase project is paused.")
         else:
             self._set_owner_room_status(msg)
+        self._drain_lane_pending("room")
 
     def _sync_rentals_cache_async(self):
         from src.ui.background_workers import SyncSupabaseRentalRecordsCacheWorker
@@ -2549,24 +2768,38 @@ class DashboardTab(QWidget):
             return
         if not self._db_path:
             return
+
+        gen = self._lane_request("rentals")
         if self._rentals_sync_worker and self._rentals_sync_worker.isRunning():
+            self._lane_pending["rentals"] = (
+                self._sync_rentals_cache_async,
+                (),
+            )
             return
 
         self._begin_global_update_activity(
             "dashboard-rentals", "Updates: syncing rental cache"
         )
-        self._rentals_sync_worker = SyncSupabaseRentalRecordsCacheWorker(
+        worker = SyncSupabaseRentalRecordsCacheWorker(
             supabase_manager, self._db_path
         )
-        self._rentals_sync_worker.sync_finished.connect(self._on_rentals_sync_finished)
-        self._rentals_sync_worker.error_occurred.connect(self._on_rentals_sync_error)
-        self._rentals_sync_worker.start()
+        worker._scope_lane = "rentals"
+        worker._scope_gen = gen
+        self._rentals_sync_worker = worker
+        worker.sync_finished.connect(self._on_rentals_sync_finished)
+        worker.error_occurred.connect(self._on_rentals_sync_error)
+        worker.start()
 
     def _on_rentals_sync_finished(self):
+        worker = self._rentals_sync_worker
+        lane = getattr(worker, "_scope_lane", "rentals")
+        gen = getattr(worker, "_scope_gen", None)
         self._end_global_update_activity("dashboard-rentals")
-        year = self._selected_owner_room_year()
-        if year is not None:
-            self._render_owner_room_from_cache(year)
+        if self._lane_is_current(lane, gen):
+            year = self._selected_owner_room_year()
+            if year is not None:
+                self._render_owner_room_from_cache(year)
+        self._drain_lane_pending(lane)
 
     def _on_rentals_sync_error(self, msg: str):
         self._end_global_update_activity("dashboard-rentals")
@@ -2574,6 +2807,7 @@ class DashboardTab(QWidget):
             self._set_owner_room_status("Supabase project is paused.")
         else:
             self._set_owner_room_status(msg)
+        self._drain_lane_pending("rentals")
 
     def _populate_rooms_from_cache(self):
         year = self._selected_owner_room_year()
@@ -2642,12 +2876,26 @@ class DashboardTab(QWidget):
                 month_map = {}
             vals_raw = [month_map.get(m) for m in MONTHS]
             vals = [float(v or 0.0) if v is not None else 0.0 for v in vals_raw]
+            prev_map = {}
+            try:
+                prev_map = (
+                    self.db_manager.get_cached_monthly_room_unit_bills(
+                        year - 1, room_name, source="supabase"
+                    )
+                    if self.db_manager
+                    else {}
+                )
+            except Exception:
+                prev_map = {}
+            prev_raw = [prev_map.get(m) for m in MONTHS]
             room_records = self._get_rental_records_for_room(room_name)
             tenant_lookup = self._build_tenant_lookup_for_year(year, room_records)
             tips = self._build_owner_room_tooltips(
                 vals_raw, year, room_name, mode="Room", tenant_lookup=tenant_lookup
             )
-            self._render_owner_room_values(vals, tips, vals_raw, mode="Room")
+            self._render_owner_room_values(
+                vals, tips, vals_raw, mode="Room", prev_year_raw=prev_raw
+            )
             return
 
         self._update_owner_room_meta(year, mode="Owner")
@@ -2664,8 +2912,22 @@ class DashboardTab(QWidget):
             month_map = {}
         vals_raw = [month_map.get(m) for m in MONTHS]
         vals = [float(v or 0.0) if v is not None else 0.0 for v in vals_raw]
+        prev_map = {}
+        try:
+            prev_map = (
+                self.db_manager.get_cached_monthly_owner_unit_bills(
+                    year - 1, source="supabase"
+                )
+                if self.db_manager
+                else {}
+            )
+        except Exception:
+            prev_map = {}
+        prev_raw = [prev_map.get(m) for m in MONTHS]
         tips = self._build_owner_room_tooltips(vals_raw, year, "", mode="Owner")
-        self._render_owner_room_values(vals, tips, vals_raw, mode="Owner")
+        self._render_owner_room_values(
+            vals, tips, vals_raw, mode="Owner", prev_year_raw=prev_raw
+        )
 
     def _render_owner_room_values(
         self,
@@ -2674,6 +2936,7 @@ class DashboardTab(QWidget):
         raw_values: list | None = None,
         mode: str = "Owner",
         grouped_data: dict | None = None,
+        prev_year_raw: list | None = None,
     ):
         values = (values or [])[:12]
         if len(values) < 12:
@@ -2682,7 +2945,9 @@ class DashboardTab(QWidget):
         self._owner_room_values = values[:]
         self._owner_room_tooltips = (tooltips or [""] * 12)[:12]
         self._owner_room_raw_values = (raw_values or values)[:12]
-        self._update_owner_room_kpis(values, tooltips, self._owner_room_raw_values)
+        self._update_owner_room_kpis(
+            values, tooltips, self._owner_room_raw_values, prev_year_raw
+        )
 
         if self._owner_room_qtchart:
             if grouped_data and len(grouped_data) > 1:
@@ -2737,8 +3002,14 @@ class DashboardTab(QWidget):
             has_bill = v is not None
             bill_text = self._fmt_tk(v) if has_bill else "No billing"
             delta_text = ""
+            delta_icon = ""
             if i > 0 and has_bill and prev_val is not None:
-                delta_text = self._fmt_delta(float(v) - float(prev_val))
+                # Compute direction from immutable old/new values BEFORE the
+                # previous-value state is advanced (audit DASH-08); the old
+                # code recomputed the delta after overwriting prev_val.
+                delta = float(v) - float(prev_val)
+                delta_text = self._fmt_delta(delta)
+                delta_icon = "📈" if delta >= 0 else "📉"
             prev_val = v if has_bill else prev_val
 
             if mode == "Room":
@@ -2748,7 +3019,6 @@ class DashboardTab(QWidget):
                     tenant = self._tenant_for_month(year, i + 1, room_name)
                 tenant_line = f"👤 Tenant: {tenant}" if tenant else "👤 Tenant: —"
                 if delta_text:
-                    delta_icon = "📈" if float(v) - float(prev_val) >= 0 else "📉"
                     out.append(
                         f"📅 {m} {year}\n━━━━━━━━━━━━━━\n⚡ Electricity: {bill_text}\n{delta_icon} {delta_text}\n{tenant_line}"
                     )
@@ -2757,14 +3027,17 @@ class DashboardTab(QWidget):
             else:
                 label = "⚡ Owner Electricity Bill"
                 if delta_text:
-                    delta_icon = "📈" if float(v) - float(prev_val) >= 0 else "📉"
                     out.append(f"📅 {m} {year}\n━━━━━━━━━━━━━━\n{label}: {bill_text}\n{delta_icon} {delta_text}")
                 else:
                     out.append(f"📅 {m} {year}\n━━━━━━━━━━━━━━\n{label}: {bill_text}")
         return out
 
     def _update_owner_room_kpis(
-        self, values: list[float], tooltips: list[str], raw_values: list
+        self,
+        values: list,
+        tooltips: list[str],
+        raw_values: list,
+        prev_year_raw: list | None = None,
     ):
         year = int(getattr(self, "_owner_room_active_year", datetime.now().year))
         self._update_section_kpis(
@@ -2778,6 +3051,7 @@ class DashboardTab(QWidget):
             year=year,
             fmt_fn=lambda v: self._fmt_tk(v) if v is not None else "\u2014",
             default_idx=(None, None),
+            prev_year_raw=prev_year_raw,
         )
 
     def _update_owner_room_meta(self, year: int, mode: str):

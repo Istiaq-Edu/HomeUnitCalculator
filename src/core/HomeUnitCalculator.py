@@ -25,6 +25,61 @@ except ImportError:
 
 
 import logging
+
+def _install_lazy_scipy_shim():
+    """Postpone the scipy import chain until first real use.
+
+    qfluentwidgets' ``image_utils`` imports the deprecated
+    ``scipy.ndimage.filters`` module (and its numpy/scipy dependency chain,
+    about 0.4-0.6 s measured with ``-X importtime``) before the window can
+    even open. The application never calls scipy during startup, so lazy
+    module stubs satisfy that import path and load the real modules the
+    first time a deferred function is actually called.
+    """
+    import importlib
+    import types
+
+    if "scipy.ndimage" in sys.modules:
+        return
+
+    class _LazyModule(types.ModuleType):
+        """Stub whose attribute access returns deferred callables.
+
+        ``from scipy.ndimage.filters import gaussian_filter`` resolves the
+        attribute immediately, so the stub must NOT import scipy at that
+        point; the real module loads only when the function is called.
+        """
+
+        def __getattr__(self, name):
+            def _deferred(*args, **kwargs):
+                _load_real_scipy()
+                return getattr(sys.modules[self._huc_real_name], name)(
+                    *args, **kwargs
+                )
+
+            return _deferred
+
+    def _load_real_scipy():
+        for stale in [
+            key
+            for key, value in sys.modules.items()
+            if isinstance(value, _LazyModule)
+        ]:
+            del sys.modules[stale]
+        importlib.import_module("scipy.ndimage.filters")
+
+    ndimage = _LazyModule("scipy.ndimage")
+    ndimage.__path__ = []  # behave like the real package for import machinery
+    ndimage._huc_real_name = "scipy.ndimage"
+    filters = _LazyModule("scipy.ndimage.filters")
+    filters.__path__ = []
+    filters._huc_real_name = "scipy.ndimage.filters"
+    sys.modules["scipy.ndimage"] = ndimage
+    sys.modules["scipy.ndimage.filters"] = filters
+
+
+_install_lazy_scipy_shim()
+
 from PyQt5.QtCore import Qt, QEvent, QSize, QTimer
 from PyQt5.QtGui import QFont, QFontMetrics, QIcon, QColor, QPixmap
 from PyQt5.QtWidgets import (
@@ -294,8 +349,35 @@ class MeterCalculationApp(FluentWindow):
         # Keyboard navigation can initialize right after the first paint.
         QTimer.singleShot(0, self._initialize_keyboard_navigation)
 
+        # Remember the last window size/position/maximized state.
+        self._restore_window_geometry()
+
         StartupTimer.checkpoint("Initialization complete")
         StartupTimer.finish()
+
+    def _restore_window_geometry(self):
+        """Restore the previously saved window size, position and state."""
+        try:
+            from PyQt5.QtCore import QByteArray, QSettings
+
+            settings = QSettings("HomeUnitCalculator", "Window")
+            geometry = settings.value("geometry")
+            if isinstance(geometry, QByteArray) and not geometry.isNull():
+                self.restoreGeometry(geometry)
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        """Persist window geometry before closing (user-requested)."""
+        try:
+            from PyQt5.QtCore import QSettings
+
+            settings = QSettings("HomeUnitCalculator", "Window")
+            settings.setValue("geometry", self.saveGeometry())
+            settings.sync()
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     def _initialize_keyboard_navigation(self):
         try:
@@ -993,16 +1075,9 @@ class MeterCalculationApp(FluentWindow):
     #                       CARDWIDGET COLOUR PATCHING
     # ----------------------------------------------------------------------
     def _patch_cardwidget_dark_style(self):
-        """Globally monkey-patch CardWidget colours for dark theme with enhanced styling.
-
-        The default CardWidget background is a semi-transparent white overlay which appears
-        too bright against the dark window background. We override the internal colour
-        helpers so that every CardWidget (existing and future) uses solid dark greys that
-        match the rest of the UI with improved hover effects and animations.
-        """
+        """Keep the dark palette without replacing Fluent's inherited event handlers."""
         try:
             from PyQt5.QtGui import QColor
-            from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, pyqtProperty
             from qfluentwidgets.components.widgets.card_widget import (
                 CardWidget,
                 SimpleCardWidget,
@@ -1061,104 +1136,10 @@ class MeterCalculationApp(FluentWindow):
                     pass
                 return QColor(37, 37, 37)  # slightly darker on press for others
 
-            # Enhanced card styling with animations
-            def _enhanced_enter_event(self, event):
-                """Enhanced enter event with subtle animation."""
-                # Skip hover behavior for containers that should not react on hover
-                # Also skip for any CardWidget inside the Rental Info interface to avoid hover crashes
-                try:
-                    p = getattr(self, "parent", lambda: None)()
-                    while p is not None:
-                        if hasattr(p, "objectName") and p.objectName() == "RentalId":
-                            event.accept()
-                            return
-                        p = getattr(p, "parent", lambda: None)()
-                except Exception:
-                    pass
-                try:
-                    if hasattr(self, "objectName"):
-                        obj_name = self.objectName()
-                        # Skip hover for specific containers
-                        if obj_name in {
-                            "billing_meter_container",
-                            "billing_period_box",
-                            "reading_pairs_box",
-                            "additional_amount_box",
-                            "room_selection_card",  # Room tab selector
-                        }:
-                            event.accept()
-                            return
-                        # Skip hover for all room containers
-                        if obj_name.startswith("room_") and obj_name.endswith("_card"):
-                            event.accept()
-                            return
-                except Exception:
-                    pass
-
-                # Call original enter event if it exists
-                if hasattr(self.__class__, "_original_enterEvent"):
-                    self._original_enterEvent(event)
-
-                # Add subtle scale animation on hover
-                if not hasattr(self, "_hover_animation"):
-                    self._hover_animation = QPropertyAnimation(self, b"geometry")
-                    self._hover_animation.setDuration(150)
-                    self._hover_animation.setEasingCurve(QEasingCurve.OutCubic)
-
-                # Subtle elevation effect disabled at global level; individual cards/boxes handle their own hover styling
-
-            def _enhanced_leave_event(self, event):
-                """Enhanced leave event to reset styling."""
-                # Skip hover behavior for containers that should not react on hover
-                # Also skip for any CardWidget inside the Rental Info interface to avoid hover crashes
-                try:
-                    p = getattr(self, "parent", lambda: None)()
-                    while p is not None:
-                        if hasattr(p, "objectName") and p.objectName() == "RentalId":
-                            event.accept()
-                            return
-                        p = getattr(p, "parent", lambda: None)()
-                except Exception:
-                    pass
-                try:
-                    if hasattr(self, "objectName"):
-                        obj_name = self.objectName()
-                        # Skip hover for specific containers
-                        if obj_name in {
-                            "billing_meter_container",
-                            "billing_period_box",
-                            "reading_pairs_box",
-                            "additional_amount_box",
-                            "room_selection_card",  # Room tab selector
-                        }:
-                            event.accept()
-                            return
-                        # Skip hover for all room containers
-                        if obj_name.startswith("room_") and obj_name.endswith("_card"):
-                            event.accept()
-                            return
-                except Exception:
-                    pass
-
-                # Call original leave event if it exists
-                if hasattr(self.__class__, "_original_leaveEvent"):
-                    self._original_leaveEvent(event)
-
             for _cls in (CardWidget, SimpleCardWidget, ElevatedCardWidget):
                 _cls._normalBackgroundColor = _normal  # type: ignore[assignment]
                 _cls._hoverBackgroundColor = _hover  # type: ignore[assignment]
                 _cls._pressedBackgroundColor = _pressed  # type: ignore[assignment]
-
-                # Store original event handlers if they exist
-                if hasattr(_cls, "enterEvent"):
-                    _cls._original_enterEvent = _cls.enterEvent
-                if hasattr(_cls, "leaveEvent"):
-                    _cls._original_leaveEvent = _cls.leaveEvent
-
-                # Apply enhanced event handlers
-                _cls.enterEvent = _enhanced_enter_event
-                _cls.leaveEvent = _enhanced_leave_event
-
                 _cls.__hmc_dark_patched__ = True
         except Exception as e:
             # Silently continue if patching fails; better to show default than crash

@@ -93,6 +93,14 @@ from src.ui.components.table_optimization import (
 )
 
 
+class StaticHeaderCardWidget(HeaderCardWidget):
+    def enterEvent(self, event):
+        return
+
+    def leaveEvent(self, event):
+        return
+
+
 # Custom CardWidget without hover effects for rental info tab containers
 class StaticCardWidget(CardWidget):
     """CardWidget that disables hover effects while preserving child component functionality."""
@@ -268,7 +276,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         )  # Aggressively reduced to give action buttons maximum space
 
         # Rental Details Card using HeaderCardWidget
-        self.rental_details_card = HeaderCardWidget(self)
+        self.rental_details_card = StaticHeaderCardWidget(self)
         self.rental_details_card.setTitle("Rental Details")
         self.rental_details_card.setBorderRadius(8)
         self.rental_details_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -356,7 +364,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         self.tenant_name_input.setFocus()
 
         # Document Upload Card using HeaderCardWidget
-        self.document_upload_card = HeaderCardWidget(self)
+        self.document_upload_card = StaticHeaderCardWidget(self)
         self.document_upload_card.setTitle("Document Upload")
         self.document_upload_card.setBorderRadius(8)
         self.document_upload_card.setSizePolicy(
@@ -424,7 +432,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
         left_column_layout.addWidget(self.document_upload_card)
 
         # Save Options Card using HeaderCardWidget
-        self.save_options_card = HeaderCardWidget(self)
+        self.save_options_card = StaticHeaderCardWidget(self)
         self.save_options_card.setTitle("Save Options")
         self.save_options_card.setBorderRadius(8)
         self.save_options_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
