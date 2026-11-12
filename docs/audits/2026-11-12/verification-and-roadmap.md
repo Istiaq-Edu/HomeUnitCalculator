@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, DATA-01, DATA-02, and DATA-03 are locally verified and committed. No deployment or live cloud mutations.
+Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, and the DATA-01..04 cluster are locally verified and committed. No deployment or live cloud mutations.
 
 ## Scope and environment
 
@@ -107,6 +107,13 @@ Scope: DASH-03 (request scope), DASH-04 (January/December boundary), DASH-05 (mi
 - Regressions `tests/test_rental_write_identity.py` (5 tests): **4 of 5 failed against the pre-fix source** (verified via temporary stash), **5 of 5 passed** after. Full isolated suite: **200 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.26 s**.
 - Committed on `dev` as `db8fc36`. Not pushed. No deployed Supabase mutation.
 - Remaining limits recorded in [DATA-03](data-and-calculation.md#data-03): pre-fix NULL-identity records stay unlinkable until their next edit-and-save; structured per-destination receipts remain with DATA-04.
+
+### DATA-04 — locally verified, committed, 2026-11-12
+
+- Rental save outcomes are now recorded per destination (`None` not-requested / `True` succeeded / `False` failed) and classified over the requested destinations only: a single requested failure reports Save Failed instead of a misleading Partial Success fabricated by the unrequested destination; the not-configured cloud path counts as a requested failure. Combined with DATA-03's retained identity, retries update in place rather than duplicate.
+- Regressions `tests/test_save_outcome_reporting.py` (5 tests): **2 of 5 failed against the pre-fix source** — exactly the two false-"Partial Success" cases (verified via temporary stash), **5 of 5 passed** after. Full isolated suite: **205 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.38 s**.
+- Committed on `dev` as `dec5e86`. Not pushed. No deployed Supabase mutation.
+- Remaining limits recorded in [DATA-04](data-and-calculation.md#data-04): dialog strings, not structured receipt objects; other callers' outcome flags untouched. The DATA-01..04 cluster is now locally verified; next roadmap item is UI-01 (table sort corruption).
 
 ## Test harness isolation
 

@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Disposition: DATA-01, DATA-02, and DATA-03 are locally verified; the remaining findings below are open.
+Disposition: the DATA-01..04 cluster is locally verified; the remaining findings below are open.
 
 Evidence labels and priorities are defined in the [index](README.md#evidence-and-priority-vocabulary). Proposed financial and data-authority semantics require decisions before implementation.
 
@@ -68,13 +68,21 @@ Local fix and verification (2026-11-12, commit `db8fc36`):
 ### DATA-04
 
 **Save outcome reporting confuses unrequested and successful destinations.**  
-Priority: P1. Evidence: S.
+Priority: P1. Evidence: S. Status: **locally verified, 2026-11-12.**
 
 Both local and cloud success flags initialize to `True`. If only one destination is requested and fails, the unrequested destination can make the result appear partially successful. Partial retries also lack a reliable record of which destination already succeeded.
 
-Evidence: [rental_info_tab.py:3160](../../../src/ui/tabs/rental_info_tab.py#L3160).
+Evidence: [rental_info_tab.py:3160](../../../src/ui/tabs/rental_info_tab.py#L3160). (Pre-fix flag initialization location; lines shifted with the fix — outcomes are now recorded per destination inside the save method.)
 
 Recommendation: use not-requested, pending, succeeded, and failed outcomes per destination. A final result must include the completed receipt and the recoverable failure, not a success-like string.
+
+Local fix and verification (2026-11-12, commit `dec5e86`):
+
+- Per-destination outcomes replace the pre-true flags: `None` (not requested), `True` (succeeded), `False` (failed); success is recorded explicitly after each destination's write, including the not-configured cloud path counting as a requested failure.
+- The final classification runs over requested destinations only: all succeeded → Success; some succeeded → Partial Success; none succeeded → Save Failed. A single requested failure is no longer dressed up as "Partial Success" by the unrequested destination.
+- Retries: the destination receipts retained on the form (identity from [DATA-03](#data-03)) make retries update in place rather than duplicate.
+- Regressions: new `tests/test_save_outcome_reporting.py` (5 tests). Against the pre-fix source **2 of 5 fail** — exactly the two false-"Partial Success" cases (verified via temporary stash); after the fix all 5 pass. Full isolated suite: **205 passed, 8 optional Qt Charts skips, 1 third-party warning**.
+- Remaining limits: outcomes are still communicated as dialog strings rather than a structured receipt object; cross-window consumers (history edit, other callers with their own outcome flags) are separate code paths not covered by this fix; local verification only.
 
 ### DATA-05
 
