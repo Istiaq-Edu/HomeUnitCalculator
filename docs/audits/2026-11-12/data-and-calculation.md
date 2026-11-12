@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Disposition: DATA-01 is locally verified; the remaining findings below are open.
+Disposition: DATA-01 and DATA-02 are locally verified; the remaining findings below are open.
 
 Evidence labels and priorities are defined in the [index](README.md#evidence-and-priority-vocabulary). Proposed financial and data-authority semantics require decisions before implementation.
 
@@ -29,13 +29,21 @@ Local fix and verification (2026-11-12, commit `515edbe`):
 ### DATA-02
 
 **Monthly cloud save, replacement, and deletion have partial durable outcomes.**  
-Priority: P1. Evidence: R-main, S; concurrent-writer impact is C.
+Priority: P1. Evidence: R-main, S; concurrent-writer impact is C. Status: **locally verified (client-side containment), 2026-11-12.**
 
 Main and room writes occur separately. Room replacement inserts new rows before deleting old ones; deletion errors can still return success. With existing room ID 41, an actual-method fake-client probe of an empty replacement returned `True` without issuing deletion. Monthly deletion removes children before the parent without an encompassing transaction.
 
-Evidence: [supabase_manager.py:261](../../../src/core/supabase_manager.py#L261), [supabase_manager.py:315](../../../src/core/supabase_manager.py#L315), [supabase_manager.py:1022](../../../src/core/supabase_manager.py#L1022), [HomeUnitCalculator.py:2277](../../../src/core/HomeUnitCalculator.py#L2277).
+Evidence: [supabase_manager.py:261](../../../src/core/supabase_manager.py#L261), [supabase_manager.py:315](../../../src/core/supabase_manager.py#L315), [supabase_manager.py:1072](../../../src/core/supabase_manager.py#L1072), [HomeUnitCalculator.py:2273](../../../src/core/HomeUnitCalculator.py#L2273). (Pre-fix delete location was supabase_manager.py:1022; lines shifted with the fix.)
 
 Recommendation: an authorized, transactional monthly aggregate operation with explicit empty-replacement semantics and retry identity. Use cascading parent deletion where the verified schema supports it. Storage uploads remain outside a SQL transaction and need their own completion/cleanup contract.
+
+Local fix and verification (2026-11-12, commit `c729819`; client-side containment only — no deployed schema change, no RPC/migration):
+
+- `save_room_calculations`: an empty room list now deletes the previous cloud rows (explicit empty-replacement semantics); a failed or count-partial old-row delete — both after a successful insert and during empty replacement — returns `False` instead of swallowed/partial success, with retry-safety recorded in the log (insert-then-delete retries converge to the correct set). Insert persistence is counted before success is declared.
+- `delete_calculation_record`: parent-first deletion relying on the bundled FK cascade (`room_calculations.main_calculation_id ON DELETE CASCADE`), then a read-only orphan check. On a schema without cascade, orphans are removed explicitly and partial cleanup reports `False`. Exceptions still re-raise (paused-project handling preserved). True server-side atomicity still requires an authorized RPC/migration.
+- Callers: `MeterCalculationApp.save_calculation_to_supabase` and the history edit path now call the room save even with an empty list so empty replacements reach the cloud.
+- Regressions: new `tests/test_monthly_persistence_atomicity.py` (13 tests). Against the pre-fix source **9 of 13 fail** (verified via temporary stash); after the fix all 13 pass. Full isolated suite: **195 passed, 8 optional Qt Charts skips, 1 third-party warning**.
+- Remaining limits: main write and room write remain separate operations (a failed room write still leaves a fresh main row — reported, not silent); true transactionality needs an authorized RPC/migration (deployed mutation); concurrent-writer races are untouched (see [DATA-05](#data-05)); Storage uploads remain outside any transaction; local verification only.
 
 ### DATA-03
 

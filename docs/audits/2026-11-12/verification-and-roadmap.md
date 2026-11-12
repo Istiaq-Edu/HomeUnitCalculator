@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, and DATA-01 are locally verified and committed. No deployment or live cloud mutations.
+Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, DATA-01, and DATA-02 are locally verified and committed. No deployment or live cloud mutations.
 
 ## Scope and environment
 
@@ -93,6 +93,13 @@ Scope: DASH-03 (request scope), DASH-04 (January/December boundary), DASH-05 (mi
 - Focused regressions `tests/test_rental_record_identity.py` (9 tests): **6 of 9 failed against the pre-fix source** (verified by a temporary stash of the two source files), **9 of 9 passed** after the fix. Full isolated suite: **182 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.43 s**.
 - Committed on `dev` as `515edbe` (source + tests). Not pushed. Dependency, packaging, and cloud state unchanged.
 - Remaining limits recorded in [DATA-01](data-and-calculation.md#data-01): NULL cloud `supabase_id` rows (DATA-03) cannot be linked; the local save's UPDATE statement itself is unchanged as SQL; no deployed or live cloud verification.
+
+### DATA-02 — locally verified (client-side containment), committed, 2026-11-12
+
+- Monthly persistence outcomes made explicit without a deployed schema change: `save_room_calculations` gained true empty-replacement semantics (empty list deletes the previous rows), counts insert persistence, and reports failed/partial old-row deletion as failure with retry-convergence logging instead of swallowed success. `delete_calculation_record` now deletes the parent first relying on the bundled FK cascade, verifies orphaned children read-only, removes orphans explicitly on cascade-less schemas, and reports partial cleanup as failure. Both callers (`save_calculation_to_supabase`, history edit) now invoke the room save even with an empty list.
+- Regressions `tests/test_monthly_persistence_atomicity.py` (13 tests): **9 of 13 failed against the pre-fix source** (verified via temporary stash), **13 of 13 passed** after. Full isolated suite: **195 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.39 s**.
+- Committed on `dev` as `c729819`. Not pushed. No deployed Supabase mutation: true transactionality (RPC/migration) remains an authorized-deployment decision; main and room writes remain separate operations; concurrent-writer races stay with DATA-05.
+- Remaining limits recorded in [DATA-02](data-and-calculation.md#data-02).
 
 ## Test harness isolation
 
