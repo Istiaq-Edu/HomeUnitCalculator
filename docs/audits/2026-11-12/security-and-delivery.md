@@ -146,6 +146,8 @@ Evidence: [release.yml:33](../../../.github/workflows/release.yml#L33), [release
 
 Recommendation: once-validated versions, environment variables, and proper serialization rather than executable-source interpolation. Preserve normal hooks and signing controls.
 
+**Status: implemented, statically verified, not yet executed live (2026-11-12).** Both workflows were rewritten: version input is regex-validated (build metadata rejected) and reaches steps only through `env:`; secrets write `oauth_credentials.py` via `$env:`; the changelog reaches `github-script` through `process.env` so backticks/`${}` in generated text cannot break the script. Automated scans confirm zero `${{ ... }}` expressions inside any `run:`/`script:` body and valid YAML. Live execution (real Actions runner) has not been performed; a real dispatch remains the deployment verification gate.
+
 ### REL-02
 
 **Tag, binary, and changelog can describe different commits.**  
@@ -157,6 +159,8 @@ Evidence: [release.yml:45](../../../.github/workflows/release.yml#L45), [release
 
 Recommendation: resolve one immutable commit SHA, validate the intended tag, serialize conflicting release runs, and assert that binaries/changelog/release metadata refer to that SHA. No tags were changed by this audit.
 
+**Status: implemented, statically verified, not yet executed live (2026-11-12).** One commit SHA is resolved in Job 1, pushed as the release tag (fail-closed if it already exists), passed as `target_commitish`, and checked out by the build job; a workflow-level `concurrency` group serializes release runs; Job 3 no longer force-tags HEAD — it verifies the pushed tag is visible via `fetch-tags` before regenerating the changelog. An independent reviewer verified the wiring line-by-line and returned a ship verdict; a real dispatch remains the deployment verification gate.
+
 ### REL-03
 
 **Asset replacement is broader than its comment, and failures can be masked.**  
@@ -167,6 +171,8 @@ The rerun loop deletes every existing release asset, not only expected name coll
 Evidence: [release.yml:201](../../../.github/workflows/release.yml#L201), [release.yml:216](../../../.github/workflows/release.yml#L216), [release.yml:221](../../../.github/workflows/release.yml#L221), [build-pyinstaller.yml](../../../.github/workflows/build-pyinstaller.yml).
 
 Recommendation: exact expected asset manifest, narrow replacement, immediate exit checks, and final verification of names, sizes, and checksums. Do not remove unrelated release assets during reruns.
+
+**Status: implemented, statically verified, not yet executed live (2026-11-12).** The release manifest is exactly the portable zip, the installer, and a new SHA256 checksums file; the rerun deletion loop removes only manifest-named assets; every `gh` call's exit code is checked; a final step compares uploaded asset names and sizes against local files; the installer name is asserted exactly (`HomeUnitCalculator-Setup-$APP_VERSION.exe`, deterministic per `OutputBaseFilename` in the iss); build-pyinstaller gained a verify-outputs gate plus a checksums artifact before its artifact uploads. Live execution remains pending. The draft-release gate (releases are created draft and published manually, as before the rewrite) is preserved intentionally.
 
 ### REL-04
 
@@ -218,6 +224,8 @@ Recommendation: one version source, current setup instructions, and a distributi
 Priority: P2. Evidence: S and Git verification.
 
 `tests/` is ignored, and `git ls-files -- tests` returned no tracked files. The local suite passed during the audit, but a clean checkout does not acquire those tests through Git. Many tests assert source strings, use mocks, or invoke worker `run()` directly; those do not validate real asynchronous ordering or deployed authorization.
+
+**Status: fixed, committed (2026-11-12).** `tests/` removed from `.gitignore` (which also now ignores the assistant workspace and cache directories); all 21 test files are tracked in commit `fb11655`. The guarded-harness isolation discipline (temporary profile, keyring fail backend, network audit hook) remains what protects real user resources at runtime; test dependencies are still implicit via requirements.txt. Behavior-level integration tests remain future work.
 
 Evidence: [.gitignore:11](../../../.gitignore#L11), [local tests directory](../../../tests).
 
