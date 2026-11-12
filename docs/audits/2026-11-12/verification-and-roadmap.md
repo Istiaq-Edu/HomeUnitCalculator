@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, and the DATA-01..04 cluster are locally verified and committed. No deployment or live cloud mutations.
+Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, the DATA-01..04 cluster, and UI-01 are locally verified and committed. No deployment or live cloud mutations.
 
 ## Scope and environment
 
@@ -114,6 +114,14 @@ Scope: DASH-03 (request scope), DASH-04 (January/December boundary), DASH-05 (mi
 - Regressions `tests/test_save_outcome_reporting.py` (5 tests): **2 of 5 failed against the pre-fix source** — exactly the two false-"Partial Success" cases (verified via temporary stash), **5 of 5 passed** after. Full isolated suite: **205 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.38 s**.
 - Committed on `dev` as `dec5e86`. Not pushed. No deployed Supabase mutation.
 - Remaining limits recorded in [DATA-04](data-and-calculation.md#data-04): dialog strings, not structured receipt objects; other callers' outcome flags untouched. The DATA-01..04 cluster is now locally verified; next roadmap item is UI-01 (table sort corruption).
+
+### UI-01 — locally verified, committed, 2026-11-12
+
+- Sorting-suspension fix for per-cell table population. New shared context manager `suspended_table_sorting` (src/ui/table_population.py) captures prior sorting state + indicator, disables sorting during the pass, restores both afterwards (including on exceptions). Applied to the archived table population and all four history load paths (CSV/Supabase × main/room tables); selection restoration still runs after sorting is restored.
+- The corruption mechanism was reproduced against a real QTableWidget during this fix: with a live indicator, a row whose sort key places it above partially-filled rows receives a later cell intended for another row (`key=A payload=payload-for-B`).
+- Regressions `tests/test_table_sort_population.py` (7 tests, real offscreen widgets): the archived end-to-end test **failed against the pre-fix source** (verified via temporary stash) and passes after; full isolated suite: **212 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.46 s**.
+- Committed on `dev` as `10dd944`. Not pushed. No deployed Supabase mutation.
+- Remaining limits recorded in [UI-01](ui-and-runtime.md#ui-01): a broader sweep for other same-pattern sites is future work; selection-restore-after-clear semantics unchanged; no native user-clicked-sort refresh exercise beyond widget-level tests. Next roadmap item: CALC-01/CALC-02.
 
 ## Test harness isolation
 

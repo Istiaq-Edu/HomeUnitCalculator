@@ -2,20 +2,27 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Disposition: RUN-01 is locally verified; other findings remain open. Native smoke verification is not a claim that all user journeys, accessibility, or packaged behavior passed.
+Disposition: RUN-01 and UI-01 are locally verified; other findings remain open. Native smoke verification is not a claim that all user journeys, accessibility, or packaged behavior passed.
 
 ## Record workflows and interaction
 
 ### UI-01
 
 **Sorting during per-cell table population can corrupt row associations.**  
-Priority: P1. Evidence: R-specialist, S.
+Priority: P1. Evidence: R-specialist, S. Status: **locally verified, 2026-11-12** (corruption mechanism reproduced against a real QTableWidget during the fix: with a live indicator, rows move above partially-filled rows and later cells land on wrong rows — e.g. `key=A payload=payload-for-B`).
 
 Archive population was reproduced using the actual method with sorting active: inserting sort-column cells can move rows while later cells and payloads are still assigned using old row indexes. History contains similar population patterns. Selection restoration can also capture selection after clearing it.
 
-Evidence: [archived_info_tab.py:575](../../../src/ui/tabs/archived_info_tab.py#L575), [history_tab.py:4484](../../../src/ui/tabs/history_tab.py#L4484), [history_tab.py:4732](../../../src/ui/tabs/history_tab.py#L4732).
+Evidence: [archived_info_tab.py:576](../../../src/ui/tabs/archived_info_tab.py#L576), [history_tab.py:4493](../../../src/ui/tabs/history_tab.py#L4493), [history_tab.py:4773](../../../src/ui/tabs/history_tab.py#L4773). (Pre-fix locations were archived_info_tab.py:575, history_tab.py:4484 and 4732; lines shifted with the fix.)
 
 Recommendation: capture stable selected identities first; suspend sorting; construct complete rows and payloads; restore prior sorting state; then restore selection by identity.
+
+Local fix and verification (2026-11-12, commit `10dd944`):
+
+- New shared context manager `suspended_table_sorting` ([src/ui/table_population.py](../../../src/ui/table_population.py)): captures the prior sorting-enabled state and sort indicator, disables sorting for the population pass, and restores both afterwards — reapplying the captured indicator to the completed rows, including on exceptions.
+- Applied to the archived table population (`_populate_archived_table`) and all four history load paths (CSV and Supabase, main and room tables). Selection restoration continues to run after sorting is restored, matching the recommendation's order.
+- Regressions: new `tests/test_table_sort_population.py` (7 tests against real offscreen widgets), including a test documenting the reproduced corruption without suspension and an end-to-end archived-population test that **fails against the pre-fix source** (verified via temporary stash) and passes after. Full isolated suite: **212 passed, 8 optional Qt Charts skips, 1 third-party warning**.
+- Remaining limits: other population sites with the same pattern may exist outside the cited ones (a broader sweep is future work); selection-restore-after-clear semantics were not changed in this fix (the audit's secondary note); native interaction with a user-clicked sort during a live refresh was not exercised beyond widget-level tests.
 
 ### UI-02
 
