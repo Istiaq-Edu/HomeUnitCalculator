@@ -2,10 +2,11 @@ import sys
 import json
 import os
 import csv
+import re
 import traceback
 from datetime import datetime
 
-from PyQt5.QtCore import QRegExp, Qt, QTimer, QEvent, QSize
+from PyQt5.QtCore import QRegExp, Qt, QTimer, QEvent, QSize, QSignalBlocker
 from PyQt5.QtGui import QRegExpValidator, QIcon, QPixmap, QColor, QPainter, QLinearGradient, QBrush, QPen, QPalette, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -20,7 +21,7 @@ from qfluentwidgets import (
     CardWidget, TitleLabel, BodyLabel, CaptionLabel,
     FluentIcon, PushButton, DropDownPushButton, RoundMenu, Action,
     ScrollArea, SmoothMode,
-    FluentIconBase, StrongBodyLabel
+    FluentIconBase, StrongBodyLabel, InfoBar, InfoBarPosition
 )
 
 from src.core.utils import resource_path
@@ -719,6 +720,11 @@ class MainTab(QWidget):
         self.rooms_scroll_area = None
         self.num_rooms_spinbox = None
         self.calculate_rooms_button = None
+        self.remove_room_button = None
+        self.remove_room_menu = None
+        self._pending_room_undo = None  # (token, index, removed_snapshot, expected_post_state)
+        self._room_undo_token = 0
+        self._room_undo_bar = None
 
         self.init_ui()
 
@@ -1586,13 +1592,42 @@ class MainTab(QWidget):
         self.num_rooms_spinbox.setRange(1, 20)
         self.num_rooms_spinbox.setValue(11)
         self.num_rooms_spinbox.setFocusPolicy(Qt.NoFocus)
-        self.num_rooms_spinbox.valueChanged.connect(self.update_room_inputs)
+        # valueChanged carries the new int; keep the refresh slot free of it.
+        # A user-driven count change also retires any pending Undo.
+        self.num_rooms_spinbox.valueChanged.connect(
+            lambda _value: (self._invalidate_room_undo(), self.update_room_inputs())
+        )
         self._apply_no_select_to_spinbox(self.num_rooms_spinbox)
+
+        # Pick any room to remove by number (including one in the middle)
+        self.remove_room_button = DropDownPushButton("Remove Room")
+        self.remove_room_button.setIcon(FluentIcon.DELETE.icon(color=QColor(255, 255, 255)))
+        self.remove_room_button.setIconSize(QSize(16, 16))
+        self.remove_room_button.setFixedHeight(32)
+        self.remove_room_button.setToolTip("Remove any room by number — remaining rooms are renumbered")
+        self.remove_room_button.setStyleSheet("""
+            DropDownPushButton {
+                color: #e0e0e0;
+                background-color: #3d3d3d;
+                border: 1px solid #4a4a4a;
+                border-radius: 8px;
+                font-weight: 600;
+                font-size: 12px;
+                padding: 4px 10px 4px 30px;
+                qproperty-iconSize: 16px 16px;
+            }
+            DropDownPushButton:hover { background-color: rgba(255, 80, 80, 0.22); border-color: rgba(255, 80, 80, 0.45); }
+            DropDownPushButton:pressed { background-color: rgba(255, 80, 80, 0.12); }
+            DropDownPushButton:disabled { color: #777; background-color: #303030; border-color: #3a3a3a; }
+        """)
+        self.remove_room_menu = RoundMenu(parent=self.remove_room_button)
+        self.remove_room_button.setMenu(self.remove_room_menu)
 
         header_layout.addWidget(title)
         header_layout.addStretch()
         header_layout.addWidget(rooms_label)
         header_layout.addWidget(self.num_rooms_spinbox)
+        header_layout.addWidget(self.remove_room_button)
         layout.addWidget(header)
 
         # Separator
@@ -1715,9 +1750,18 @@ class MainTab(QWidget):
 
         return section
 
-    def update_room_inputs(self):
-        """Create or refresh room card widgets based on num_rooms_spinbox value."""
+    def update_room_inputs(self, room_data=None):
+        """Create or refresh room cards based on ``num_rooms_spinbox``.
+
+        ``room_data`` is an optional list of snapshots (see ``_snapshot_room_data``).
+        When omitted, the values currently on screen are carried over, so changing
+        the room count (or removing a room) never wipes the other rooms' data.
+        """
         from src.core.utils import _clear_layout
+
+        if room_data is None:
+            room_data = self._snapshot_room_data()
+
         _clear_layout(self.rooms_scroll_layout)
         self.room_entries = []
 
@@ -1725,6 +1769,7 @@ class MainTab(QWidget):
         numeric_validator = QRegExpValidator(QRegExp(r'^\d+$'))
 
         for i in range(num_rooms):
+            data = room_data[i] if i < len(room_data) and isinstance(room_data[i], dict) else {}
             room_group = CardWidget()
             room_group.setObjectName(f"room_{i}_card")
             room_group.setStyleSheet("""
@@ -1735,9 +1780,45 @@ class MainTab(QWidget):
             outer_layout.setSpacing(8)
             outer_layout.setContentsMargins(16, 12, 16, 16)
 
-            title = TitleLabel(f"Room {i+1}")
+            # Header row: room name + a per-card remove button
+            title_row = QWidget()
+            title_row.setStyleSheet("background: transparent; border: none;")
+            title_row_layout = QHBoxLayout(title_row)
+            title_row_layout.setContentsMargins(0, 0, 0, 0)
+            title_row_layout.setSpacing(8)
+
+            room_name = data.get('room_name') or f"Room {i+1}"
+            title = TitleLabel(room_name)
             title.setStyleSheet("font-size: 20px; font-weight: 800; color: #FFB86B; letter-spacing: 0.5px; margin: 0px; background: transparent;")
-            outer_layout.addWidget(title)
+            title_row_layout.addWidget(title)
+            title_row_layout.addStretch()
+
+            remove_btn = PushButton()
+            remove_btn.setIcon(FluentIcon.CLOSE.icon(color=QColor(255, 255, 255)))
+            remove_btn.setIconSize(QSize(12, 12))
+            remove_btn.setFixedSize(26, 26)
+            remove_btn.setCursor(Qt.PointingHandCursor)
+            remove_btn.setObjectName(f"room_{i}_remove")
+            remove_btn.setToolTip(f"Remove {room_name}")
+            remove_btn.setStyleSheet("""
+                PushButton {
+                    background-color: rgba(255, 255, 255, 0.06);
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 7px;
+                    padding: 0px;
+                }
+                PushButton:hover {
+                    background-color: rgba(255, 80, 80, 0.28);
+                    border-color: rgba(255, 80, 80, 0.50);
+                }
+                PushButton:pressed { background-color: rgba(255, 80, 80, 0.16); }
+                PushButton:disabled { background-color: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.06); }
+            """)
+            remove_btn.clicked.connect(
+                lambda checked=False, w=room_group: self.remove_room(self._index_of_room_widget(w))
+            )
+            title_row_layout.addWidget(remove_btn)
+            outer_layout.addWidget(title_row)
 
             header_line = QFrame()
             header_line.setFrameShape(QFrame.HLine)
@@ -1835,7 +1916,18 @@ class MainTab(QWidget):
                 cl.addWidget(result_label)
                 outer_layout.addWidget(container)
 
-            self.room_entries.append({
+            # Restore whatever was entered before the rebuild
+            if data:
+                present_entry.setText(data.get('present', ''))
+                previous_entry.setText(data.get('previous', ''))
+                gas_bill_entry.setText(data.get('gas_bill', ''))
+                water_bill_entry.setText(data.get('water_bill', ''))
+                house_rent_entry.setText(data.get('house_rent', ''))
+                real_unit_label.setText(data.get('real_unit') or 'N/A')
+                unit_bill_label.setText(data.get('unit_bill') or 'N/A')
+                grand_total_label.setText(data.get('grand_total') or 'N/A')
+
+            entry = {
                 'present_entry': present_entry,
                 'previous_entry': previous_entry,
                 'gas_bill_entry': gas_bill_entry,
@@ -1845,11 +1937,216 @@ class MainTab(QWidget):
                 'unit_bill_label': unit_bill_label,
                 'grand_total_label': grand_total_label,
                 'room_group': room_group,
-            })
+                'title_label': title,
+                'remove_button': remove_btn,
+            }
+            if data.get('supabase_id') is not None:
+                entry['supabase_id'] = data['supabase_id']
+            self.room_entries.append(entry)
 
             self.rooms_scroll_layout.addWidget(room_group)
 
+        self._refresh_room_remove_menu()
+        self._refresh_room_delete_buttons()
         self.setup_navigation_rooms_tab()
+
+    # ── Room removal ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _is_default_room_name(name):
+        """True for positional names like 'Room 10' (which should be renumbered)."""
+        return bool(re.fullmatch(r"Room\s+\d+", (name or "").strip(), re.IGNORECASE))
+
+    @staticmethod
+    def _room_title(room):
+        return room.get('title_label') or room['room_group'].findChild(TitleLabel)
+
+    def _index_of_room_widget(self, widget):
+        for idx, room in enumerate(self.room_entries):
+            if room['room_group'] is widget:
+                return idx
+        return -1
+
+    def _reset_room_result_labels(self):
+        """Clear derived values on every room card (used when loading saved data)."""
+        for room in self.room_entries:
+            room['real_unit_label'].setText("N/A")
+            room['unit_bill_label'].setText("N/A")
+            room['grand_total_label'].setText("N/A")
+
+    @staticmethod
+    def _editable_state(snapshot):
+        """Only user-entered data counts when deciding whether Undo is still valid.
+
+        Derived result labels can legitimately change (e.g. a recalculation with a
+        new per-unit cost) without the user having touched any room.
+        """
+        keys = ('room_name', 'present', 'previous', 'gas_bill',
+                'water_bill', 'house_rent', 'supabase_id')
+        return [{key: item.get(key) for key in keys} for item in snapshot]
+
+    def _invalidate_room_undo(self):
+        """Retire a pending Undo when the form is loaded, cleared or rebuilt by the user."""
+        self._pending_room_undo = None
+        self._room_undo_token += 1
+        bar = self._room_undo_bar
+        self._room_undo_bar = None
+        if bar is not None:
+            try:
+                bar.close()
+            except Exception:
+                pass
+
+    def _snapshot_room_data(self):
+        """Capture the current room form state in display order (plain data only)."""
+        snapshot = []
+        for room in self.room_entries:
+            title = self._room_title(room)
+            name = title.text().strip() if title else ""
+            snapshot.append({
+                # Positional names are dropped so they follow the new position.
+                'room_name': None if self._is_default_room_name(name) else (name or None),
+                'present': room['present_entry'].text(),
+                'previous': room['previous_entry'].text(),
+                'gas_bill': room['gas_bill_entry'].text(),
+                'water_bill': room['water_bill_entry'].text(),
+                'house_rent': room['house_rent_entry'].text(),
+                'real_unit': room['real_unit_label'].text(),
+                'unit_bill': room['unit_bill_label'].text(),
+                'grand_total': room['grand_total_label'].text(),
+                'supabase_id': room.get('supabase_id'),
+            })
+        return snapshot
+
+    def _apply_room_data(self, room_data):
+        """Rebuild the room cards from snapshots and keep the spinbox in sync."""
+        count = max(1, min(self.num_rooms_spinbox.maximum(), len(room_data)))
+        with QSignalBlocker(self.num_rooms_spinbox):
+            self.num_rooms_spinbox.setValue(count)
+        self.update_room_inputs(list(room_data[:count]))
+
+    def _refresh_room_remove_menu(self):
+        """Rebuild the 'Remove Room' menu so it always lists the current rooms."""
+        menu = getattr(self, 'remove_room_menu', None)
+        if menu is None:
+            return
+        menu.clear()
+        for i, room in enumerate(self.room_entries):
+            title = self._room_title(room)
+            label = (title.text() if title else f"Room {i+1}")
+            menu.addAction(Action(
+                FluentIcon.DELETE, label,
+                # Defer: rebuilding this menu inside its own action's signal
+                # would delete the QAction that is currently emitting.
+                # Resolve the index when the timer fires, so a rebuild in between
+                # cannot make us delete the wrong room (stale widget -> no-op).
+                triggered=lambda checked=False, w=room['room_group']: QTimer.singleShot(
+                    0, lambda: self.remove_room(self._index_of_room_widget(w))
+                )
+            ))
+
+    def _refresh_room_delete_buttons(self):
+        """Never allow removing the last remaining room."""
+        can_remove = len(self.room_entries) > 1
+        for room in self.room_entries:
+            btn = room.get('remove_button')
+            if btn is None:
+                continue
+            btn.setEnabled(can_remove)
+            title = self._room_title(room)
+            btn.setToolTip(
+                f"Remove {title.text()}" if can_remove and title is not None
+                else "At least one room is required"
+            )
+        if getattr(self, 'remove_room_button', None) is not None:
+            self.remove_room_button.setEnabled(can_remove)
+            self.remove_room_button.setToolTip(
+                "Remove any room by number — remaining rooms are renumbered" if can_remove
+                else "At least one room is required"
+            )
+
+    def remove_room(self, index, notify=True):
+        """Remove a room at any position, renumber the rest, and offer Undo."""
+        if not 0 <= index < len(self.room_entries):
+            return
+        if len(self.room_entries) <= 1:
+            self._show_room_toast('warning', "Cannot remove room", "At least one room is required.")
+            return
+
+        snapshot = self._snapshot_room_data()
+        removed = snapshot.pop(index)
+        removed_name = removed.get('room_name') or f"Room {index + 1}"
+        expected_state = self._editable_state(snapshot)
+
+        self._apply_room_data(snapshot)
+
+        # Only the newest removal can be undone; retire any older toast.
+        self._invalidate_room_undo()
+        token = self._room_undo_token
+        self._pending_room_undo = (token, index, removed, expected_state)
+
+        if notify:
+            self._show_room_toast(
+                'success',
+                f"{removed_name} removed",
+                f"{len(snapshot)} rooms left · later rooms were renumbered",
+                undo=True,
+                undo_token=token,
+            )
+
+    def _undo_remove_room(self, token=None):
+        pending = self._pending_room_undo
+        if not pending or (token is not None and pending[0] != token):
+            self._show_room_toast('warning', "Undo expired", "A newer room change has been made.")
+            return
+        self._pending_room_undo = None
+        _, index, removed, expected_state = pending
+
+        # Only restore if no room entry was edited since the removal.
+        current = self._snapshot_room_data()
+        if self._editable_state(current) != expected_state or len(current) != len(expected_state):
+            self._show_room_toast('warning', "Undo unavailable", "Room data changed since the removal.")
+            return
+        if len(current) >= self.num_rooms_spinbox.maximum():
+            self._show_room_toast('warning', "Undo unavailable", "Maximum number of rooms reached.")
+            return
+
+        # Rebuild from the CURRENT state so recalculated totals are not rolled back.
+        restored = list(current)
+        restored.insert(index, removed)
+        self._apply_room_data(restored)
+        self._show_room_toast('success', "Room restored", "The removed room is back in its original position.")
+
+    def _show_room_toast(self, kind, title, content, undo=False, undo_token=None):
+        """Non-blocking feedback; failures here must never break the removal."""
+        try:
+            factory = {'success': InfoBar.success, 'warning': InfoBar.warning}.get(kind, InfoBar.info)
+            bar = factory(
+                title=title,
+                content=content,
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP_RIGHT,
+                duration=8000 if undo else 3500,
+                parent=self,
+            )
+            if undo:
+                undo_button = PushButton("Undo")
+                undo_button.setFixedHeight(30)
+
+                def _on_undo():
+                    if self._room_undo_bar is bar:
+                        self._room_undo_bar = None
+                    bar.close()
+                    self._undo_remove_room(undo_token)
+
+                undo_button.clicked.connect(_on_undo)
+                bar.addWidget(undo_button)
+                undo_button.show()  # parent InfoBar was already shown by the factory
+                bar.adjustSize()
+                self._room_undo_bar = bar
+        except Exception:
+            pass
 
     def calculate_rooms(self):
         """Calculate room bills using the per-unit cost from meter calculation."""
@@ -1946,17 +2243,25 @@ class MainTab(QWidget):
             room['gas_bill_entry'].setText(get_csv_value(row, "Gas Bill", "0.00"))
             room['water_bill_entry'].setText(get_csv_value(row, "Water Bill", "0.00"))
             room['house_rent_entry'].setText(get_csv_value(row, "House Rent", "0.00"))
+            # Derived values are recomputed by calculate_rooms() after loading.
+            room['real_unit_label'].setText("N/A")
+            room['unit_bill_label'].setText("N/A")
+            room['grand_total_label'].setText("N/A")
         except Exception as e:
             QMessageBox.critical(self, "Load Room Data Error", f"Failed to load room data for room {room_index+1}: {e}")
 
     def load_room_data_from_supabase_rows(self, room_records, auto_calculate=True):
         """Load room data from Supabase records into the UI."""
+        self._invalidate_room_undo()
         if not room_records:
             self.num_rooms_spinbox.setValue(1)
             self.clear_room_inputs()
             return
 
         self.num_rooms_spinbox.setValue(len(room_records))
+        # Result labels are derived values, never carry the previous month's
+        # calculated totals into a freshly loaded set of rooms.
+        self._reset_room_result_labels()
 
         def _to_number_str_safe(val):
             if val == '' or val is None:
@@ -1986,7 +2291,7 @@ class MainTab(QWidget):
             room = self.room_entries[i]
 
             new_title = data.get('room_name', f"Room {i+1}")
-            title_label = room['room_group'].findChild(TitleLabel)
+            title_label = self._room_title(room)
             if title_label:
                 title_label.setText(new_title)
 
@@ -2002,6 +2307,7 @@ class MainTab(QWidget):
 
     def clear_room_inputs(self):
         """Clear all room input fields and result labels."""
+        self._invalidate_room_undo()
         for i, room in enumerate(self.room_entries):
             room['present_entry'].clear()
             room['previous_entry'].clear()
@@ -2011,7 +2317,7 @@ class MainTab(QWidget):
             room['real_unit_label'].setText("N/A")
             room['unit_bill_label'].setText("N/A")
             room['grand_total_label'].setText("N/A")
-            title_label = room['room_group'].findChild(TitleLabel)
+            title_label = self._room_title(room)
             if title_label:
                 title_label.setText(f"Room {i+1}")
             if 'supabase_id' in room:
@@ -2023,7 +2329,7 @@ class MainTab(QWidget):
         errors = []
         for i, room in enumerate(self.room_entries):
             try:
-                title_label = room['room_group'].findChild(TitleLabel)
+                title_label = self._room_title(room)
                 room_name = title_label.text() if title_label else f"Room {i+1}"
 
                 present = int(room['present_entry'].text() or "0")
@@ -2175,6 +2481,7 @@ class MainTab(QWidget):
             return
 
         try:
+            self._invalidate_room_undo()
             with open(filename, mode='r', newline='', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 all_rows = list(reader) # Read all rows into memory
@@ -2268,7 +2575,9 @@ class MainTab(QWidget):
                 # Load room tab data
                 if room_data_rows:
                     self.num_rooms_spinbox.setValue(len(room_data_rows))
-                    # This will trigger update_room_inputs in RoomsTab, creating the necessary widgets
+                    # Drop any leftover values, custom titles and cloud IDs before
+                    # filling the cards from CSV rows.
+                    self.clear_room_inputs()
 
                     for i, room_row in enumerate(room_data_rows):
                         if hasattr(self, 'load_room_data_from_csv_row'):
@@ -2279,8 +2588,9 @@ class MainTab(QWidget):
                     # After loading all room data, trigger calculation for rooms
                     self.calculate_rooms()
                 else:
-                    # If no room data found, ensure rooms tab is reset or has default number of rooms
-                    self.num_rooms_spinbox.setValue(1) # Or a sensible default
+                    # If no room data found, reset to one empty room card
+                    self.num_rooms_spinbox.setValue(1)
+                    self.clear_room_inputs()
                     self.calculate_rooms() # Recalculate with default rooms
 
                 QMessageBox.information(self, "Load Successful", f"Data for {selected_month_year_str_ui} loaded into input fields from CSV.")
@@ -2293,6 +2603,7 @@ class MainTab(QWidget):
             return
 
         try:
+            self._invalidate_room_undo()
             # Fetch main calculation data
             main_calc_record = self.main_window.supabase_manager.get_main_calculation_by_month_year(
                 month=selected_month, 
@@ -2403,6 +2714,10 @@ class MainTab(QWidget):
                                 re['house_rent_entry'].setText(str(room_data.get('house_rent', '')))
                     # After populating, ensure calculations refresh
                     self.calculate_rooms()
+                else:
+                    # No rooms saved for this month — don't keep the previous
+                    # month's room values on screen.
+                    self.load_room_data_from_supabase_rows([])
 
             self.calculate_main() # Recalculate results based on loaded data
 

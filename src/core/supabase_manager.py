@@ -614,6 +614,9 @@ class SupabaseManager:
                     "id, room_data, photo_url, nid_front_url, nid_back_url, police_form_url"
                 )
                 .eq("main_calculation_id", main_calculation_id)
+                # Rooms are positional (no ordinal column), so keep insertion order
+                # deterministic — important after a room is removed and others shift.
+                .order("id")
             )
             attempts = 0
             while True:

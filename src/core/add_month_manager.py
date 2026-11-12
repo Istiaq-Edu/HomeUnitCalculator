@@ -179,8 +179,9 @@ class AddMonthManager:
             if room_records and hasattr(self.main_window.main_tab_instance, 'load_room_data_from_supabase_rows'):
                 self.main_window.main_tab_instance.load_room_data_from_supabase_rows(room_records, auto_calculate=False)
             else:
-                # Set default number of rooms if no records
-                self.main_window.main_tab_instance.num_rooms_spinbox.setValue(1)
+                # Set one empty room card if no records (don't keep last month's values)
+                main_tab.num_rooms_spinbox.setValue(1)
+                main_tab.clear_room_inputs()
             
         except Exception as e:
             raise Exception(f"Failed to load data to UI: {str(e)}")
