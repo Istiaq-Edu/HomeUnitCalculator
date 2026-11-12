@@ -221,6 +221,15 @@ The user authorized careful sequential local remediation after the audit. Stage 
 | 5. UI/design-system slice | Shared tokens/actions, one corrected table or list/inspector, truthful result/loading/status states | Native keyboard, narrow-window, high-DPI, multi-monitor, empty/error/stale, and assistive-technology checks |
 | 6. Delivery hardening | Tracked tests, locked dependencies, supported Python, packaged functional smoke, installer upgrade | Clean-machine build/install/upgrade; restoration test; immutable release manifest and verified assets |
 
+Stage-1 local containment status (2026-11-13): the locally actionable Stage-1 items are done and committed — RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, DATA-01 (wrong-record operations), DATA-02/DATA-04 (false success), DATA-03 (rental write identity), and UI-01. The remaining Stage-1-class findings are **blocked on user decisions** and must not be invented locally:
+
+- **CALC-01** (and the numeric-boundary part of CALC-04): requires an approved rounding/precision contract (Decimal vs minor units, display vs computation separation policy). The audit explicitly forbids inventing the billing policy during refactoring.
+- **CALC-02** freshness enforcement depends on the same calculation-contract decisions (what a validated current snapshot is) and is a broad main_tab refactor that should follow the approved contract.
+- **SEC-01/SEC-04** (locking anonymous policies, privatizing the bucket) are deployed Supabase mutations requiring explicit user authorization plus the coordinated app-auth decision (the app currently depends on anonymous access).
+- **SEC-02/SEC-03** (provisioning project selection, bundled OAuth secret) need the credential-delivery/auth-model decision.
+
+Next run should either obtain those decisions or pick from the unblocked P2 set (e.g., CALC-08 undo, CALC-09 carry-forward containment, UI-04 rental pagination).
+
 Do not combine accounting-policy changes, deployed schema migration, and a broad visual rewrite into one change. Each stage should leave a verifiable boundary that later work can rely on.
 
 ## Unresolved decisions
