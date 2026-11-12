@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Status: sequential local remediation authorized and in progress; RUN-01 locally verified. No commits, deployment, or live cloud mutations.
+Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, and DATA-01 are locally verified and committed. No deployment or live cloud mutations.
 
 ## Scope and environment
 
@@ -86,6 +86,13 @@ Scope: DASH-03 (request scope), DASH-04 (January/December boundary), DASH-05 (mi
 - Window state: `MeterCalculationApp` restores saved geometry on start and saves it in `closeEvent` via `QSettings("HomeUnitCalculator", "Window")`. Exercised by the native smoke run's clean window close.
 - Startup: `python -X importtime` showed `qfluentwidgets` → `scipy.ndimage.filters` costing ~0.57 s of ~1.13 s module import. A lazy module shim (`_install_lazy_scipy_shim` in `src/core/HomeUnitCalculator.py`, same pattern as the existing supabase transformers shim) defers real scipy import to first call; verified `gaussian_filter` still computes correctly when invoked, with zero scipy imports at startup. Import time dropped to ~0.56 s; the native smoke's startup timer improved from ~3.19 s to **2.59 s** total.
 - No commit, dependency change, or cloud mutation; tests remain gitignored under REL-08.
+
+### DATA-01 — locally verified, committed, 2026-11-12
+
+- Cross-source identity containment: cloud `rental_records.id` (a Supabase sequence value) no longer addresses local `rentals` rows. `RentalInfoTab.load_record_into_form_for_edit` gained a `source` argument; cloud-source edits resolve the local counterpart through the unique `rentals.supabase_id` link (`_resolve_local_rental_id`, fail-safe to insert on any lookup failure), and the dialog passes its `current_source`. The dialog's cloud-delete path removes the local counterpart by `supabase_id`, and a cloud record without `supabase_id` is blocked from deletion instead of falling back to the numeric id.
+- Focused regressions `tests/test_rental_record_identity.py` (9 tests): **6 of 9 failed against the pre-fix source** (verified by a temporary stash of the two source files), **9 of 9 passed** after the fix. Full isolated suite: **182 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.43 s**.
+- Committed on `dev` as `515edbe` (source + tests). Not pushed. Dependency, packaging, and cloud state unchanged.
+- Remaining limits recorded in [DATA-01](data-and-calculation.md#data-01): NULL cloud `supabase_id` rows (DATA-03) cannot be linked; the local save's UPDATE statement itself is unchanged as SQL; no deployed or live cloud verification.
 
 ## Test harness isolation
 

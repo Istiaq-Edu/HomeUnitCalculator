@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Disposition: all findings below are open; no fixes were implemented during the audit.
+Disposition: DATA-01 is locally verified; the remaining findings below are open.
 
 Evidence labels and priorities are defined in the [index](README.md#evidence-and-priority-vocabulary). Proposed financial and data-authority semantics require decisions before implementation.
 
@@ -11,13 +11,20 @@ Evidence labels and priorities are defined in the [index](README.md#evidence-and
 ### DATA-01
 
 **Cross-source numeric IDs can target unrelated local records.**  
-Priority: P1. Evidence: S.
+Priority: P1. Evidence: S. Status: **locally verified, 2026-11-12.**
 
 Loading a cloud record into the edit form assigns its numeric `id` to `current_rental_id`. Saving to PC can then update a local record with that ID. Successful cloud deletion can also delete a local row by that same numeric ID. Equal integers from different stores do not establish record identity.
 
-Evidence: [rental_info_tab.py:3165](../../../src/ui/tabs/rental_info_tab.py#L3165), [rental_info_tab.py:3799](../../../src/ui/tabs/rental_info_tab.py#L3799), [rental_record_dialog.py:1413](../../../src/ui/rental_record_dialog.py#L1413).
+Evidence: [rental_info_tab.py:3165](../../../src/ui/tabs/rental_info_tab.py#L3165), [rental_info_tab.py:3825](../../../src/ui/tabs/rental_info_tab.py#L3825), [rental_record_dialog.py:1376](../../../src/ui/rental_record_dialog.py#L1376). (Pre-fix locations were rental_info_tab.py:3799 and rental_record_dialog.py:1413; lines shifted with the fix.)
 
 Recommendation: carry source/project identity with record references and maintain explicit local/cloud correspondence. Test two unrelated records that deliberately share a numeric ID. UUIDs everywhere are not required; correct scoping is.
+
+Local fix and verification (2026-11-12, commit `515edbe`):
+
+- `RentalInfoTab.load_record_into_form_for_edit` takes a `source` argument (the dialog passes its `current_source`). Cloud-source edits no longer adopt the cloud numeric `id` as the local id: the local counterpart is resolved through the unique `rentals.supabase_id` link (`_resolve_local_rental_id`), or falls back to `None` so a later local save inserts instead of updating an unrelated row. Lookup failures also fall back to `None` (fail safe). Local-source edits keep their previous behavior.
+- `RentalRecordDialog.delete_record` (Cloud branch) removes the local counterpart by `supabase_id` instead of the cloud numeric `id`, and a cloud record without `supabase_id` is blocked from deletion (warning) rather than falling back to the numeric id.
+- Regressions: new `tests/test_rental_record_identity.py` (9 tests, `DashboardTab.__new__`-style fakes). Against the pre-fix source **6 of 9 fail**; after the fix all 9 pass. Full isolated suite: **182 passed, 8 optional Qt Charts skips, 1 third-party warning**.
+- Remaining limits: cloud rows whose own `supabase_id` column is NULL (see [DATA-03](#data-03)) cannot be linked to a local counterpart; editing such a cloud record and saving to PC inserts a new local row (safe but duplicative), and the cloud write still inserts instead of updating (DATA-03). The local save's `UPDATE ... WHERE id = :id` is unchanged as SQL; it is now only reachable with a genuine or supabase_id-resolved local id, but no additional SQL-level guard was added. Local verification only; no deployed or live cloud verification was performed.
 
 ### DATA-02
 
