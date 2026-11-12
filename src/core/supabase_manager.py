@@ -406,6 +406,13 @@ class SupabaseManager:
                     .execute()
                 )
                 if insert_response.data:
+                    if len(insert_response.data) != len(records_to_insert):
+                        print(
+                            f"Failed to persist all room calculation records: "
+                            f"expected {len(records_to_insert)}, "
+                            f"persisted {len(insert_response.data)}."
+                        )
+                        return False
                     print(
                         f"Inserted {len(insert_response.data)} room calculation records."
                     )
@@ -419,14 +426,31 @@ class SupabaseManager:
                                 .in_("id", old_record_ids)
                                 .execute()
                             )
-                            print(
-                                f"Deleted {len(old_record_ids)} old room calculation records after successful insert."
-                            )
                         except Exception as delete_exc:
-                            # Log the failure but do not report overall failure; duplicates are easier to handle
+                            # The new rows are durable; reporting success here
+                            # would hide the surviving duplicate rows (DATA-02).
                             print(
-                                f"Warning: Insert succeeded but deleting old room calculation records failed: {delete_exc}"
+                                f"Insert succeeded but deleting {len(old_record_ids)} old "
+                                f"room calculation records failed: {delete_exc}. "
+                                f"New rows are persisted; retrying the save is safe "
+                                f"and converges to the correct set."
                             )
+                            return False
+                        deleted_ids = [
+                            rec["id"]
+                            for rec in (del_resp.data or [])
+                            if isinstance(rec, dict) and "id" in rec
+                        ]
+                        if len(deleted_ids) != len(old_record_ids):
+                            print(
+                                f"Insert succeeded but only {len(deleted_ids)} of "
+                                f"{len(old_record_ids)} old room calculation records "
+                                f"were deleted. Retrying the save is safe and converges."
+                            )
+                            return False
+                        print(
+                            f"Deleted {len(old_record_ids)} old room calculation records after successful insert."
+                        )
 
                     return True
                 else:
@@ -435,8 +459,40 @@ class SupabaseManager:
                     )
                     return False
             else:
-                print("No room calculation records to insert.")
-                return True  # No rooms to insert, still considered successful
+                # Empty replacement (DATA-02): an empty room list must still
+                # remove the previous rows. Returning success without issuing
+                # the deletion published stale rooms as a completed save.
+                if old_record_ids:
+                    try:
+                        del_resp = (
+                            self.supabase.table("room_calculations")
+                            .delete()
+                            .in_("id", old_record_ids)
+                            .execute()
+                        )
+                    except Exception as delete_exc:
+                        print(
+                            f"Failed to delete {len(old_record_ids)} existing room "
+                            f"calculation records during empty replacement: {delete_exc}"
+                        )
+                        return False
+                    deleted_ids = [
+                        rec["id"]
+                        for rec in (del_resp.data or [])
+                        if isinstance(rec, dict) and "id" in rec
+                    ]
+                    if len(deleted_ids) != len(old_record_ids):
+                        print(
+                            f"Empty replacement deleted only {len(deleted_ids)} of "
+                            f"{len(old_record_ids)} existing room calculation records."
+                        )
+                        return False
+                    print(
+                        f"Empty replacement deleted {len(old_record_ids)} existing room calculation records."
+                    )
+                else:
+                    print("No room calculation records to insert or delete.")
+                return True
 
         except (APIError, AuthApiError) as e:
             print(f"Supabase API error saving room calculations: {e}")
@@ -1019,18 +1075,64 @@ class SupabaseManager:
             print("Supabase client not initialized. Cannot delete calculation record.")
             return False
         try:
-            # First remove room_calculations rows
-            self.supabase.table("room_calculations").delete().eq(
-                "main_calculation_id", record_id
-            ).execute()
-            # Then remove the main_calculations row
+            # Delete the parent first and rely on the FK cascade
+            # (room_calculations.main_calculation_id → main_calculations.id
+            # ON DELETE CASCADE in the bundled schema) so children disappear in
+            # the same server-side statement instead of a separate,
+            # non-transactional child delete (DATA-02).
             main_del_resp = (
                 self.supabase.table("main_calculations")
                 .delete()
                 .eq("id", record_id)
                 .execute()
             )
-            return bool(main_del_resp.data)
+            if not main_del_resp.data:
+                logging.error(
+                    f"Main calculation {record_id} was not deleted (no rows matched)."
+                )
+                return False
+
+            # Read-only verification that no orphaned children remain.
+            orphan_resp = (
+                self.supabase.table("room_calculations")
+                .select("id")
+                .eq("main_calculation_id", record_id)
+                .execute()
+            )
+            orphan_ids = [
+                rec["id"]
+                for rec in (orphan_resp.data or [])
+                if isinstance(rec, dict) and "id" in rec
+            ]
+            if not orphan_ids:
+                return True
+
+            # Deployed schema without cascade: remove the orphans explicitly
+            # and account for the aggregate. Parent and children are now in a
+            # mixed state, so this must not report success (DATA-02).
+            logging.warning(
+                f"Cascade not in effect: {len(orphan_ids)} orphaned room rows "
+                f"remain for main calculation {record_id}; deleting explicitly."
+            )
+            orphan_del_resp = (
+                self.supabase.table("room_calculations")
+                .delete()
+                .eq("main_calculation_id", record_id)
+                .execute()
+            )
+            deleted_orphans = [
+                rec["id"]
+                for rec in (orphan_del_resp.data or [])
+                if isinstance(rec, dict) and "id" in rec
+            ]
+            if len(deleted_orphans) != len(orphan_ids):
+                logging.error(
+                    f"Deleted main calculation {record_id} but only "
+                    f"{len(deleted_orphans)} of {len(orphan_ids)} orphaned room "
+                    f"rows were removed."
+                )
+                return False
+            return True
         except (APIError, AuthApiError) as e:
             logging.error(f"Supabase API error deleting calculation record: {e}")
             # Re-raise so error handler can detect paused projects

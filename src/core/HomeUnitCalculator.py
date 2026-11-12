@@ -2389,22 +2389,27 @@ class MeterCalculationApp(FluentWindow):
                     }
                     room_data_list.append({"room_data": room_record})
 
-            # Save room calculations
-            if room_data_list:
-                print(f"Debug - Saving {len(room_data_list)} room records...")
-                room_save_success = self.supabase_manager.save_room_calculations(
-                    main_calc_id, room_data_list
-                )
-                print(f"Debug - Room save success: {room_save_success}")
-                if not room_save_success:
+            # Save room calculations. Called even with an empty list so an
+            # empty replacement removes the previous cloud room rows (DATA-02);
+            # skipping the call left stale rooms published as a successful save.
+            room_save_success = self.supabase_manager.save_room_calculations(
+                main_calc_id, room_data_list
+            )
+            print(f"Debug - Room save success: {room_save_success}")
+            if not room_save_success:
+                if room_data_list:
                     QMessageBox.warning(
                         self,
                         "Partial Save",
                         "Main calculation saved, but room data failed to save.",
                     )
-                    return
-            else:
-                print("Debug - No room data to save")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Partial Save",
+                        "Main calculation saved, but removing the previous room data failed.",
+                    )
+                return
 
             print("Debug - About to show success message")
             self._emit_local_change(

@@ -869,18 +869,19 @@ class EditRecordDialog(ResponsiveDialog):
                 )
                 return
 
-            # Save room calculations using SupabaseManager
-            if updated_room_records_for_supabase:
-                rooms_update_success = self.supabase_manager.save_room_calculations(
-                    self.record_id, updated_room_records_for_supabase
+            # Save room calculations using SupabaseManager. Called even with an
+            # empty list so removing all rooms also removes the cloud rows
+            # (DATA-02 empty replacement) instead of leaving stale children.
+            rooms_update_success = self.supabase_manager.save_room_calculations(
+                self.record_id, updated_room_records_for_supabase
+            )
+            if not rooms_update_success:
+                QMessageBox.critical(
+                    self,
+                    "Supabase Error",
+                    "Failed to update room calculation data.",
                 )
-                if not rooms_update_success:
-                    QMessageBox.critical(
-                        self,
-                        "Supabase Error",
-                        "Failed to update room calculation data.",
-                    )
-                    return
+                return
 
             QMessageBox.information(self, "Success", "Record updated successfully.")
             self.accept()  # Close dialog on success
