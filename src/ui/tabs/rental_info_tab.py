@@ -3793,10 +3793,50 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
             QMessageBox.critical(self, "Error", f"Failed to open record details: {e}")
             print(f"Error opening rental record dialog: {e}\n{traceback.format_exc()}")
 
-    def load_record_into_form_for_edit(self, record_data: dict):
+    def _resolve_local_rental_id(self, supabase_id):
+        """Resolve the local ``rentals.id`` that shares ``supabase_id``.
+
+        Cloud numeric ``id`` values belong to the Supabase sequence and must
+        never be used to address local rows (DATA-01). Resolution fails safe:
+        without a confirmed local counterpart ``None`` is returned so a later
+        local save inserts a new row instead of updating an unrelated one.
+        """
+        if not supabase_id:
+            return None
+        try:
+            row = self.db_manager.execute_query(
+                "SELECT id FROM rentals WHERE supabase_id = ?",
+                (supabase_id,),
+                fetch_one=True,
+            )
+        except Exception as e:
+            print(
+                f"Could not resolve local rental id for supabase_id "
+                f"{supabase_id!r}: {e}"
+            )
+            return None
+        if row is None:
+            return None
+        try:
+            return int(row["id"])
+        except (TypeError, ValueError, KeyError, IndexError):
+            return None
+
+    def load_record_into_form_for_edit(
+        self, record_data: dict, source: str = "Local DB"
+    ):
         # This method is called from the dialog to load data for editing
         # record_data is expected to be a dictionary (either from local DB or Supabase, flattened)
-        self.current_rental_id = record_data.get("id")  # Local DB ID
+        if source == "Cloud (Supabase)":
+            # A cloud record's numeric ``id`` is a Supabase sequence value; a
+            # local row can share the same integer without any relationship.
+            # Address the local counterpart only through the stable
+            # ``supabase_id`` link (or start a new local row on save).
+            self.current_rental_id = self._resolve_local_rental_id(
+                record_data.get("supabase_id")
+            )
+        else:
+            self.current_rental_id = record_data.get("id")  # Local DB ID
         self.current_supabase_id = record_data.get("supabase_id")  # Supabase ID
         # Store archive status so we can retain it during save
         self.current_is_archived = bool(record_data.get("is_archived", False))

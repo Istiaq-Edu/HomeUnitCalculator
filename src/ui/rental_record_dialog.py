@@ -1287,7 +1287,9 @@ class RentalRecordDialog(ResponsiveDialog):
                 rental_tab = self.main_window.rental_info_tab_instance
                 if hasattr(rental_tab, "load_record_into_form_for_edit"):
                     record_dict = self.record_data._asdict()
-                    rental_tab.load_record_into_form_for_edit(record_dict)
+                    rental_tab.load_record_into_form_for_edit(
+                        record_dict, source=self.current_source
+                    )
                     self.accept()
                     return
 
@@ -1295,7 +1297,9 @@ class RentalRecordDialog(ResponsiveDialog):
                 rental_tab = self.main_window.rental_info_tab
                 if hasattr(rental_tab, "load_record_into_form_for_edit"):
                     record_dict = self.record_data._asdict()
-                    rental_tab.load_record_into_form_for_edit(record_dict)
+                    rental_tab.load_record_into_form_for_edit(
+                        record_dict, source=self.current_source
+                    )
                     self.accept()
                     return
 
@@ -1419,10 +1423,15 @@ class RentalRecordDialog(ResponsiveDialog):
                             QMessageBox.information(
                                 self, "Success", "Record deleted from Supabase."
                             )
-                            if self.record_data.id:
+                            if self.record_data.supabase_id:
+                                # Remove the local counterpart through the
+                                # stable supabase_id link (DATA-01): the cloud
+                                # record's numeric id is a Supabase sequence
+                                # value and can collide with an unrelated
+                                # local rentals.id.
                                 self.db_manager.execute_query(
-                                    "DELETE FROM rentals WHERE id = ?",
-                                    (self.record_data.id,),
+                                    "DELETE FROM rentals WHERE supabase_id = ?",
+                                    (self.record_data.supabase_id,),
                                 )
                         else:
                             QMessageBox.critical(
