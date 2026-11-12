@@ -2119,10 +2119,28 @@ class MainTab(QWidget):
             self._show_room_toast('warning', "Undo unavailable", "Maximum number of rooms reached.")
             return
 
-        # Rebuild from the CURRENT state so recalculated totals are not rolled back.
+        # Rebuild from the CURRENT state so recalculated totals are not rolled
+        # back. The removed room's snapshot carries derived labels from its
+        # earlier revision (CALC-08): drop them so the restored card shows an
+        # honest N/A and recomputes under the current result revision, instead
+        # of presenting a stale bill as if it were current.
+        restored_removed = {
+            key: value
+            for key, value in removed.items()
+            if key not in ('real_unit', 'unit_bill', 'grand_total')
+        }
         restored = list(current)
-        restored.insert(index, removed)
+        restored.insert(index, restored_removed)
         self._apply_room_data(restored)
+        try:
+            # Recompute every room under the current result revision: surviving
+            # rooms keep their current results, the restored room is calculated
+            # with the rate that is in effect now.
+            self.calculate_rooms()
+        except Exception:
+            # No valid current rate (e.g. per-unit cost empty): the restored
+            # room keeps its honest N/A state rather than a stale bill.
+            pass
         self._show_room_toast('success', "Room restored", "The removed room is back in its original position.")
 
     def _show_room_toast(self, kind, title, content, undo=False, undo_token=None):
