@@ -123,6 +123,14 @@ Scope: DASH-03 (request scope), DASH-04 (January/December boundary), DASH-05 (mi
 - Committed on `dev` as `10dd944`. Not pushed. No deployed Supabase mutation.
 - Remaining limits recorded in [UI-01](ui-and-runtime.md#ui-01): a broader sweep for other same-pattern sites is future work; selection-restore-after-clear semantics unchanged; no native user-clicked-sort refresh exercise beyond widget-level tests. Next roadmap item: CALC-01/CALC-02.
 
+### CALC-08 — locally verified, committed, 2026-11-13
+
+- Room-undo no longer reinserts the removed room's stale derived labels: identity, inputs, and position are restored, `real_unit`/`unit_bill`/`grand_total` are dropped (honest N/A), and a guarded `calculate_rooms()` pass recomputes all rooms under the current result revision; an invalid rate leaves N/A instead of crashing. Newest-token, editable-state, and maximum safeguards preserved and regression-tested.
+- Decision questions for CALC-01/02/SEC-01..04 were offered to the user and skipped; per the standing defaults, cloud items remain untouched (read-only) and the unblocked P2 item CALC-08 was selected.
+- Regressions `tests/test_room_undo_freshness.py` (4 tests): **2 of 4 failed against the pre-fix source** (verified via temporary stash), **4 of 4 passed** after. Full isolated suite: **216 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.23 s**.
+- Committed on `dev` as `5242966`. Not pushed. No deployed Supabase mutation.
+- Remaining limits recorded in [CALC-08](data-and-calculation.md#calc-08): the recalculation still uses the CALC-01 display-formatting path (rounding contract pending); DATA-13 positional names unchanged.
+
 ## Test harness isolation
 
 The full-suite harness used:

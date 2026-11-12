@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Disposition: the DATA-01..04 cluster is locally verified; the remaining findings below are open.
+Disposition: the DATA-01..04 cluster and CALC-08 are locally verified; the remaining findings below are open.
 
 Evidence labels and priorities are defined in the [index](README.md#evidence-and-priority-vocabulary). Proposed financial and data-authority semantics require decisions before implementation.
 
@@ -269,13 +269,20 @@ Recommendation: escape ReportLab markup, handle spreadsheet text intentionally, 
 ### CALC-08
 
 **Undo can restore the removed room's old derived bill.**  
-Priority: P2. Evidence: S, R-specialist.
+Priority: P2. Evidence: S, R-specialist. Status: **locally verified, 2026-11-12.**
 
 Undo correctly checks the newest token, editable snapshot, count, and maximum. It rebuilds surviving rooms from their current snapshots, preserving their recalculated results. However, the removed room is reinserted from its earlier snapshot, including derived labels, even if the rate changed meanwhile.
 
 Evidence: [main_tab.py:1986](../../../src/ui/tabs/main_tab.py#L1986), [main_tab.py:2084](../../../src/ui/tabs/main_tab.py#L2084), [main_tab.py:2122](../../../src/ui/tabs/main_tab.py#L2122).
 
 Recommendation: preserve the existing safeguards; restore the removed room's identity/inputs and recompute under the current result revision. Do not describe all undo behavior as broken.
+
+Local fix and verification (2026-11-12, commit `5242966`):
+
+- `_undo_remove_room` drops the stale `real_unit`/`unit_bill`/`grand_total` values from the removed room's snapshot before reinserting it (the card renders an honest `N/A` until recalculated) and then runs a guarded `calculate_rooms()` pass so the restored room and survivors all render under the current result revision; an invalid or empty rate leaves the `N/A` state instead of crashing the undo.
+- Existing safeguards are preserved and regression-tested: newest-token check, editable-state rejection, room-count maximum, and original position/identity restoration.
+- Regressions: new `tests/test_room_undo_freshness.py` (4 tests). Against the pre-fix source **2 of 4 fail** — exactly the stale-derived-label cases (verified via temporary stash); after the fix all 4 pass. Full isolated suite: **216 passed, 8 optional Qt Charts skips, 1 third-party warning**.
+- Remaining limits: the recalculation uses the same display-formatting path as before (the CALC-01 precision/display coupling is unchanged and still awaits the approved rounding contract); positional room names remain derived from display order (DATA-13 unchanged); local verification only.
 
 ### CALC-09
 
