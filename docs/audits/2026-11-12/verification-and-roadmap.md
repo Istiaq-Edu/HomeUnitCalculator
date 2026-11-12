@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, DATA-01, and DATA-02 are locally verified and committed. No deployment or live cloud mutations.
+Status: sequential local remediation in progress on branch `dev`; RUN-01, DASH-01, the dashboard truthfulness slice, REL-01..03/REL-08, DATA-01, DATA-02, and DATA-03 are locally verified and committed. No deployment or live cloud mutations.
 
 ## Scope and environment
 
@@ -100,6 +100,13 @@ Scope: DASH-03 (request scope), DASH-04 (January/December boundary), DASH-05 (mi
 - Regressions `tests/test_monthly_persistence_atomicity.py` (13 tests): **9 of 13 failed against the pre-fix source** (verified via temporary stash), **13 of 13 passed** after. Full isolated suite: **195 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.39 s**.
 - Committed on `dev` as `c729819`. Not pushed. No deployed Supabase mutation: true transactionality (RPC/migration) remains an authorized-deployment decision; main and room writes remain separate operations; concurrent-writer races stay with DATA-05.
 - Remaining limits recorded in [DATA-02](data-and-calculation.md#data-02).
+
+### DATA-03 — locally verified, committed, 2026-11-12
+
+- Rental writes now establish a stable cross-store identity: the tab save path generates a `supabase_id` uuid for identity-less records and writes the same value to the local insert, the cloud insert payload (previously omitted), and the form; the local UPDATE persists `supabase_id` so unlinked rows gain identity on next save; the plain local insert branch retains its returned row id. `save_rental_record` assigns a fallback identity when a direct caller supplies none.
+- Regressions `tests/test_rental_write_identity.py` (5 tests): **4 of 5 failed against the pre-fix source** (verified via temporary stash), **5 of 5 passed** after. Full isolated suite: **200 passed, 8 optional Qt Charts skips, 1 third-party scipy deprecation warning in 12.26 s**.
+- Committed on `dev` as `db8fc36`. Not pushed. No deployed Supabase mutation.
+- Remaining limits recorded in [DATA-03](data-and-calculation.md#data-03): pre-fix NULL-identity records stay unlinkable until their next edit-and-save; structured per-destination receipts remain with DATA-04.
 
 ## Test harness isolation
 

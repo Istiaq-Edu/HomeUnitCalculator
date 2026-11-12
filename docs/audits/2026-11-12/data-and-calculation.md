@@ -2,7 +2,7 @@
 
 [Audit index](README.md)  
 Last updated: 2026-11-12  
-Disposition: DATA-01 and DATA-02 are locally verified; the remaining findings below are open.
+Disposition: DATA-01, DATA-02, and DATA-03 are locally verified; the remaining findings below are open.
 
 Evidence labels and priorities are defined in the [index](README.md#evidence-and-priority-vocabulary). Proposed financial and data-authority semantics require decisions before implementation.
 
@@ -48,13 +48,22 @@ Local fix and verification (2026-11-12, commit `c729819`; client-side containmen
 ### DATA-03
 
 **Rental inserts do not establish the identity required by later updates.**  
-Priority: P1. Evidence: S; deployed triggers/defaults remain C.
+Priority: P1. Evidence: S; deployed triggers/defaults remain C. Status: **locally verified, 2026-11-12.**
 
 The bundled schema does contain a unique `supabase_id` column. However, the insert payload does not assign it, and the write path updates only when the input has `supabase_id`; a numeric `id` does not select the update path. A fresh bundled schema therefore permits inserted records without the identifier the editor relies on. The local normal-insert path also ignores its returned ID.
 
-Evidence: [supabase_schema.py:74](../../../src/core/supabase_schema.py#L74), [supabase_manager.py:789](../../../src/core/supabase_manager.py#L789), [rental_info_tab.py:3186](../../../src/ui/tabs/rental_info_tab.py#L3186).
+Evidence: [supabase_schema.py:74](../../../src/core/supabase_schema.py#L74), [supabase_manager.py:789](../../../src/core/supabase_manager.py#L789), [rental_info_tab.py:3186](../../../src/ui/tabs/rental_info_tab.py#L3186). (Pre-fix line locations shifted with the fix; the insert/identity logic now sits in `save_rental_record`'s payload assembly and `save_rental_record` in the tab.)
 
 Recommendation: select one stable cloud identity contract and return structured receipts with persisted identifiers. Retain successful destination receipts so retries do not create duplicates. Do not describe this as a missing-column defect.
+
+Local fix and verification (2026-11-12, commit `db8fc36`):
+
+- The tab save path generates a `supabase_id` uuid for records without one and writes the same identity to both destinations: the local insert stores it, the cloud insert payload now includes it (previously omitted), and the form retains it so later saves update by identity instead of duplicating.
+- The local `UPDATE rentals` statement now persists `supabase_id`, so pre-existing unlinked local rows gain an identity on their next save.
+- The plain local insert branch keeps the returned row id as `current_rental_id` instead of ignoring it.
+- `save_rental_record` also assigns a generated identity when a direct caller supplies none; update-vs-insert selection continues to key on the caller's identity.
+- Regressions: new `tests/test_rental_write_identity.py` (5 tests). Against the pre-fix source **4 of 5 fail** (verified via temporary stash); after the fix all 5 pass. Full isolated suite: **200 passed, 8 optional Qt Charts skips, 1 third-party warning**.
+- Remaining limits: records created before this fix with NULL identities in both stores stay unlinkable until their next edit-and-save regenerates one (cloud duplicates for such records can still arise per edit until then); structured per-destination receipts (not-requested/pending/succeeded/failed) remain with [DATA-04](#data-04); deployed defaults/triggers remain uninspected (C). Local verification only.
 
 ### DATA-04
 
