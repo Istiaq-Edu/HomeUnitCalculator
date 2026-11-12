@@ -3120,6 +3120,13 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
 
             advanced_paid = float(advanced_paid_str) if advanced_paid_str else 0.0
 
+            # Stable cross-store identity (DATA-03): new records must carry a
+            # supabase_id so the local row and the cloud row are linkable and
+            # later saves update instead of duplicating. The same identity is
+            # written to both destinations and kept on the form.
+            if not self.current_supabase_id:
+                self.current_supabase_id = str(uuid.uuid4())
+
             record_data = {
                 "id": self.current_rental_id,
                 "supabase_id": self.current_supabase_id,
@@ -3169,7 +3176,7 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                                 advanced_paid = :advanced_paid, photo_path = :photo_path,
                                 nid_front_path = :nid_front_path, nid_back_path = :nid_back_path,
                                 police_form_path = :police_form_path, updated_at = :updated_at,
-                                is_archived = :is_archived
+                                is_archived = :is_archived, supabase_id = :supabase_id
                             WHERE id = :id
                         """
                         self.db_manager.execute_query(update_query, local_record_data)
@@ -3183,7 +3190,11 @@ class RentalInfoTab(QWidget, EnhancedTableMixin):
                                 print(f"Local insert fallback failed: {ins_e}")
                                 local_save_success = False
                     else:
-                        self.db_manager.insert_rental_record(local_record_data)
+                        # Keep the returned identity: later saves must update
+                        # this row instead of inserting duplicates (DATA-03).
+                        self.current_rental_id = self.db_manager.insert_rental_record(
+                            local_record_data
+                        )
                     print("Record saved to local DB successfully.")
                 except Exception as e:
                     local_save_success = False

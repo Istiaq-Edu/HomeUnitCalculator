@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import hashlib
+import uuid
 
 # Apply compatibility patch before importing supabase
 try:
@@ -861,6 +862,13 @@ class SupabaseManager:
             # For inserts, also populate created_at so ordering works even if the DB column lacks a default.
             if not record_data.get("id"):
                 record_to_save["created_at"] = datetime.now().isoformat()
+
+            # Stable cloud identity (DATA-03): every persisted row carries a
+            # supabase_id so later writes can address it by identity instead
+            # of duplicating. Reuse the caller's identity; generate one only
+            # when the caller had none.
+            cloud_supabase_id = record_data.get("supabase_id") or str(uuid.uuid4())
+            record_to_save["supabase_id"] = cloud_supabase_id
 
             def _write(payload: dict):
                 if record_data.get("supabase_id"):
