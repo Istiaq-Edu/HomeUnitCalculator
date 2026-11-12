@@ -46,6 +46,7 @@ from qfluentwidgets import (
     IconWidget,
 )
 
+from src.ui.table_population import suspended_table_sorting
 
 # Custom CardWidget without hover effects for history tab containers
 class StaticCardWidget(CardWidget):
@@ -4483,150 +4484,185 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     max_meters = min(max_meters, 10)  # Clamp to 10
 
                     self.set_main_history_table_columns(max_meters)
-                    self.main_history_table.setRowCount(len(filtered_main_rows))
+                    # UI-01: suspend sorting during cell-by-cell population;
+                    # with a sort indicator active, setItem re-sorts rows
+                    # mid-loop and later cells land in wrong rows.
+                    with suspended_table_sorting(self.main_history_table):
+                        self.main_history_table.setRowCount(len(filtered_main_rows))
 
-                    for row_idx, main_row_data in enumerate(filtered_main_rows):
-                        row = main_row_data["csv_row"]
+                        for row_idx, main_row_data in enumerate(filtered_main_rows):
+                            row = main_row_data["csv_row"]
 
-                        # Set month column with enhanced styling
-                        month_year_str = (
-                            f"{main_row_data['month']} {main_row_data['year']}"
-                        )
-                        month_item = self._create_identifier_item(
-                            month_year_str, "month"
-                        )
-                        row_calc_id = main_row_data["csv_row"].get("id")
-                        month_item.setData(
-                            Qt.UserRole, row_calc_id
-                        )  # Store the correct id for this row
-                        self.main_history_table.setItem(row_idx, 0, month_item)
-
-                        # Set meter columns dynamically (skip zeros)
-                        for i in range(max_meters):
-                            meter_val = get_csv_value(row, f"Meter-{i + 1}", "0")
-                            # Only show non-zero values
-                            display_val = (
-                                meter_val if meter_val not in ["0", "", "0.0"] else ""
+                            # Set month column with enhanced styling
+                            month_year_str = (
+                                f"{main_row_data['month']} {main_row_data['year']}"
                             )
+                            month_item = self._create_identifier_item(
+                                month_year_str, "month"
+                            )
+                            row_calc_id = main_row_data["csv_row"].get("id")
+                            month_item.setData(
+                                Qt.UserRole, row_calc_id
+                            )  # Store the correct id for this row
+                            self.main_history_table.setItem(row_idx, 0, month_item)
+
+                            # Set meter columns dynamically (skip zeros)
+                            for i in range(max_meters):
+                                meter_val = get_csv_value(row, f"Meter-{i + 1}", "0")
+                                # Only show non-zero values
+                                display_val = (
+                                    meter_val
+                                    if meter_val not in ["0", "", "0.0"]
+                                    else ""
+                                )
+                                self.main_history_table.setItem(
+                                    row_idx,
+                                    1 + i,
+                                    self._create_centered_item(display_val),
+                                )
+
+                            # Set diff columns dynamically (skip zeros)
+                            for i in range(max_meters):
+                                diff_val = get_csv_value(row, f"Diff-{i + 1}", "0")
+                                # Only show non-zero values
+                                display_val = (
+                                    diff_val
+                                    if diff_val not in ["0", "", "0.0"]
+                                    else ""
+                                )
+                                self.main_history_table.setItem(
+                                    row_idx,
+                                    1 + max_meters + i,
+                                    self._create_centered_item(display_val),
+                                )
+
+                            # Set fixed columns after meters/diffs
+                            base_col = 1 + max_meters * 2
+                            # Handle column name variations between CSV and expected names
+                            total_unit_cost = get_csv_value(
+                                row, "Total Unit Cost", ""
+                            ) or get_csv_value(row, "Total Unit", "0")
+                            total_diff_units = get_csv_value(
+                                row, "Total Diff Units", ""
+                            ) or get_csv_value(row, "Total Diff", "0")
+                            per_unit_cost = get_csv_value(row, "Per Unit Cost", "0")
+                            added_amount = get_csv_value(row, "Added Amount", "0")
+                            # Use "In Total" specifically for the main table's grand total
+                            grand_total = get_csv_value(row, "In Total", "0")
+
                             self.main_history_table.setItem(
-                                row_idx, 1 + i, self._create_centered_item(display_val)
-                            )
-
-                        # Set diff columns dynamically (skip zeros)
-                        for i in range(max_meters):
-                            diff_val = get_csv_value(row, f"Diff-{i + 1}", "0")
-                            # Only show non-zero values
-                            display_val = (
-                                diff_val if diff_val not in ["0", "", "0.0"] else ""
+                                row_idx,
+                                base_col + 0,
+                                self._create_special_item(
+                                    total_unit_cost, "total_unit_cost"
+                                ),
                             )
                             self.main_history_table.setItem(
                                 row_idx,
-                                1 + max_meters + i,
-                                self._create_centered_item(display_val),
+                                base_col + 1,
+                                self._create_centered_item(total_diff_units),
                             )
-
-                        # Set fixed columns after meters/diffs
-                        base_col = 1 + max_meters * 2
-                        # Handle column name variations between CSV and expected names
-                        total_unit_cost = get_csv_value(
-                            row, "Total Unit Cost", ""
-                        ) or get_csv_value(row, "Total Unit", "0")
-                        total_diff_units = get_csv_value(
-                            row, "Total Diff Units", ""
-                        ) or get_csv_value(row, "Total Diff", "0")
-                        per_unit_cost = get_csv_value(row, "Per Unit Cost", "0")
-                        added_amount = get_csv_value(row, "Added Amount", "0")
-                        # Use "In Total" specifically for the main table's grand total
-                        grand_total = get_csv_value(row, "In Total", "0")
-
-                        self.main_history_table.setItem(
-                            row_idx,
-                            base_col + 0,
-                            self._create_special_item(
-                                total_unit_cost, "total_unit_cost"
-                            ),
-                        )
-                        self.main_history_table.setItem(
-                            row_idx,
-                            base_col + 1,
-                            self._create_centered_item(total_diff_units),
-                        )
-                        self.main_history_table.setItem(
-                            row_idx,
-                            base_col + 2,
-                            self._create_special_item(per_unit_cost, "per_unit_cost"),
-                        )
-                        self.main_history_table.setItem(
-                            row_idx,
-                            base_col + 3,
-                            self._create_centered_item(added_amount),
-                        )
-                        self.main_history_table.setItem(
-                            row_idx,
-                            base_col + 4,
-                            self._create_special_item(grand_total, "grand_total"),
-                        )
+                            self.main_history_table.setItem(
+                                row_idx,
+                                base_col + 2,
+                                self._create_special_item(
+                                    per_unit_cost, "per_unit_cost"
+                                ),
+                            )
+                            self.main_history_table.setItem(
+                                row_idx,
+                                base_col + 3,
+                                self._create_centered_item(added_amount),
+                            )
+                            self.main_history_table.setItem(
+                                row_idx,
+                                base_col + 4,
+                                self._create_special_item(grand_total, "grand_total"),
+                            )
 
                 # Populate room table
                 if all_room_rows_sorted_with_context:
-                    self.room_history_table.setRowCount(
-                        len(all_room_rows_sorted_with_context)
-                    )
+                    # UI-01: sorting suspended for the same reason as the
+                    # main table above.
+                    with suspended_table_sorting(self.room_history_table):
+                        self.room_history_table.setRowCount(
+                            len(all_room_rows_sorted_with_context)
+                        )
 
-                    for row_idx, room_entry in enumerate(
-                        all_room_rows_sorted_with_context
-                    ):
-                        room_csv_data = room_entry["csv_row"]
-                        month_year_str = f"{room_entry['month']} {room_entry['year']}"
+                        for row_idx, room_entry in enumerate(
+                            all_room_rows_sorted_with_context
+                        ):
+                            room_csv_data = room_entry["csv_row"]
+                            month_year_str = (
+                                f"{room_entry['month']} {room_entry['year']}"
+                            )
 
-                        room_name = get_csv_value(room_csv_data, "Room Name", "")
-                        present_unit = get_csv_value(room_csv_data, "Present Unit", "0")
-                        previous_unit = get_csv_value(
-                            room_csv_data, "Previous Unit", "0"
-                        )
-                        real_unit = get_csv_value(room_csv_data, "Real Unit", "0")
-                        unit_bill = get_csv_value(room_csv_data, "Unit Bill", "0")
-                        gas_bill = get_csv_value(room_csv_data, "Gas Bill", "0")
-                        water_bill = get_csv_value(room_csv_data, "Water Bill", "0")
-                        house_rent = get_csv_value(room_csv_data, "House Rent", "0")
-                        grand_total = get_csv_value(room_csv_data, "Grand Total", "0")
+                            room_name = get_csv_value(room_csv_data, "Room Name", "")
+                            present_unit = get_csv_value(
+                                room_csv_data, "Present Unit", "0"
+                            )
+                            previous_unit = get_csv_value(
+                                room_csv_data, "Previous Unit", "0"
+                            )
+                            real_unit = get_csv_value(room_csv_data, "Real Unit", "0")
+                            unit_bill = get_csv_value(room_csv_data, "Unit Bill", "0")
+                            gas_bill = get_csv_value(room_csv_data, "Gas Bill", "0")
+                            water_bill = get_csv_value(room_csv_data, "Water Bill", "0")
+                            house_rent = get_csv_value(room_csv_data, "House Rent", "0")
+                            grand_total = get_csv_value(
+                                room_csv_data, "Grand Total", "0"
+                            )
 
-                        self.room_history_table.setItem(
-                            row_idx,
-                            0,
-                            self._create_identifier_item(month_year_str, "month"),
-                        )
-                        self.room_history_table.setItem(
-                            row_idx, 1, self._create_identifier_item(room_name, "room")
-                        )
-                        self.room_history_table.setItem(
-                            row_idx, 2, self._create_centered_item(present_unit)
-                        )
-                        self.room_history_table.setItem(
-                            row_idx, 3, self._create_centered_item(previous_unit)
-                        )
-                        self.room_history_table.setItem(
-                            row_idx, 4, self._create_centered_item(real_unit)
-                        )
-                        self.room_history_table.setItem(
-                            row_idx,
-                            5,
-                            self._create_special_item(unit_bill, "unit_bill"),
-                        )
-                        self.room_history_table.setItem(
-                            row_idx, 6, self._create_centered_item(gas_bill)
-                        )
-                        self.room_history_table.setItem(
-                            row_idx, 7, self._create_centered_item(water_bill)
-                        )
-                        self.room_history_table.setItem(
-                            row_idx, 8, self._create_centered_item(house_rent)
-                        )
-                        self.room_history_table.setItem(
-                            row_idx,
-                            9,
-                            self._create_special_item(grand_total, "grand_total"),
-                        )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                0,
+                                self._create_identifier_item(month_year_str, "month"),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                1,
+                                self._create_identifier_item(room_name, "room"),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                2,
+                                self._create_centered_item(present_unit),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                3,
+                                self._create_centered_item(previous_unit),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                4,
+                                self._create_centered_item(real_unit),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                5,
+                                self._create_special_item(unit_bill, "unit_bill"),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                6,
+                                self._create_centered_item(gas_bill),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                7,
+                                self._create_centered_item(water_bill),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                8,
+                                self._create_centered_item(house_rent),
+                            )
+                            self.room_history_table.setItem(
+                                row_idx,
+                                9,
+                                self._create_special_item(grand_total, "grand_total"),
+                            )
 
                     # Apply responsive column widths after populating room data
                     try:
@@ -4715,80 +4751,88 @@ class HistoryTab(QWidget, EnhancedTableMixin):
             )
 
             if main_calculations:
-                self.main_history_table.setRowCount(len(main_calculations))
+                # UI-01: suspend sorting during cell-by-cell population;
+                # with a sort indicator active, setItem re-sorts rows
+                # mid-loop and later cells land in wrong rows.
+                with suspended_table_sorting(self.main_history_table):
+                    self.main_history_table.setRowCount(len(main_calculations))
 
-                # Determine max_meters from the fetched data
-                max_meters = 3  # default
-                for calc in main_calculations:
-                    main_data = calc.get("main_data", {})
+                    # Determine max_meters from the fetched data
+                    max_meters = 3  # default
+                    for calc in main_calculations:
+                        main_data = calc.get("main_data", {})
 
-                    for i in range(10):
-                        meter_key = f"meter_{i + 1}"
-                        diff_key = f"diff_{i + 1}"
-                        if main_data.get(meter_key) or main_data.get(diff_key):
-                            max_meters = max(max_meters, i + 1)
+                        for i in range(10):
+                            meter_key = f"meter_{i + 1}"
+                            diff_key = f"diff_{i + 1}"
+                            if main_data.get(meter_key) or main_data.get(diff_key):
+                                max_meters = max(max_meters, i + 1)
 
-                self.set_main_history_table_columns(max_meters)
+                    self.set_main_history_table_columns(max_meters)
 
-                for row_idx, calc in enumerate(main_calculations):
-                    main_data = calc.get("main_data", {})
+                    for row_idx, calc in enumerate(main_calculations):
+                        main_data = calc.get("main_data", {})
 
-                    month_year = f"{calc.get('month', 'N/A')} {calc.get('year', 'N/A')}"
-                    month_item = self._create_identifier_item(month_year, "month")
-                    row_calc_id = calc.get("id")
-                    month_item.setData(
-                        Qt.UserRole, row_calc_id
-                    )  # Store the correct id for this row
-                    self.main_history_table.setItem(row_idx, 0, month_item)
+                        month_year = (
+                            f"{calc.get('month', 'N/A')} {calc.get('year', 'N/A')}"
+                        )
+                        month_item = self._create_identifier_item(month_year, "month")
+                        row_calc_id = calc.get("id")
+                        month_item.setData(
+                            Qt.UserRole, row_calc_id
+                        )  # Store the correct id for this row
+                        self.main_history_table.setItem(row_idx, 0, month_item)
 
-                    for i in range(max_meters):
-                        meter_val = str(main_data.get(f"meter_{i + 1}", ""))
-                        diff_val = str(main_data.get(f"diff_{i + 1}", ""))
+                        for i in range(max_meters):
+                            meter_val = str(main_data.get(f"meter_{i + 1}", ""))
+                            diff_val = str(main_data.get(f"diff_{i + 1}", ""))
+                            self.main_history_table.setItem(
+                                row_idx, 1 + i, self._create_centered_item(meter_val)
+                            )
+                            self.main_history_table.setItem(
+                                row_idx,
+                                1 + max_meters + i,
+                                self._create_centered_item(diff_val),
+                            )
+
+                        base_col = 1 + max_meters * 2
                         self.main_history_table.setItem(
-                            row_idx, 1 + i, self._create_centered_item(meter_val)
+                            row_idx,
+                            base_col + 0,
+                            self._create_special_item(
+                                str(main_data.get("total_unit_cost", "")),
+                                "total_unit_cost",
+                            ),
                         )
                         self.main_history_table.setItem(
                             row_idx,
-                            1 + max_meters + i,
-                            self._create_centered_item(diff_val),
+                            base_col + 1,
+                            self._create_centered_item(
+                                str(main_data.get("total_diff_units", ""))
+                            ),
                         )
-
-                    base_col = 1 + max_meters * 2
-                    self.main_history_table.setItem(
-                        row_idx,
-                        base_col + 0,
-                        self._create_special_item(
-                            str(main_data.get("total_unit_cost", "")), "total_unit_cost"
-                        ),
-                    )
-                    self.main_history_table.setItem(
-                        row_idx,
-                        base_col + 1,
-                        self._create_centered_item(
-                            str(main_data.get("total_diff_units", ""))
-                        ),
-                    )
-                    self.main_history_table.setItem(
-                        row_idx,
-                        base_col + 2,
-                        self._create_special_item(
-                            str(main_data.get("per_unit_cost", "")), "per_unit_cost"
-                        ),
-                    )
-                    self.main_history_table.setItem(
-                        row_idx,
-                        base_col + 3,
-                        self._create_centered_item(
-                            str(main_data.get("added_amount", ""))
-                        ),
-                    )
-                    self.main_history_table.setItem(
-                        row_idx,
-                        base_col + 4,
-                        self._create_special_item(
-                            str(main_data.get("grand_total", "")), "grand_total"
-                        ),
-                    )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 2,
+                            self._create_special_item(
+                                str(main_data.get("per_unit_cost", "")),
+                                "per_unit_cost",
+                            ),
+                        )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 3,
+                            self._create_centered_item(
+                                str(main_data.get("added_amount", ""))
+                            ),
+                        )
+                        self.main_history_table.setItem(
+                            row_idx,
+                            base_col + 4,
+                            self._create_special_item(
+                                str(main_data.get("grand_total", "")), "grand_total"
+                            ),
+                        )
 
             if all_room_rows:
                 # Ensure room rows follow the same chronological order
@@ -4799,75 +4843,86 @@ class HistoryTab(QWidget, EnhancedTableMixin):
                     )
                 )
 
-                self.room_history_table.setRowCount(len(all_room_rows))
+                # UI-01: sorting suspended for the same reason as the main
+                # table above.
+                with suspended_table_sorting(self.room_history_table):
+                    self.room_history_table.setRowCount(len(all_room_rows))
 
-                for row_idx, room in enumerate(all_room_rows):
-                    room_data = room.get("room_data", {})
+                    for row_idx, room in enumerate(all_room_rows):
+                        room_data = room.get("room_data", {})
 
-                    month_year = f"{room.get('month', 'N/A')} {room.get('year', 'N/A')}"
+                        month_year = (
+                            f"{room.get('month', 'N/A')} {room.get('year', 'N/A')}"
+                        )
 
-                    self.room_history_table.setItem(
-                        row_idx, 0, self._create_identifier_item(month_year, "month")
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        1,
-                        self._create_identifier_item(
-                            str(room_data.get("room_name", "")), "room"
-                        ),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        2,
-                        self._create_centered_item(
-                            str(room_data.get("present_unit", ""))
-                        ),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        3,
-                        self._create_centered_item(
-                            str(room_data.get("previous_unit", ""))
-                        ),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        4,
-                        self._create_centered_item(str(room_data.get("real_unit", ""))),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        5,
-                        self._create_special_item(
-                            str(room_data.get("unit_bill", "")), "unit_bill"
-                        ),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        6,
-                        self._create_centered_item(str(room_data.get("gas_bill", ""))),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        7,
-                        self._create_centered_item(
-                            str(room_data.get("water_bill", ""))
-                        ),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        8,
-                        self._create_centered_item(
-                            str(room_data.get("house_rent", ""))
-                        ),
-                    )
-                    self.room_history_table.setItem(
-                        row_idx,
-                        9,
-                        self._create_special_item(
-                            str(room_data.get("grand_total", "")), "grand_total"
-                        ),
-                    )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            0,
+                            self._create_identifier_item(month_year, "month"),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            1,
+                            self._create_identifier_item(
+                                str(room_data.get("room_name", "")), "room"
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            2,
+                            self._create_centered_item(
+                                str(room_data.get("present_unit", ""))
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            3,
+                            self._create_centered_item(
+                                str(room_data.get("previous_unit", ""))
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            4,
+                            self._create_centered_item(
+                                str(room_data.get("real_unit", ""))
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            5,
+                            self._create_special_item(
+                                str(room_data.get("unit_bill", "")), "unit_bill"
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            6,
+                            self._create_centered_item(
+                                str(room_data.get("gas_bill", ""))
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            7,
+                            self._create_centered_item(
+                                str(room_data.get("water_bill", ""))
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            8,
+                            self._create_centered_item(
+                                str(room_data.get("house_rent", ""))
+                            ),
+                        )
+                        self.room_history_table.setItem(
+                            row_idx,
+                            9,
+                            self._create_special_item(
+                                str(room_data.get("grand_total", "")), "grand_total"
+                            ),
+                        )
 
             # Apply responsive column widths after populating room data
             if all_room_rows:

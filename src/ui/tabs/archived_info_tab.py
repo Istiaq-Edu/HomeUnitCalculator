@@ -46,6 +46,7 @@ from qfluentwidgets import (
 
 from src.ui.rental_record_dialog import RentalRecordDialog
 from src.ui.background_workers import FetchSupabaseRentalRecordsWorker
+from src.ui.table_population import suspended_table_sorting
 from src.ui.custom_widgets import (
     FluentProgressDialog,
     SmoothTableWidget,
@@ -572,47 +573,51 @@ class ArchivedInfoTab(QWidget, EnhancedTableMixin):
             except Exception as e:
                 print(f"Failed to start batch update: {e}")
 
-        self.archived_records_table.setRowCount(len(records))
+        # UI-01: suspend sorting while populating cell-by-cell; with a sort
+        # indicator active, setItem re-sorts rows mid-loop and later cells
+        # land in wrong rows. Prior sorting state is restored afterwards.
+        with suspended_table_sorting(self.archived_records_table):
+            self.archived_records_table.setRowCount(len(records))
 
-        for row_idx, record in enumerate(records):
-            if source_label == "Local DB":
-                (
-                    display_id,
-                    tenant_name,
-                    room_number,
-                    advanced_paid,
-                    created_at,
-                    updated_at,
-                ) = (record[0], record[1], record[2], record[3], record[4], record[5])
-                full_record_data = record
-            else:
-                display_id = record.get("id")
-                tenant_name = record.get("tenant_name")
-                room_number = record.get("room_number")
-                advanced_paid = record.get("advanced_paid")
-                created_at = record.get("created_at")
-                updated_at = record.get("updated_at")
-                full_record_data = record
+            for row_idx, record in enumerate(records):
+                if source_label == "Local DB":
+                    (
+                        display_id,
+                        tenant_name,
+                        room_number,
+                        advanced_paid,
+                        created_at,
+                        updated_at,
+                    ) = (record[0], record[1], record[2], record[3], record[4], record[5])
+                    full_record_data = record
+                else:
+                    display_id = record.get("id")
+                    tenant_name = record.get("tenant_name")
+                    room_number = record.get("room_number")
+                    advanced_paid = record.get("advanced_paid")
+                    created_at = record.get("created_at")
+                    updated_at = record.get("updated_at")
+                    full_record_data = record
 
-            # Create items using sophisticated History tab methods for enhanced visual hierarchy
-            tenant_item = self._create_identifier_item(str(tenant_name), "tenant")
-            room_item = self._create_identifier_item(str(room_number), "room")
-            advanced_item = self._create_special_item(
-                str(advanced_paid), "advanced_paid", is_priority=True
-            )
-            created_item = self._create_identifier_item(str(created_at), "date")
-            updated_item = self._create_identifier_item(str(updated_at), "date")
+                # Create items using sophisticated History tab methods for enhanced visual hierarchy
+                tenant_item = self._create_identifier_item(str(tenant_name), "tenant")
+                room_item = self._create_identifier_item(str(room_number), "room")
+                advanced_item = self._create_special_item(
+                    str(advanced_paid), "advanced_paid", is_priority=True
+                )
+                created_item = self._create_identifier_item(str(created_at), "date")
+                updated_item = self._create_identifier_item(str(updated_at), "date")
 
-            self.archived_records_table.setItem(row_idx, 0, tenant_item)
-            self.archived_records_table.setItem(row_idx, 1, room_item)
-            self.archived_records_table.setItem(row_idx, 2, advanced_item)
-            self.archived_records_table.setItem(row_idx, 3, created_item)
-            self.archived_records_table.setItem(row_idx, 4, updated_item)
+                self.archived_records_table.setItem(row_idx, 0, tenant_item)
+                self.archived_records_table.setItem(row_idx, 1, room_item)
+                self.archived_records_table.setItem(row_idx, 2, advanced_item)
+                self.archived_records_table.setItem(row_idx, 3, created_item)
+                self.archived_records_table.setItem(row_idx, 4, updated_item)
 
-            # Store full record data in the first column
-            self.archived_records_table.item(row_idx, 0).setData(
-                Qt.UserRole, full_record_data
-            )
+                # Store full record data in the first column
+                self.archived_records_table.item(row_idx, 0).setData(
+                    Qt.UserRole, full_record_data
+                )
 
         # Clean up batch update
         try:
