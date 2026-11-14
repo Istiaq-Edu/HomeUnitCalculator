@@ -2,6 +2,45 @@
 
 All notable changes to HomeUnitCalculator will be documented in this file.
 
+## [7.1.0] - 2026-11-12
+
+### Bug Fixes
+
+- **ui:** Dashboard truthfulness, hover fixes, window state, startup
+- **rental:** Scope local record operations by supabase_id, never cloud numeric ids (DATA-01)
+- **cloud:** Explicit monthly persistence outcomes and empty replacement (DATA-02)
+- **rental:** Establish stable cross-store identity on rental writes (DATA-03)
+- **rental:** Truthful per-destination save outcome reporting (DATA-04)
+- **ui:** Suspend sorting during cell-by-cell table population (UI-01)
+- **calc:** Undo restores the removed room without stale derived labels (CALC-08)
+
+### Documentation
+
+- Update CHANGELOG.md for v7.0.5
+- Add 2026-11-12 engineering audit and remediation records
+- Record REL-01..03 and REL-08 remediation statuses
+- Record DATA-01 local verification and remaining limits
+- Record DATA-02 local verification and remaining limits
+- Record DATA-03 local verification and remaining limits
+- Record DATA-04 local verification; DATA-01..04 cluster complete
+- Record UI-01 local verification and remaining limits
+- Record Stage 1 containment completion and blocked items
+- Record CALC-08 local verification and skipped decision questions
+
+### Enhancements
+
+- Update HomeUnitCalculator.spec
+- Update release.yml
+
+### Features
+
+- Add room removal with undo support
+
+### Miscellaneous Tasks
+
+- Track the test suite (REL-08)
+- **release:** Pin one SHA, verify assets and checksums (REL-01..03)
+
 ## [7.0.5] - 2026-06-25
 
 ### Documentation
@@ -12,11 +51,10 @@ All notable changes to HomeUnitCalculator will be documented in this file.
 
 - Update HomeUnitCalculator.spec
 - Update HomeUnitCalculator.spec
-- Update HomeUnitCalculator.spec
-- Update release.yml
 
 ### Other
 
+- Write OAuth secrets in CI and add env fallback
 - Get app version from env/PyInstaller metadata
 - Simplify version handling with bundled version.txt
 
@@ -26,19 +64,15 @@ All notable changes to HomeUnitCalculator will be documented in this file.
 
 - Update CHANGELOG.md for v7.0.3
 
-### Other
+### Features
 
-- Write OAuth secrets in CI and add env fallback
+- Add sync realtime mocks and disable console
 
 ## [7.0.2] - 2026-06-25
 
 ### Documentation
 
 - Update CHANGELOG.md for v7.0.2
-
-### Features
-
-- Add sync realtime mocks and disable console
 
 ### Other
 
